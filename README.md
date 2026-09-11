@@ -44,6 +44,18 @@ pnpm check-links   # broken internal links
 CI runs eight blocking checks. `pnpm build` runs the same link check, so a broken link fails the
 Vercel deploy too. See [The gates](INTERNALS.md#the-gates) for the full list.
 
+A Husky pre-commit hook also runs automatically on `git commit`, scoped to staged files only
+([`.lintstagedrc.mjs`](.lintstagedrc.mjs)):
+
+- Prettier formats every staged file it understands.
+- Staged `.mdx` under `content/` also gets `content:lint`, restricted to those files.
+- A staged `.ts`/`.tsx` file triggers one full `pnpm types:check` (not per file).
+
+It skips entirely when `HUSKY=0` or `CI=true`, and reverts to the pre-commit state if any task
+fails, so a failed commit never leaves half-formatted files staged. Bypass with
+`git commit --no-verify` only when you have a good reason — fix the underlying issue instead
+where you can.
+
 `types:check` proves the schema, not the render — it passes on a page that serves literal `:::` or
 `undefined`. **Always confirm content changes in a browser.**
 

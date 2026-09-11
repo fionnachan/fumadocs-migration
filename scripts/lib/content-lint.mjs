@@ -107,10 +107,20 @@ export function lintSource(source) {
   return findings.sort((a, b) => a.line - b.line || a.rule.localeCompare(b.rule));
 }
 
-/** Lint every MDX file under `content/`, newest-defect-first by rule then path. */
-export function lintContent(repoRoot, { dir = 'content' } = {}) {
+/**
+ * Lint every MDX file under `content/`, newest-defect-first by rule then path.
+ *
+ * Pass `files` (absolute or repo-root-relative paths) to lint only those files instead of
+ * walking `dir` — used by the pre-commit hook (lint-staged) so a single-file commit does not
+ * pay for a full-tree walk. Non-MDX paths in `files` are silently skipped, matching the walk's
+ * own `isMdx` filter.
+ */
+export function lintContent(repoRoot, { dir = 'content', files } = {}) {
   const out = [];
-  for (const abs of walk(path.join(repoRoot, dir), isMdx)) {
+  const targets = files
+    ? files.map((f) => (path.isAbsolute(f) ? f : path.resolve(repoRoot, f))).filter(isMdx)
+    : walk(path.join(repoRoot, dir), isMdx);
+  for (const abs of targets) {
     const rel = toPosix(path.relative(repoRoot, abs));
     for (const f of lintSource(readFileSync(abs, 'utf8'))) out.push({ rel, ...f });
   }

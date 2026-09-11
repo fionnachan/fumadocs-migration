@@ -5,6 +5,7 @@
  *   pnpm content:lint                 # human report grouped by rule; exits 1 on any finding
  *   pnpm content:lint --json          # JSON array of findings to stdout; exits 0
  *   pnpm content:lint --rule=A1,A3    # restrict to specific rules
+ *   node scripts/content-lint.mjs <file.mdx> [file2.mdx ...]  # lint only these files (lint-staged)
  *
  * Rules are documented in scripts/lib/content-lint.mjs. None of these are visible to `types:check`
  * or `build`: MDX is compiled, not type-checked, so an admonition with its body text stranded in a
@@ -27,8 +28,9 @@ function main() {
     .find((a) => a.startsWith('--rule='))
     ?.slice('--rule='.length)
     .split(',');
+  const fileArgs = argv.filter((a) => !a.startsWith('--'));
 
-  let findings = lintContent(process.cwd());
+  let findings = lintContent(process.cwd(), fileArgs.length ? { files: fileArgs } : {});
   if (only) findings = findings.filter((f) => only.includes(f.rule));
 
   if (json) {
