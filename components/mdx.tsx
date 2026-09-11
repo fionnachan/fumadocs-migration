@@ -5,12 +5,12 @@ import type { MDXComponents } from 'mdx/types';
 import type { ComponentPropsWithoutRef, ElementType } from 'react';
 
 import { AddressExplorerLink } from '@/components/mdx/AddressExplorerLink';
+import { FlowChart } from '@/components/mdx/CentralizedAuction';
 import { CustomDetails } from '@/components/mdx/CustomDetails';
 import { EdgeChallengeFlow } from '@/components/mdx/EdgeChallengeFlow';
 import FAQStructuredData from '@/components/mdx/FAQStructuredData';
 import { ImageZoom } from '@/components/mdx/ImageZoom';
 import { PdfModal } from '@/components/mdx/PdfModal';
-import { PendingWidget } from '@/components/mdx/PendingWidget';
 import { Reference } from '@/components/mdx/Reference';
 import { ReferenceList } from '@/components/mdx/ReferenceList';
 import { Term } from '@/components/mdx/Term';
@@ -92,9 +92,8 @@ export function getMDXComponents(components?: MDXComponents) {
     VanillaAdmonition,
     Var,
     EdgeChallengeFlow,
+    FlowChart,
     VendingMachine,
-    // Placeholders for not-yet-ported interactive widgets (see PendingWidget).
-    FlowChart: () => <PendingWidget name="FlowChart" />,
     ...components,
   };
 
