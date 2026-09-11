@@ -34,6 +34,18 @@ NEXT_PUBLIC_INKEEP_API_KEY=<inkeep-search-key>
 Config lives in `lib/inkeep.ts`; the widgets mount in `components/inkeep/` and are wired into
 `RootProvider` in `app/layout.tsx`.
 
+Analytics use [PostHog](https://posthog.com). Set the project token the same way:
+
+```bash
+NEXT_PUBLIC_POSTHOG_KEY=phc_<posthog-project-token>
+```
+
+Page feedback needs it locally; web analytics does not fire locally or on a preview deployment no
+matter what you set, because `components/analytics/posthog-provider.tsx` also requires
+`NEXT_PUBLIC_VERCEL_ENV` to be `production` and only Vercel sets that. On Vercel, set
+`NEXT_PUBLIC_POSTHOG_KEY` for both Preview and Production. See
+[Analytics](INTERNALS.md#analytics).
+
 ## Before you push
 
 ```bash

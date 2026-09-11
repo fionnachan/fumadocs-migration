@@ -21,6 +21,7 @@ canonical for humans, and the one to edit first.**
 - [Partial versioning](#partial-versioning)
 - [Glossary and inline references](#glossary-and-inline-references)
 - [Custom MDX components](#custom-mdx-components)
+- [Analytics](#analytics)
 - [The gates](#the-gates)
 - [What nothing catches](#what-nothing-catches)
 - [Known trade-off: no static prerendering](#known-trade-off-no-static-prerendering)
@@ -301,6 +302,53 @@ child, supports `caption`, needs no dimensions, no Next image optimization. To u
 component instead — for `_next/image` optimization — import it per file, which shadows the wrapper
 for that file. The native component then requires `width`/`height` or the build fails; add
 `style={{ width: '100%', height: 'auto' }}` for responsiveness and drop `caption`.
+
+## Analytics
+
+Three independent paths send events to the same PostHog project. They share nothing but the
+project token, so one being off does not affect the others.
+
+| Path                                | Where                                               | Runs on                                           |
+| ----------------------------------- | --------------------------------------------------- | ------------------------------------------------- |
+| Page feedback                       | `lib/posthog.ts`, a server action                   | everywhere, including local                       |
+| Web analytics (`$pageview`)         | `components/analytics/posthog-provider.tsx`, client | production only                                   |
+| Inkeep search and chat (`inkeep_*`) | the bridge in `lib/inkeep.ts`, client               | production only, piggybacking on the client above |
+
+**The production gate.** `VERCEL_ENV` is a server-only variable, so a client component cannot read
+it. Vercel exposes the same value to the browser as `NEXT_PUBLIC_VERCEL_ENV`, which is what the
+provider checks. It is `production` on the production deployment, `preview` on every preview build,
+and unset locally.
+
+That check has to stay written as a literal `process.env.NEXT_PUBLIC_VERCEL_ENV` member expression.
+Next inlines those at build time, so on a non-production build the enabled flag folds to `false`
+and the guarded `import('posthog-js')` is dead code. Destructuring `process.env` into a local first
+turns it into a runtime lookup and loses that.
+
+The SDK sits behind `import()`, so it compiles to its own async chunk (~290 kB) rather than joining
+the chunk the layout loads. Turbopack emits that chunk either way, but with the gate off the
+browser never requests it: no script fetch, no `init`, no events, and `window.posthog` stays
+undefined.
+
+**Pageviews are manual.** `capture_pageview` is `false` because the App Router never does a full
+page load on navigation. `PageviewTracker` captures `$pageview` from an effect keyed on
+`usePathname()` and `useSearchParams()`. `useSearchParams` forces client-side rendering up to the
+nearest Suspense boundary, so the tracker is wrapped in its own `<Suspense>` and the rest of the
+tree still prerenders.
+
+**The `window.posthog` contract.** `lib/inkeep.ts` predates this component and looks for a global
+with a `capture` method; it no-oped for as long as nothing set one. The provider assigns the
+initialised client to `window.posthog` after `init()`, which is the only reason the `inkeep_*`
+events start flowing. Anything that replaces the provider has to keep that assignment.
+
+**Capture settings** mirror the Docusaurus `posthog-docusaurus` config: `persistence: 'memory'` (no
+cookies, no localStorage), session replay off, autocapture off, and the remote-config request
+disabled. `defaults` is pinned to a dated value so upgrading `posthog-js` cannot silently change
+what is captured.
+
+**Environment variables.** `NEXT_PUBLIC_POSTHOG_KEY` is the PostHog project token (`phc_…`), which
+is write-only and safe to expose. `NEXT_PUBLIC_VERCEL_ENV` is set by Vercel; you never set it by
+hand. Setting the key locally does nothing on its own, which is deliberate: local browsing must not
+pollute production data.
 
 ## The gates
 
