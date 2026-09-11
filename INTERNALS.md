@@ -301,6 +301,20 @@ page using one is not broken, just incomplete.
 
 Adding a component here makes it available in all MDX with no import.
 
+**Heavy widgets load lazily.** Every docs page imports `components/mdx.tsx`, so a static import
+there puts the component's library in every page's client bundle. A widget with a large dependency
+therefore sits behind a `'use client'` wrapper that `next/dynamic`s the implementation:
+`components/mdx/VendingMachine/index.tsx` is the pattern. Server rendering stays on, so the markup
+is still in the HTML and only the JavaScript is deferred.
+
+**VendingMachine.** The quickstart's "free cupcakes" demo (`components/mdx/VendingMachine/`), ported
+from the Docusaurus component of the same name. `type="web2"` keeps balances in tab memory; any other
+`type` talks to a `VendingMachine.sol` the reader deploys themselves, through the injected EIP-1193
+wallet using viem — reads with a public client, writes with a wallet client, no chain or contract
+address hardcoded. The ABI is transcribed into `abi.ts` as a TypeScript `as const` (the compiled
+artifact's bytecode was never used) so viem can infer argument and return types. With no wallet
+installed the widget renders a notice instead of throwing.
+
 **Image zoom.** `<ImageZoom>` resolves to the wrapper in `components/mdx/ImageZoom/`: plain `<img>`
 child, supports `caption`, needs no dimensions, no Next image optimization. To use Fumadocs' native
 component instead — for `_next/image` optimization — import it per file, which shadows the wrapper
