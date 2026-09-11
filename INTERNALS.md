@@ -256,7 +256,7 @@ with the `ja` and `zh-CN` trees.
 `proxy.ts` does exactly two things:
 
 1. An explicit **bypass list** of routes served verbatim: `/_next/`, `/img/`, `/favicon.ico`,
-   `/llms*`, `/og/`, `/api/`.
+   `/sitemap.xml`, `/robots.txt`, `/llms*`, `/og/`, `/api/`.
 2. `.md`-suffix rewrites plus `Accept: text/markdown` content negotiation to the markdown route.
 
 **A new top-level route belongs in that bypass list**, or markdown negotiation will try to rewrite
@@ -264,6 +264,45 @@ it.
 
 Re-adding localization means restoring `defineI18n`, the `i18n` argument to `loader()`, a `[lang]`
 segment, and `createI18nMiddleware`.
+
+### `/sitemap.xml` and `/robots.txt`
+
+Both are Next **metadata routes** (`app/sitemap.ts`, `app/robots.ts`) — file conventions, not route
+handlers, so there is no `route.ts` and no hand-written XML. Both read the deployed origin from
+`NEXT_PUBLIC_SITE_URL`, falling back to `http://localhost:3000` exactly as `metadataBase` in
+`app/layout.tsx` does, so a local build is self-consistent rather than broken.
+
+**The sitemap derives every entry from `source.getPages()`** — the same choke point every other
+content consumer reads. Adding a page to `content/docs/` puts it in the sitemap with no further
+change. The home page at `/` is not in the doc collection and is prepended by hand.
+
+Upstream's Docusaurus sitemap needed a `nonCanonicalRoutePatterns` ignore list because Docusaurus
+routed partials, `_`-prefixed files, and auto-generated `/category/` index pages. **Here there is
+nothing to exclude:** partials live in `content/partials/`, archived versions in
+`content/_versions/`, and the glossary in `content/glossary/`, all outside the doc collection `dir`,
+so `source.getPages()` cannot return them. Verified 2026-09-11: the sitemap's URL set is exactly the
+339 unique doc URLs in `/llms.txt`, plus `/`.
+
+`lastModified` is emitted per page only when `page.data.lastModified` exists, which requires
+`lastModified: true` on the docs collection in `source.config.ts` (not enabled yet; that is M-35 /
+FS-2668). Until then `<lastmod>` is simply absent, which is valid. `app/sitemap.ts` reads the field
+defensively so enabling the flag needs no change there.
+
+`app/robots.ts` ports upstream `static/robots.txt` and differs from it in two deliberate ways:
+
+- **No `Disallow` lines.** Upstream disallowed `/category/` and `/hosted-pdfs/`; neither route
+  exists here, and disallowing paths that 404 is noise.
+- **`Content-Signal: search=yes, ai-input=yes, ai-train=no` is emitted through the rule's `other`
+  field.** The directive is not RFC 9309; it is draft-romm-aipref-contentsignals
+  ([contentsignals.org](https://contentsignals.org/)). Next models only the standard directives and
+  documents `other` as the pass-through for exactly this, available since Next 16.3.0 — so no
+  separate `app/robots.txt/route.ts` handler is needed. Next emits `Allow` before `other`, which
+  reorders the lines relative to upstream's file; robots.txt directives are order-independent
+  within a group, so the meaning is unchanged.
+
+Neither route is reachable by the rewrite patterns today (both are anchored at `/docs`). They are
+in the bypass list by convention, because that list is where a route that must be served verbatim
+is cheap to state and hard to break from a distance.
 
 ## Partial versioning
 
