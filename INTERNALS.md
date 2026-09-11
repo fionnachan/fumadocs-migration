@@ -166,6 +166,19 @@ by no component.** The last consumer, `FloatingHoverModal`, was deleted as dead 
 
 Partials carry no frontmatter; `<include>` strips it, and the lint flags vestigial frontmatter.
 
+**Two partials are generated, not written.** `content/partials/precompile-tables/*.mdx` comes from
+`pnpm precompiles:generate`, and `content/partials/_reference-arbitrum-contract-addresses-partial.mdx`
+from `pnpm contracts:generate` (the `@arbitrum/sdk` network registry plus
+`scripts/data/contract-addresses.data.mjs`, every address normalised to its EIP-55 checksum because
+`<AddressExplorerLink>` throws on a bad one). Each carries a do-not-edit marker at the top. Edit the
+generator or its data file, never the `.mdx`. These two are also the only partials Prettier touches,
+via the generators themselves; `.prettierignore` excludes `**/*.mdx` from `pnpm format`.
+
+The contract-addresses partial is the one that still carries frontmatter, so `partials:check` warns
+R3 on it. The generator reproduces it rather than dropping it: the title and summary in `CATALOG.md`
+are read from those keys, so removing them is a catalog change, not a formatting one, and belongs in
+its own commit.
+
 `CATALOG.md` and `manifest.json` are generated — never hand-edit them. Curate titles, summaries,
 and tags in the optional `content/partials/registry.json`.
 
@@ -332,12 +345,19 @@ of the split. This tier is a backlog, not a policy.
 remote images at build time, so a dead third-party URL turns it red for reasons unrelated to the
 change under review. It still catches MDX compile errors that `types:check` cannot see.
 
-**Run by hand only:** `drift`, `precompiles:check`, `redirects:legacy`, `redirects:check`.
-`redirects:check` cannot run in CI as-is because it reads `/llms.txt` off a running site.
+**Run by hand only:** `drift`, `precompiles:check`, `contracts:check`, `redirects:legacy`,
+`redirects:check`. `redirects:check` cannot run in CI as-is because it reads `/llms.txt` off a
+running site.
 
 `upstream-refresh.yml` runs Mondays at 08:00 UTC and on `workflow_dispatch`: `nitro:check-release`,
-then `precompiles:generate`, opening `automated/upstream-refresh` as a PR if anything changed. It
-never writes to `main` and no-ops when the tree is clean.
+then `precompiles:generate`, then `contracts:generate`, opening `automated/upstream-refresh` as a PR
+if anything changed. It never writes to `main` and no-ops when the tree is clean.
+
+Neither generator's `--check` mode blocks CI, deliberately. Both compare the committed file against
+a moving upstream (a Nitro tag, the `@arbitrum/sdk` network registry), so a red gate would mean
+"someone published a release", not "this PR is wrong". The weekly refresh PR is the right place to
+notice that, and `contracts:check` prints a line-level diff so a reviewer can see whether an address
+moved or only the formatting did.
 
 ## What nothing catches
 
