@@ -345,19 +345,49 @@ of the split. This tier is a backlog, not a policy.
 remote images at build time, so a dead third-party URL turns it red for reasons unrelated to the
 change under review. It still catches MDX compile errors that `types:check` cannot see.
 
-**Run by hand only:** `drift`, `precompiles:check`, `contracts:check`, `redirects:legacy`,
-`redirects:check`. `redirects:check` cannot run in CI as-is because it reads `/llms.txt` off a
-running site.
+**Run by hand only:** `drift`, `precompiles:check`, `contracts:check`, `cli:check`,
+`redirects:legacy`, `redirects:check`. `redirects:check` cannot run in CI as-is because it reads
+`/llms.txt` off a running site.
 
 `upstream-refresh.yml` runs Mondays at 08:00 UTC and on `workflow_dispatch`: `nitro:check-release`,
-then `precompiles:generate`, then `contracts:generate`, opening `automated/upstream-refresh` as a PR
-if anything changed. It never writes to `main` and no-ops when the tree is clean.
+then `precompiles:generate`, `contracts:generate` and `cli:generate`, opening
+`automated/upstream-refresh` as a PR if anything changed. It never writes to `main` and no-ops when
+the tree is clean.
 
-Neither generator's `--check` mode blocks CI, deliberately. Both compare the committed file against
-a moving upstream (a Nitro tag, the `@arbitrum/sdk` network registry), so a red gate would mean
+No generator's `--check` mode blocks CI, deliberately. Each compares the committed file against a
+moving upstream (a Nitro tag, the `@arbitrum/sdk` network registry), so a red gate would mean
 "someone published a release", not "this PR is wrong". The weekly refresh PR is the right place to
-notice that, and `contracts:check` prints a line-level diff so a reviewer can see whether an address
-moved or only the formatting did.
+notice that, and `contracts:check` and `cli:check` print a line-level diff so a reviewer can see
+whether a value moved or only the formatting did.
+
+### Generated pages
+
+Three things in `content/` are written by a generator and must never be hand-edited: the precompile
+tables, the contract-address partial (both under `content/partials/`, see
+[Partials](#partials)), and `content/docs/run-a-node/nitro/cli-flags-reference.mdx`.
+
+The CLI flags page is the only generated file under `content/docs/`, so it is also the only one with
+frontmatter a writer owns. `pnpm cli:generate` replaces only the region between
+`{/* GENERATED:START */}` and `{/* GENERATED:END */}`; the frontmatter and any prose outside those
+markers survive untouched.
+
+**It reads Nitro's Go source, not `nitro --help`.** The flag list is really the output of
+`--help`, but producing it means building Nitro, which means a Go toolchain and the Rust arbitrator
+artifacts in a workflow that otherwise installs nothing but Node. So the generator parses the
+`…ConfigAddOptions` functions instead, composing each dotted name from the prefix its caller passes
+and following every default back to the `var …Default = T{…}` literal it points at. Two consequences
+worth knowing:
+
+- **go-ethereum is not optional.** Nitro registers the whole `execution.rpc.*` namespace by calling
+  into the submodule's `arbitrum` package, so the generator materialises that submodule at its
+  pinned commit and fails loudly if it is missing, rather than dropping 19 flags silently.
+- **Anything it cannot evaluate fails the run.** Five flags default to `util.GoMaxProcs()`, decided
+  at process start, and two are registered with `f.Var` and a custom `pflag.Value`. Those are
+  declared in `scripts/data/nitro-cli-reference.data.mjs`; a new one with no entry stops the
+  generator instead of publishing a blank cell.
+
+`--nitro-path <dir>` reads an existing Nitro clone. It still extracts the tree at the pinned tag, so
+a local run and a CI run see the same source no matter what the checkout has checked out.
 
 ## What nothing catches
 
