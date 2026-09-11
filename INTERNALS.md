@@ -72,6 +72,11 @@ grouping** — its `pages: []` array takes basename slugs and supports `...` res
 takes the slug segments, calls `source.getPage()`, and renders. Adding an `.mdx` file creates a
 route with no wiring; there is no per-page React file.
 
+**The action row** under the title holds `MarkdownCopyButton`, `ViewOptionsPopover`,
+`RequestUpdateLink` (`components/RequestUpdateLink.tsx`, the port of the Docusaurus `HeaderBadges`
+"Request an update" badge: a server-rendered link to a prefilled GitHub issue, built from
+`gitConfig`, `page.url`, and `NEXT_PUBLIC_SITE_URL`), and, on versioned pages only, `VersionSwitcher`.
+
 **Slugs are the file path minus the extension**, with a trailing `index` dropped —
 `content/docs/stylus/quickstart.mdx` serves at `/docs/stylus/quickstart`, given `baseUrl: '/docs'`.
 
