@@ -4,6 +4,12 @@
  * Usage:
  *   pnpm redirects:check                       # needs `pnpm dev` running
  *   pnpm redirects:check --base-url <origin>   # check a preview or production deploy
+ *   pnpm redirects:check --base-url <origin> --bypass-header <secret>
+ *     # same, against a Vercel deployment with Deployment Protection enabled. The secret is sent
+ *     # as the `x-vercel-protection-bypass` header (Vercel's "Protection Bypass for Automation"),
+ *     # so the fetch below reaches the app instead of Vercel's SSO/login page. Falls back to the
+ *     # VERCEL_AUTOMATION_BYPASS_SECRET env var when the flag isn't passed, so CI doesn't need to
+ *     # thread it through as a literal argument. Omit both when protection is off.
  *
  * `redirects.config.mjs` is built by tooling that infers routable URLs by walking the content
  * tree — `.mdx` only, `index` means the directory, `_`-prefixed files are partials, everything
@@ -25,8 +31,15 @@ import { redirects } from '../redirects.config.mjs';
 const DEFAULT_BASE_URL = 'http://localhost:3000';
 
 function parseArgs(argv) {
-  const i = argv.indexOf('--base-url');
-  return { baseUrl: (i === -1 ? DEFAULT_BASE_URL : argv[i + 1]).replace(/\/+$/, '') };
+  const baseUrlIndex = argv.indexOf('--base-url');
+  const bypassIndex = argv.indexOf('--bypass-header');
+  return {
+    baseUrl: (baseUrlIndex === -1 ? DEFAULT_BASE_URL : argv[baseUrlIndex + 1]).replace(/\/+$/, ''),
+    bypassHeader:
+      bypassIndex === -1
+        ? (process.env.VERCEL_AUTOMATION_BYPASS_SECRET ?? '')
+        : argv[bypassIndex + 1],
+  };
 }
 
 const isExternal = (value) => /^https?:\/\//.test(value);
@@ -38,11 +51,12 @@ const bareUrl = (value) => value.split('#')[0].split('?')[0].replace(/\/+$/, '')
  * Every routable doc URL, taken from the site's own source-derived index rather than re-derived
  * from the filesystem. `/llms.txt` renders markdown links, so the URLs are the `](...)` targets.
  */
-async function fetchRoutableUrls(baseUrl) {
+async function fetchRoutableUrls(baseUrl, bypassHeader) {
   const url = `${baseUrl}/llms.txt`;
+  const headers = bypassHeader ? { 'x-vercel-protection-bypass': bypassHeader } : {};
   let response;
   try {
-    response = await fetch(url);
+    response = await fetch(url, { headers });
   } catch (cause) {
     throw new Error(
       `redirects-check: cannot reach ${url}. Start the site with \`pnpm dev\`, or pass ` +
@@ -50,7 +64,12 @@ async function fetchRoutableUrls(baseUrl) {
     );
   }
   if (!response.ok) {
-    throw new Error(`redirects-check: ${url} returned ${response.status}`);
+    const hint =
+      response.status === 401 || response.status === 403
+        ? ' — if this deployment has Vercel Deployment Protection enabled, pass ' +
+          '--bypass-header <secret> or set VERCEL_AUTOMATION_BYPASS_SECRET'
+        : '';
+    throw new Error(`redirects-check: ${url} returned ${response.status}${hint}`);
   }
   const body = await response.text();
   const urls = new Set([...body.matchAll(/\]\((\/[^)]*)\)/g)].map((m) => bareUrl(m[1])));
@@ -63,8 +82,8 @@ async function fetchRoutableUrls(baseUrl) {
 }
 
 async function main() {
-  const { baseUrl } = parseArgs(process.argv.slice(2));
-  const routable = await fetchRoutableUrls(baseUrl);
+  const { baseUrl, bypassHeader } = parseArgs(process.argv.slice(2));
+  const routable = await fetchRoutableUrls(baseUrl, bypassHeader);
 
   const dead = [];
   const shadowed = [];

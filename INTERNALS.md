@@ -247,6 +247,19 @@ upstream page's frontmatter title against the local candidates, rather than leav
 list — and fails on a dead destination or a source that shadows a live page. It needs the site
 running, so point it at a Vercel preview with `--base-url` to check a PR.
 
+**`.github/workflows/redirects-check.yml` runs this automatically against a PR's Vercel preview**,
+triggered on `deployment_status` once Vercel reports a `Preview` deployment `success` for that
+commit (confirmed against this repo's own deployment history: Vercel's GitHub App sets
+`environment: "Preview"` and `creator.login: "vercel[bot]"`). A `deployment_status`-triggered run
+does not attach to the PR's checks list the way a `pull_request` run does, so the job posts its
+own commit status with context `redirects-check` via the GitHub API — visible on the PR, and
+promotable to a required check once trusted, same as any other step in [The gates](#the-gates). If
+the Vercel project has Deployment Protection enabled, set the `VERCEL_AUTOMATION_BYPASS_SECRET`
+repository secret (from the Vercel project's Settings → Deployment Protection → Protection Bypass
+for Automation); `redirects-check.mjs` sends it as the `x-vercel-protection-bypass` header, or
+falls back to a `--bypass-header <secret>` CLI flag for a manual run. The workflow passes the same
+way with the secret absent, as long as protection is actually off.
+
 ## Routing and `proxy.ts`
 
 Single locale, no i18n. Pages live directly under `content/docs/…` and serve at `/docs/…`. There is
@@ -332,8 +345,13 @@ of the split. This tier is a backlog, not a policy.
 remote images at build time, so a dead third-party URL turns it red for reasons unrelated to the
 change under review. It still catches MDX compile errors that `types:check` cannot see.
 
-**Run by hand only:** `drift`, `precompiles:check`, `redirects:legacy`, `redirects:check`.
-`redirects:check` cannot run in CI as-is because it reads `/llms.txt` off a running site.
+**Run by hand only:** `drift`, `precompiles:check`, `redirects:legacy`. `redirects:check` is no
+longer hand-only for a PR — `.github/workflows/redirects-check.yml` runs it against that PR's
+Vercel preview once Vercel reports the preview deployment successful, and posts the result as a
+`redirects-check` commit status (see [Redirects](#redirects)). It is still not part of the
+blocking `Gates` job above: a `deployment_status` run depends on Vercel's own deploy finishing, so
+it cannot run in the same job as the rest of `Gates`, which is triggered directly by `push`/
+`pull_request` and does not wait on anything external.
 
 `upstream-refresh.yml` runs Mondays at 08:00 UTC and on `workflow_dispatch`: `nitro:check-release`,
 then `precompiles:generate`, opening `automated/upstream-refresh` as a PR if anything changed. It

@@ -1,0 +1,99 @@
+name: redirects-check
+
+# pnpm redirects:check needs a running site — it reads /llms.txt because no plain-node script can
+# import lib/source to derive routable URLs any other way (see CLAUDE.md and
+# INTERNALS.md#the-gates). This workflow runs it against the Vercel preview for a PR once that
+# preview is actually live, instead of skipping the check in CI entirely.
+#
+# `deployment_status` fires once per state transition of a GitHub Deployment. Vercel's GitHub App
+# creates one Deployment per preview build and reports states on it, with the preview URL on
+# `deployment_status.environment_url`. Confirmed against this repo's own deployment history
+# (`gh api repos/OffchainLabs/Fumadocs-test/deployments`): Vercel sets `environment: "Preview"`
+# and `creator.login: "vercel[bot]"` on preview deployments, `"Production"` for the prod one.
+#
+# `deployment_status`-triggered runs are not attached to the PR's checks list the way a
+# `pull_request` run is, so this job reports its own result as a commit status via the GitHub API
+# with context `redirects-check`. That status can be made a required check once this is trusted
+# enough to move into `Gates` — see the note in CLAUDE.md and INTERNALS.md#the-gates.
+#
+# Vercel Deployment Protection, if enabled on the project, would otherwise serve Vercel's own
+# login page instead of the app to this workflow's plain `fetch`. Set the
+# VERCEL_AUTOMATION_BYPASS_SECRET repository secret (create it from the Vercel project's
+# Settings -> Deployment Protection -> Protection Bypass for Automation) to bypass it; the check
+# passes the same way, without the secret, when protection is off.
+
+on:
+  deployment_status:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: redirects-check-${{ github.event.deployment.sha }}
+  cancel-in-progress: true
+
+jobs:
+  redirects-check:
+    name: redirects-check (Vercel preview)
+    if: >
+      github.event.deployment_status.state == 'success' &&
+      github.event.deployment.environment == 'Preview' &&
+      github.event.deployment.creator.login == 'vercel[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      statuses: write # to post this job's own result as a commit status, see above
+    steps:
+      - name: Mark the check pending
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ github.event.deployment.sha }}
+          TARGET_URL: ${{ github.event.deployment_status.environment_url }}
+        run: |
+          gh api "repos/${{ github.repository }}/statuses/$SHA" \
+            -f state=pending \
+            -f context=redirects-check \
+            -f description='Checking redirects against the preview' \
+            -f target_url="$TARGET_URL"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.deployment.sha }}
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run redirects:check against the preview
+        id: check
+        env:
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          PREVIEW_URL: ${{ github.event.deployment_status.environment_url }}
+        run: node scripts/redirects-check.mjs --base-url "$PREVIEW_URL"
+
+      - name: Report result as a commit status
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ github.event.deployment.sha }}
+          TARGET_URL: ${{ github.event.deployment_status.environment_url }}
+          OUTCOME: ${{ steps.check.outcome }}
+        run: |
+          if [ "$OUTCOME" = "success" ]; then
+            state=success
+            description='Every redirect resolves against the preview'
+          else
+            state=failure
+            description='A redirect is dead or shadowed on the preview — see the job log'
+          fi
+          gh api "repos/${{ github.repository }}/statuses/$SHA" \
+            -f state="$state" \
+            -f context=redirects-check \
+            -f description="$description" \
+            -f target_url="$TARGET_URL"
