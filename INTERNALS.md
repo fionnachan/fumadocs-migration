@@ -193,6 +193,26 @@ catches a `<Var name>` with no matching key.**
 Values mirror upstream `arbitrum-docs/src/resources/globalVars.js`. Keep them in sync while that
 site is still live.
 
+### Announcement banner
+
+`app/layout.tsx` renders Fumadocs' `Banner` above everything else in `RootProvider`, which puts it
+above the navbar because every layout's header lives inside `{children}`. Its text, link, enabled
+flag, and id all come from `vars.json`, so writers change the message without touching code. It
+replaces the Docusaurus `announcementBar`.
+
+Three things about it are not obvious:
+
+- **The keys are not `<Var>` substitutions.** `pnpm vars:check` reports them as configured but
+  unreferenced in MDX. That warning is expected for this block and is not a defect.
+- **`announcementId` is the dismissal key.** Fumadocs writes `nd-banner-<base32(id)>` to the
+  viewer's `localStorage` on close and injects a script that hides the banner before hydration.
+  Reusing an id for a new message hides it from everyone who dismissed the old one.
+- **`height` has to be a real length.** The prop lands in an inline style and in
+  `--fd-banner-height`, which the docs and notebook containers feed into `calc()` and a sticky
+  `top`. `auto` breaks the grid. The message fits one line from 640px up and wraps to two below, so
+  the layout passes a custom property that a media query switches between `3rem` and `4rem` rather
+  than a constant.
+
 ## Redirects
 
 Every redirect lives in `redirects.config.mjs`, consumed by `next.config.mjs`'s `redirects()`.

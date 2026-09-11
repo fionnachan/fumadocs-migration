@@ -65,6 +65,22 @@ const varsSchema = z.strictObject({
   sepoliaBaesStakeEth: z.number(),
   sepoliaGasFloorGwei: z.string(),
   sepoliaBlockGasLimit: z.string(),
+
+  // --- Announcement banner (FS-2667) -------------------------------------
+  // Not `<Var>` substitutions: these are read by app/layout.tsx to render the
+  // site-wide banner, so `pnpm vars:check` lists them as configured but
+  // unreferenced in MDX. That warning is expected for this block.
+  //
+  // `announcementId` is the Fumadocs Banner id and doubles as the dismissal
+  // key: a viewer who closes the banner never sees that id again, so changing
+  // the message means changing the id too or the new text stays hidden from
+  // everyone who dismissed the old one.
+  announcementEnabled: z.boolean(),
+  announcementText: z.string(),
+  announcementLinkText: z.string(),
+  announcementLinkHref: z.string(),
+  announcementId: z.string(),
+  // --- end announcement banner -------------------------------------------
 });
 
 export const vars = varsSchema.parse(varsJson);

@@ -151,6 +151,23 @@ files](INTERNALS.md#global-variables).)
 
 Never hardcode a version or chain parameter into a page.
 
+### Announcement banner
+
+The bar above the navbar is configured from the same file, so turning it on, rewording it, or
+retiring it is a content edit. Five keys control it:
+
+| Key                    | Meaning                                                      |
+| ---------------------- | ------------------------------------------------------------ |
+| `announcementEnabled`  | `false` renders nothing at all                               |
+| `announcementText`     | The message, shown before the link                           |
+| `announcementLinkText` | The link label                                               |
+| `announcementLinkHref` | Where the link goes                                          |
+| `announcementId`       | Dismissal key. **Change it whenever you change the message** |
+
+A reader who closes the banner has `announcementId` written to their browser, and never sees that
+id again. Reuse an id for a new message and everyone who dismissed the old one misses the new one,
+so give each message its own id.
+
 ## Move a page
 
 ```bash

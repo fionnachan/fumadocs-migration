@@ -1,14 +1,17 @@
+import { Banner } from 'fumadocs-ui/components/banner';
 import { RootProvider } from 'fumadocs-ui/provider/next';
 import 'katex/dist/katex.css';
 import type { Metadata } from 'next';
 import { JetBrains_Mono } from 'next/font/google';
 import localFont from 'next/font/local';
+import Link from 'next/link';
 import type { ReactNode } from 'react';
 
 import { PostHogProvider } from '@/components/analytics/posthog-provider';
 import { Footer } from '@/components/footer';
 import { InkeepChatButton } from '@/components/inkeep/inkeep-chat-button';
 import InkeepSearchDialog from '@/components/inkeep/inkeep-search';
+import { vars } from '@/content/vars';
 
 import './global.css';
 
@@ -87,6 +90,42 @@ export default function Layout({ children }: { children: ReactNode }) {
           theme={{ attribute: 'class', defaultTheme: 'light' }}
           search={{ SearchDialog: InkeepSearchDialog }}
         >
+          {/* Announcement bar, ported from the Docusaurus `announcementBar`.
+              Above the navbar because it is a sibling rendered before
+              {children}, and every layout's header lives inside those.
+
+              Writers control it from content/vars.json: text, link, and the
+              enabled flag, so changing or retiring the message is a content
+              edit rather than a code change. `announcementId` is both the
+              dismissal key and the cache-buster — a viewer who closes the
+              banner has that id written to localStorage, so a new message
+              needs a new id or it stays hidden from everyone who dismissed
+              the last one. */}
+          {vars.announcementEnabled ? (
+            <>
+              {/* Banner puts `height` in an inline style AND in
+                  --fd-banner-height, which the docs layout feeds to calc() and
+                  a sticky `top`. So it has to be a real length, never `auto`.
+                  The message fits one line from 640px up and wraps to two
+                  below, hence the variable rather than a constant. */}
+              <style>{`:root{--fd-announcement-height:4rem}@media (min-width:640px){:root{--fd-announcement-height:3rem}}`}</style>
+              <Banner
+                id={vars.announcementId}
+                height="var(--fd-announcement-height)"
+                className="bg-fd-primary text-fd-primary-foreground"
+              >
+                <span className="pe-8 text-balance">
+                  {vars.announcementText}{' '}
+                  <Link
+                    href={vars.announcementLinkHref}
+                    className="underline underline-offset-2 hover:no-underline"
+                  >
+                    {vars.announcementLinkText}
+                  </Link>
+                </span>
+              </Banner>
+            </>
+          ) : null}
           {children}
           {/* Fumadocs exposes no footer slot, so the site footer is a sibling of
               the layout inside the flex column body. See components/footer.tsx. */}
