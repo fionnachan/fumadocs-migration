@@ -14,6 +14,8 @@ canonical for humans, and the one to edit first.**
 - [The pipeline](#the-pipeline)
 - [`source` is a choke point](#source-is-a-choke-point)
 - [The frontmatter contract](#the-frontmatter-contract)
+- [Last modified dates](#last-modified-dates)
+- [Page metadata](#page-metadata)
 - [Partials](#partials)
 - [Global variables](#global-variables)
 - [Redirects](#redirects)
@@ -146,6 +148,46 @@ cost a 24 MB chunk on every docs page. No gate catches this — see
 
 A missing or invalid field fails `types:check` and `build`. This is the most common reason a build
 breaks after adding content.
+
+## Last modified dates
+
+Each docs page prints "Last updated on <date>" under its description, the equivalent of upstream
+Docusaurus' `showLastUpdateTime`. The date is not frontmatter and writers never set it: the
+`lastModified` option on the `docs` and `docsVersions` collections makes `fumadocs-mdx` read it
+from git, and `page.data.lastModified` (a `Date`) reaches the page component through the same
+`source` object as everything else. An archived version shows the archive file's own date, not the
+live page's.
+
+**The option is switched off unless the checkout has complete git history**, by the
+`hasFullGitHistory()` probe at the top of `source.config.ts`. This is not belt and braces. In a
+shallow clone the oldest commit is grafted in as a parentless root, so git diffs it against the
+empty tree and reports it as adding every file under it. Measured on this repo at `--depth=10`:
+430 of about 450 pages came back stamped with a single boundary commit that in full history
+touched no content at all. A wrong date on every page is worse than no date, so the probe omits
+the line entirely instead. Nothing renders, no error appears, and nothing fails.
+
+**What a reviewer must configure.** Vercel clones at `--depth=10` by default, so the dates are
+absent on previews and in production until someone sets `VERCEL_DEEP_CLONE=true` in the Vercel
+project's environment variables. Nothing else is needed: a deep clone makes the probe pass on its
+own. The same applies to any CI job that wants the dates, since `actions/checkout` defaults to
+`fetch-depth: 1`. No gate depends on the dates, so `ci.yml` is deliberately left alone.
+
+The rendered date is formatted in UTC so that the output does not depend on which machine rendered
+the page. A commit made late in the evening in a western timezone therefore reads as the next day.
+The machine-readable `dateTime` attribute on the `<time>` element always carries the exact instant.
+
+## Page metadata
+
+`generateMetadata` in `app/docs/[[...slug]]/page.tsx` emits the per-page title and description, an
+Open Graph image from the `og/` route, a canonical URL, and the Twitter card tags
+(`summary_large_image`, site `@arbitrum`). URLs there are written relative and resolved against
+`metadataBase`, which is set once in `app/layout.tsx` from `NEXT_PUBLIC_SITE_URL` and falls back to
+`http://localhost:3000`. **If that variable is unset in the Vercel project, every canonical and
+image URL in production points at localhost.** The canonical deliberately uses `page.url`, which
+carries no query string, so an archived `?v=` view canonicalizes to the live page rather than
+splitting it in two.
+
+`app/(home)/page.tsx` sets no canonical of its own and is the one remaining page without one.
 
 ## Partials
 

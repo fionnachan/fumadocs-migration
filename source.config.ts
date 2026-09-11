@@ -2,11 +2,44 @@ import { rehypeCodeDefaultOptions } from 'fumadocs-core/mdx-plugins';
 import { metaSchema, pageSchema } from 'fumadocs-core/source/schema';
 import { defineCollections, defineConfig, defineDocs } from 'fumadocs-mdx/config';
 import { transformerTwoslash } from 'fumadocs-twoslash';
+import { execFileSync } from 'node:child_process';
 import rehypeKatex from 'rehype-katex';
 import remarkMath from 'remark-math';
 import { z } from 'zod';
 
 import { referenceSchema } from './lib/reference-schema';
+
+/**
+ * Whether git can answer "when was this file last changed?" truthfully.
+ *
+ * `lastModified: true` makes fumadocs-mdx run `git log --name-only -- <dir>` once and stamp each
+ * file with the newest commit that touched it. In a **shallow** clone that answer is wrong, not
+ * missing: the oldest commit in the truncated history is grafted as a parentless root, so git
+ * diffs it against the empty tree and reports it as *adding every file in its tree*. Measured on
+ * this repo at `--depth=10` (Vercel's default clone depth): 430 of ~450 pages came back stamped
+ * with one boundary commit that in full history touched zero files under `content/docs`.
+ *
+ * A wrong "Last updated" date is worse than none, so the feature turns itself off unless the
+ * history is complete. To get real dates on Vercel, set `VERCEL_DEEP_CLONE=true` in the project's
+ * environment variables (see INTERNALS.md, "Last modified dates"); nothing else is needed, because
+ * a deep clone makes this probe return `false` on its own.
+ *
+ * `git` missing entirely, or a non-repo checkout, lands in the `catch` and also omits the date.
+ */
+function hasFullGitHistory(): boolean {
+  try {
+    const out = execFileSync('git', ['rev-parse', '--is-shallow-repository'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+
+    return out.trim() === 'false';
+  } catch {
+    return false;
+  }
+}
+
+const lastModified = hasFullGitHistory();
 
 /**
  * Per PRD §4.1, every doc page requires:
@@ -53,6 +86,10 @@ export const docs = defineDocs({
     postprocess: {
       includeProcessedMarkdown: true,
     },
+    // Exposes `page.data.lastModified` (a `Date`) for the "Last updated on …" line in
+    // app/docs/[[...slug]]/page.tsx, matching upstream Docusaurus' `showLastUpdateTime`.
+    // Guarded, see `hasFullGitHistory` above.
+    lastModified,
   },
   meta: {
     schema: metaSchema,
@@ -74,6 +111,9 @@ export const docsVersions = defineCollections({
   dir: 'content/_versions',
   files: ['**/*.mdx'],
   schema: arbitrumPageSchema,
+  // An archived page carries its own date: the last time the archive file itself changed, not the
+  // live page's. Same guard as the docs collection.
+  lastModified,
 });
 
 /**
