@@ -6,6 +6,7 @@ import type { ComponentPropsWithoutRef, ElementType } from 'react';
 
 import { AddressExplorerLink } from '@/components/mdx/AddressExplorerLink';
 import { CustomDetails } from '@/components/mdx/CustomDetails';
+import { EdgeChallengeFlow } from '@/components/mdx/EdgeChallengeFlow';
 import FAQStructuredData from '@/components/mdx/FAQStructuredData';
 import { ImageZoom } from '@/components/mdx/ImageZoom';
 import { PdfModal } from '@/components/mdx/PdfModal';
@@ -90,9 +91,9 @@ export function getMDXComponents(components?: MDXComponents) {
     TroubleshootingReport,
     VanillaAdmonition,
     Var,
+    EdgeChallengeFlow,
     VendingMachine,
     // Placeholders for not-yet-ported interactive widgets (see PendingWidget).
-    EdgeChallengeFlow: () => <PendingWidget name="EdgeChallengeFlow" />,
     FlowChart: () => <PendingWidget name="FlowChart" />,
     ...components,
   };

@@ -315,6 +315,16 @@ address hardcoded. The ABI is transcribed into `abi.ts` as a TypeScript `as cons
 artifact's bytecode was never used) so viem can infer argument and return types. With no wallet
 installed the widget renders a notice instead of throwing.
 
+**EdgeChallengeFlow.** The BoLD bisection replay (`components/mdx/EdgeChallengeFlow/`), ported from
+the Docusaurus interactive diagram. d3 draws one tree per challenge level; the reader plays, steps,
+or jumps to the end of a recorded Arbitrum Sepolia challenge. The 236 KB event log stays a static
+asset at `public/data/edge-challenge-flow.json` and is fetched on mount, so it never enters a
+JavaScript bundle; `proxy.ts` passes that path through without a bypass-list entry, because it is
+neither a `.md` request nor a docs path. Its stylesheet (`edge-challenge-flow.css`) reads
+`--color-fd-*` tokens for every surface and text colour, and declares only the four status hues
+(active, bisected, has-rival, OSP confirmed) itself, once per theme, so no colour is hardcoded in
+the d3 code.
+
 **Image zoom.** `<ImageZoom>` resolves to the wrapper in `components/mdx/ImageZoom/`: plain `<img>`
 child, supports `caption`, needs no dimensions, no Next image optimization. To use Fumadocs' native
 component instead — for `_next/image` optimization — import it per file, which shadows the wrapper
