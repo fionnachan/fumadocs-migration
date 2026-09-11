@@ -253,17 +253,68 @@ Single locale, no i18n. Pages live directly under `content/docs/…` and serve a
 no `[lang]` route segment and no locale middleware; `lib/i18n.ts` was deleted on 2026-08-18 along
 with the `ja` and `zh-CN` trees.
 
-`proxy.ts` does exactly two things:
+`proxy.ts` does exactly three things:
 
-1. An explicit **bypass list** of routes served verbatim: `/_next/`, `/img/`, `/favicon.ico`,
+1. **Request tracking** for markdown and `llms*.txt` fetches, production only (below).
+2. An explicit **bypass list** of routes served verbatim: `/_next/`, `/img/`, `/favicon.ico`,
    `/sitemap.xml`, `/robots.txt`, `/llms*`, `/og/`, `/api/`.
-2. `.md`-suffix rewrites plus `Accept: text/markdown` content negotiation to the markdown route.
+3. `.md`-suffix rewrites plus `Accept: text/markdown` content negotiation to the markdown route.
 
 **A new top-level route belongs in that bypass list**, or markdown negotiation will try to rewrite
 it.
 
 Re-adding localization means restoring `defineI18n`, the `i18n` argument to `loader()`, a `[lang]`
 segment, and `createI18nMiddleware`.
+
+### Request tracking
+
+`proxy.ts` also records who fetches the markdown, continuing the `llms_file_fetched` PostHog event
+upstream's `middleware.ts` produced. The point is to answer "which pages are AI assistants and
+crawlers actually reading", which server logs alone do not.
+
+**It runs before the bypass list**, because `/llms.txt`, `/llms-full.txt` and the `/llms.mdx/`
+mirrors are all in that list and are exactly the fetches worth counting.
+
+Four request shapes are tracked, and the classification lives in `lib/llms-tracking.ts`:
+
+| Request                                     | Tracked as        | `file_type` |
+| ------------------------------------------- | ----------------- | ----------- |
+| `/llms.txt`, `/llms-full.txt`               | as-is             | `index`     |
+| `/docs/<slug>.md`                           | as-is             | `page`      |
+| `/llms.mdx/docs/<slug>/content.md`          | `/docs/<slug>.md` | `page`      |
+| `/docs/<slug>` with `Accept: text/markdown` | `/docs/<slug>.md` | `page`      |
+
+All three markdown shapes normalise to the one canonical `.md` path, so a page's fetches are one
+number rather than three. **Each request is counted once:** a Next rewrite does not re-enter the
+proxy, so `/docs/x.md` fires one event, not a second one for the mirror it rewrites to. A `.md` on
+a legacy URL is not tracked either, because it is answered with a 307 and the destination request
+is tracked instead.
+
+Two upstream rules are dropped: the `/sdk/` exclusion (there is no `/sdk` route here) and tracking
+of `.md` outside the docs tree.
+
+**Production only.** Nothing is sent unless `VERCEL_ENV === 'production'`, so local development and
+preview deployments stay out of the numbers and need no key. The key is `NEXT_PUBLIC_POSTHOG_KEY`,
+the same publishable `phc_` token `lib/posthog.ts` uses, posted to the same `us.i.posthog.com` host.
+
+**Tracking can never break a response.** The capture is handed to `waitUntil` from
+`@vercel/functions` so the response is not held for it, and every failure path, including
+`waitUntil` itself throwing outside a request context, is caught and logged. A missing key logs
+once per request and drops the event.
+
+The reader's IP is never stored: `buildTrackingPayload` hashes it with a UTC daily salt into the
+`distinct_id`. Rotating the salt daily means the stored hash cannot be walked back to an IP across
+days, while one client's requests on one day still collapse into a single PostHog person rather
+than one per hit. Unlike `lib/posthog.ts`, this does not set `$process_person_profile: false` —
+that is upstream's behaviour and the point of the stable daily id, at the cost of one person
+profile per client per day.
+
+`lib/llms-tracking.ts` is **deliberately import-free**, including of `lib/shared.ts`, so that
+`scripts/lib/llms-tracking.test.mjs` can import it directly under `node --test` using Node 22's
+native type stripping. That is what lets `pnpm test` exercise the exact module `proxy.ts` runs
+instead of a copy that would drift from it. The price is two local copies of the route constants;
+`proxy.ts` pins them with two `satisfies` statements, so moving `docsRoute` or `docsContentRoute`
+without mirroring it fails `types:check`.
 
 ### `/sitemap.xml` and `/robots.txt`
 

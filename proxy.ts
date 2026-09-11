@@ -1,8 +1,22 @@
+import { waitUntil } from '@vercel/functions';
 import { isMarkdownPreferred, rewritePath } from 'fumadocs-core/negotiation';
 import { NextRequest, NextResponse } from 'next/server';
 
+import {
+  DOCS_CONTENT_ROUTE,
+  DOCS_ROUTE,
+  buildTrackingPayload,
+  pathInfo,
+} from '@/lib/llms-tracking';
 import { docsContentRoute, docsRoute } from '@/lib/shared';
 import { redirects } from '@/redirects.config.mjs';
+
+// `lib/llms-tracking.ts` keeps its own copies of these two constants so it stays import-free and
+// therefore directly testable under plain `node --test` (see the comment at the top of that file).
+// These two statements are the compile-time proof that the copies still match: both constants have
+// literal types, so moving one without the other fails `pnpm types:check`.
+DOCS_ROUTE satisfies typeof docsRoute;
+DOCS_CONTENT_ROUTE satisfies typeof docsContentRoute;
 
 /**
  * Legacy source -> destination, for `.md`-suffixed requests only.
@@ -28,8 +42,76 @@ const { rewrite: rewriteSuffix } = rewritePath(
   `${docsContentRoute}{/*path}/content.md`,
 );
 
+const POSTHOG_HOST = 'https://us.i.posthog.com';
+
+/**
+ * Records one markdown or `llms*.txt` fetch in PostHog, continuing the `llms_file_fetched` series
+ * upstream's `middleware.ts` produces. Ported from that middleware.
+ *
+ * **Production only.** `VERCEL_ENV` is unset locally and is `'preview'` on preview deployments, so
+ * neither sends anything. That keeps development traffic and per-PR crawling out of the numbers,
+ * and means no key is needed to run this app.
+ *
+ * Never blocks and never throws: the capture is handed to `waitUntil` so the response goes out
+ * immediately, and every failure path is swallowed after logging. A docs page must not fail
+ * because an analytics write did.
+ */
+function trackRequest(request: NextRequest, path: string): void {
+  if (process.env.VERCEL_ENV !== 'production') return;
+
+  const info = pathInfo(path, request.headers.get('accept') ?? '');
+  if (info.kind === 'ignored') return;
+
+  // Read on the server despite the NEXT_PUBLIC_ prefix — that is PostHog's documented name for the
+  // publishable `phc_` project token, which is write-only. Same variable `lib/posthog.ts` uses.
+  const posthogKey = process.env.NEXT_PUBLIC_POSTHOG_KEY;
+  if (!posthogKey) {
+    console.error(
+      '[llms-tracking] dropping event: NEXT_PUBLIC_POSTHOG_KEY is unset in production. Set it to ' +
+        'the PostHog project token (Project settings -> Project API key) on Vercel.',
+    );
+    return;
+  }
+
+  try {
+    waitUntil(
+      buildTrackingPayload({
+        trackedPath: info.trackedPath,
+        fileType: info.fileType,
+        userAgent: request.headers.get('user-agent') ?? '',
+        referrer: request.headers.get('referer') ?? '',
+        // Only the first entry is the client; the rest are proxies. The value is never stored —
+        // `buildTrackingPayload` hashes it with a daily salt into the distinct_id.
+        ip: request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? '',
+        posthogKey,
+        siteUrl: process.env.NEXT_PUBLIC_SITE_URL ?? request.nextUrl.origin,
+      })
+        .then((payload) =>
+          fetch(`${POSTHOG_HOST}/i/v0/e/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }),
+        )
+        .catch((error) => {
+          console.error('[llms-tracking] could not reach PostHog:', error);
+        }),
+    );
+  } catch (error) {
+    // `waitUntil` itself can throw outside a request context. Nothing about tracking is worth a 500.
+    console.error('[llms-tracking] could not schedule the capture:', error);
+  }
+}
+
 export default function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
+
+  // Before the bypass list: `/llms.txt`, `/llms-full.txt` and the `/llms.mdx/` mirrors are all
+  // served verbatim below, and they are exactly the fetches worth counting. A rewrite does not
+  // re-enter the proxy, so a `/docs/x.md` request is counted here once, not again as the
+  // `/llms.mdx/docs/x/content.md` it rewrites to.
+  trackRequest(request, path);
+
   // Routes served verbatim — skip markdown content-negotiation entirely.
   if (
     path.startsWith('/_next/') ||

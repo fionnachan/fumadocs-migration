@@ -34,6 +34,25 @@ NEXT_PUBLIC_INKEEP_API_KEY=<inkeep-search-key>
 Config lives in `lib/inkeep.ts`; the widgets mount in `components/inkeep/` and are wired into
 `RootProvider` in `app/layout.tsx`.
 
+### Environment variables
+
+None of these are needed to run the site locally; everything that reads them degrades to a no-op
+or a documented fallback.
+
+| Variable                     | Used by                                                                                  | Without it                                                                  |
+| ---------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_INKEEP_API_KEY` | search and the "Ask AI" button                                                           | both are unavailable                                                        |
+| `NEXT_PUBLIC_SITE_URL`       | `metadataBase`, `app/sitemap.ts`, `app/robots.ts`, request tracking                      | falls back to `http://localhost:3000`                                       |
+| `NEXT_PUBLIC_POSTHOG_KEY`    | page feedback (`lib/posthog.ts`) and markdown/`llms*.txt` request tracking in `proxy.ts` | feedback submissions and tracking events are dropped with a server-side log |
+
+`NEXT_PUBLIC_POSTHOG_KEY` is PostHog's documented name for the publishable `phc_` project token
+(Project settings, Project API key). It is write-only, so the `NEXT_PUBLIC_` prefix is safe even
+though both consumers read it on the server. Set it on Vercel for Preview and Production.
+
+Request tracking only fires when `VERCEL_ENV` is `production`, which Vercel sets for you. Nothing
+is sent locally or from a preview deployment, so no key is needed for either. See
+[Routing and `proxy.ts`](INTERNALS.md#routing-and-proxyts).
+
 ## Before you push
 
 ```bash
