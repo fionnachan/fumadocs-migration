@@ -105,9 +105,17 @@ jobs:
         continue-on-error: true
 
   build:
-    # Non-blocking: the MDX image pipeline fetches remote images at build time, so a
-    # dead third-party URL turns this red for reasons unrelated to the change under
-    # review. It still catches MDX compile errors that types:check cannot see.
+    # Still non-blocking, but the original reason no longer holds. This job was left
+    # advisory because the MDX image pipeline fetched remote images at build time, so a
+    # dead third-party URL turned it red for reasons unrelated to the change under
+    # review. FS-2681 set `remarkImageOptions: { external: false }` in source.config.ts,
+    # and the build no longer touches the network for images.
+    #
+    # Promoting this job into `gates` is therefore possible now. It is deliberately left
+    # out of that change: a full build is the slowest job here, so flipping it wants its
+    # own PR and a look at the added PR latency.
+    #
+    # It catches MDX compile errors that types:check cannot see.
     name: Build (non-blocking)
     runs-on: ubuntu-latest
     continue-on-error: true

@@ -101,6 +101,25 @@ export default defineConfig({
     // the ported docs (mirrors the Docusaurus setup). KaTeX CSS is imported in
     // app/layout.tsx.
     remarkPlugins: [remarkMath],
+    // Never reach out to the network to measure a third-party image.
+    //
+    // fumadocs' remark-image probes every image for its intrinsic size, and for an `https://` src
+    // that means an HTTP request at compile time. `onError` defaults to `error`, so a single dead
+    // URL threw and took the whole MDX compile down: every docs page 500s, not just the page
+    // holding the image (FS-2681).
+    //
+    // The probe buys us nothing anyway. Markdown images render through `next/image`, and
+    // `next.config.mjs` declares no `images.remotePatterns`, so a remote src is rejected at render
+    // whether or not we know its size. Remote images have to be copied into `public/img/` to work
+    // at all; see INTERNALS.md "Remote images are never fetched at build" and
+    // `pnpm images:check`.
+    //
+    // `external: false` disables the probe for remote URLs only. Local images are still measured
+    // from disk, and `onError` stays at its default `error`, so a typo in a `public/` path still
+    // fails the build. The repo is ours to keep correct; the network is not.
+    remarkImageOptions: {
+      external: false,
+    },
     rehypePlugins: (v) => [rehypeKatex, ...v],
     //
     // twoslash only activates on ```ts twoslash blocks (TypeScript). Other

@@ -21,6 +21,7 @@ canonical for humans, and the one to edit first.**
 - [Partial versioning](#partial-versioning)
 - [Glossary and inline references](#glossary-and-inline-references)
 - [Custom MDX components](#custom-mdx-components)
+- [Remote images are never fetched at build](#remote-images-are-never-fetched-at-build)
 - [The gates](#the-gates)
 - [What nothing catches](#what-nothing-catches)
 - [Known trade-off: no static prerendering](#known-trade-off-no-static-prerendering)
@@ -302,6 +303,38 @@ component instead — for `_next/image` optimization — import it per file, whi
 for that file. The native component then requires `width`/`height` or the build fails; add
 `style={{ width: '100%', height: 'auto' }}` for responsiveness and drop `caption`.
 
+## Remote images are never fetched at build
+
+`source.config.ts` sets `remarkImageOptions: { external: false }`. Every image in content must be
+committed under `public/` and referenced as `/img/…`.
+
+**Why.** Fumadocs' `remark-image` probes each image for its intrinsic size so it can emit
+`width`/`height`. For an `https://` src that probe is an HTTP request made while MDX compiles, and
+its `onError` default is `error`. One third-party URL that started answering 403 therefore threw
+during compilation and took down **every** docs page, not only the page holding the image:
+`/docs/get-started` served a 500 with `[Remark Image] Failed obtain image size for
+https://imgur.com/0q5bHZK.png`. That is the failure FS-2681 removed.
+
+**Why `external: false` and not `onError: 'ignore'`.** Skipping the probe costs nothing, because a
+remote image cannot render here in the first place. Markdown images resolve to `next/image` (via
+`defaultMdxComponents.img` in `fumadocs-ui/mdx`), and `next.config.mjs` declares no
+`images.remotePatterns`, so Next rejects any remote host at render time with `hostname … is not
+configured under images`. Probing a URL we are going to refuse anyway only buys a network
+dependency inside the compiler. Local images are still measured from disk, and `onError` stays at
+its default, so a typo in a `public/` path still fails the build: the repo is ours to keep correct,
+the network is not.
+
+**The trade-off.** If somebody adds a remote image anyway, it no longer breaks the compile. It
+breaks that one page at render instead, with `Image with src "…" is missing required "width"
+property`. Contained and loud, rather than global and confusing. Supporting remote images properly
+would mean adding `images.remotePatterns` to `next.config.mjs` and accepting that a third party can
+change or remove the file under us. Copying the image into `public/img/` is the cheaper answer.
+
+**Finding them.** `pnpm images:check` scans content for `http(s)` image srcs, requests each one with
+a browser user agent, and prints the unreachable ones grouped by file. It always exits 0 unless you
+pass `--strict`, and it is deliberately not in CI: a third party's outage is not a reason to fail
+somebody else's pull request. The tree currently has zero remote images, so the report is empty.
+
 ## The gates
 
 CI runs on push and PR to `main` (`.github/workflows/ci.yml`) in three jobs. **Only the first
@@ -328,12 +361,18 @@ blocks.** A green PR does not mean the content is clean.
 counts. **Promote a step into `Gates` once its count reaches zero** — that promotion is the point
 of the split. This tier is a backlog, not a policy.
 
-**`Build` (non-blocking)** — `pnpm build`, deliberately not blocking: the MDX image pipeline fetches
-remote images at build time, so a dead third-party URL turns it red for reasons unrelated to the
-change under review. It still catches MDX compile errors that `types:check` cannot see.
+**`Build` (non-blocking)** runs `pnpm build`. It catches MDX compile errors that `types:check` cannot
+see. It was made non-blocking because the MDX image pipeline fetched remote images at build time, so
+a dead third-party URL turned it red for reasons unrelated to the change under review. That reason
+is gone: the build no longer touches the network for images (see
+[Remote images are never fetched at build](#remote-images-are-never-fetched-at-build)). Promoting
+this job into `Gates` is now possible and wants its own change, not least because a full build is
+the slowest job here.
 
-**Run by hand only:** `drift`, `precompiles:check`, `redirects:legacy`, `redirects:check`.
-`redirects:check` cannot run in CI as-is because it reads `/llms.txt` off a running site.
+**Run by hand only:** `drift`, `precompiles:check`, `redirects:legacy`, `redirects:check`,
+`images:check`. `redirects:check` cannot run in CI as-is because it reads `/llms.txt` off a running
+site. `images:check` reaches out to third-party hosts, so its result depends on somebody else's
+uptime.
 
 `upstream-refresh.yml` runs Mondays at 08:00 UTC and on `workflow_dispatch`: `nitro:check-release`,
 then `precompiles:generate`, opening `automated/upstream-refresh` as a PR if anything changed. It
@@ -351,6 +390,9 @@ Every gate has a blind spot. These are the ones that have bitten:
   literal `:::`, `undefined`, or HTTP 500. Confirm content changes in a browser.
 - **A redirect to the wrong-but-existing page.** `redirects:check` only proves the destination
   resolves.
+- **A third-party image that has rotted.** Nothing in CI requests it. Since the compile stopped
+  fetching remote images, a dead URL is silent rather than fatal. `pnpm images:check` is the manual
+  sweep.
 
 **Browse on `localhost:3000`, not `127.0.0.1`.** On `127.0.0.1` React does not hydrate and every
 component looks broken.
