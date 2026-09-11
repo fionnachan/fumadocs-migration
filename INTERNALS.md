@@ -349,10 +349,32 @@ change under review. It still catches MDX compile errors that `types:check` cann
 `redirects:legacy`, `redirects:check`. `redirects:check` cannot run in CI as-is because it reads
 `/llms.txt` off a running site.
 
-`upstream-refresh.yml` runs Mondays at 08:00 UTC and on `workflow_dispatch`: `nitro:check-release`,
-then `precompiles:generate`, `contracts:generate` and `cli:generate`, opening
-`automated/upstream-refresh` as a PR if anything changed. It never writes to `main` and no-ops when
-the tree is clean.
+`upstream-refresh.yml` runs Mondays at 08:00 UTC and on `workflow_dispatch`, in two independent
+jobs:
+
+- **`refresh`** runs `nitro:check-release`, then `precompiles:generate`, `contracts:generate` and
+  `cli:generate`, opening `automated/upstream-refresh` as a PR if anything changed. It never writes
+  to `main` and no-ops when the tree is clean.
+- **`drift`** clones the still-live `arbitrum-docs`, runs `upstream-drift.mjs` against it, and keeps
+  a single issue titled "Upstream drift" in sync with the report: created or its body replaced while
+  anything is absent or gutted, commented and closed once the report comes back empty. It holds
+  `issues: write` and nothing else. **It is deleted at cutover (plan M-52)**, when there is no longer
+  an upstream to drift from.
+
+The two jobs have no `needs` between them on purpose, so a failing generator never hides a drift
+report and a missing upstream clone never blocks the refresh PR.
+
+`upstream-drift.mjs` exits 1 both when it finds drift and when it refuses to run at all (missing
+tree, or a clone stale enough to under-report), so the job cannot read the exit code alone. It
+checks that the first stdout line is the `N absent, M gutted` summary; anything else fails the job
+instead of closing the issue on a report that never happened. Two details of that clone are
+load-bearing and easy to get wrong:
+
+- It is cloned `--filter=blob:none`, **not** `--depth 1`. The report splits absent pages into DRIFT
+  (added upstream after the port window) and MISS (should already have been ported) using
+  `git log --diff-filter=A`, which a depth-1 clone cannot answer, so everything would come back MISS.
+- `git clone` never writes `.git/FETCH_HEAD`, and `lib/git-freshness.mjs` treats a clone that has
+  never fetched as an untrustworthy baseline. The job runs an explicit `git fetch` afterwards.
 
 No generator's `--check` mode blocks CI, deliberately. Each compares the committed file against a
 moving upstream (a Nitro tag, the `@arbitrum/sdk` network registry), so a red gate would mean
