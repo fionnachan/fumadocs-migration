@@ -14,7 +14,7 @@ import { VersionSwitcher } from '@/components/VersionSwitcher';
 import { Feedback } from '@/components/feedback/client';
 import { getMDXComponents } from '@/components/mdx';
 import { onPageFeedbackAction } from '@/lib/posthog';
-import { gitConfig } from '@/lib/shared';
+import { getSiteUrl, gitConfig } from '@/lib/shared';
 import { getPageImage, getPageMarkdownUrl, source } from '@/lib/source';
 import {
   LATEST_ID,
@@ -145,12 +145,12 @@ export async function generateMetadata({
   return {
     title: page.data.title,
     description: page.data.description,
-    // Relative URLs here are resolved against `metadataBase` (app/layout.tsx, from
-    // NEXT_PUBLIC_SITE_URL), so this emits an absolute <link rel="canonical">. `page.url` carries
-    // no query string, which is what we want: `?v=` selects an archived version of the same
-    // document, not a separate canonical page.
+    // Built absolute from `getSiteUrl()` rather than left relative for `metadataBase` to resolve,
+    // so the value a wrong canonical would depend on is read through the one helper that refuses
+    // to guess it in production. `page.url` carries no query string, which is what we want: `?v=`
+    // selects an archived version of the same document, not a separate canonical page.
     alternates: {
-      canonical: page.url,
+      canonical: new URL(page.url, getSiteUrl()).toString(),
     },
     openGraph: {
       images: image,

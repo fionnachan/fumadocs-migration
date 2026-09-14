@@ -194,12 +194,26 @@ The machine-readable `dateTime` attribute on the `<time>` element always carries
 
 `generateMetadata` in `app/docs/[[...slug]]/page.tsx` emits the per-page title and description, an
 Open Graph image from the `og/` route, a canonical URL, and the Twitter card tags
-(`summary_large_image`, site `@arbitrum`). URLs there are written relative and resolved against
-`metadataBase`, which is set once in `app/layout.tsx` from `NEXT_PUBLIC_SITE_URL` and falls back to
-`http://localhost:3000`. **If that variable is unset in the Vercel project, every canonical and
-image URL in production points at localhost.** The canonical deliberately uses `page.url`, which
+(`summary_large_image`, site `@arbitrum`). The canonical deliberately uses `page.url`, which
 carries no query string, so an archived `?v=` view canonicalizes to the live page rather than
 splitting it in two.
+
+**Every absolute URL traces back to `getSiteUrl()` in `lib/shared.ts`, and that helper throws
+rather than guessing.** It returns `NEXT_PUBLIC_SITE_URL`, falls back to `http://localhost:3000`
+outside production, and throws when `VERCEL_ENV` or `NEXT_PUBLIC_VERCEL_ENV` is `production` and
+the variable is unset. The throw exists because `NEXT_PUBLIC_*` values are inlined at build time:
+a production build with the variable missing would bake `http://localhost:3000` into the canonical
+and social image URL of every page in the deployed output. Those pages then tell crawlers the
+canonical copy lives on localhost, which is worse than emitting no canonical at all, and nothing
+about the running site reveals it. Failing the build is the last cheap moment to catch it.
+
+`app/layout.tsx` calls it at module scope for `metadataBase`, which is what makes a missing
+variable a build failure rather than a per-request one. The docs page calls it again to build the
+canonical absolutely rather than leaning on `metadataBase` resolution, so the one value that a
+wrong canonical depends on is read through the one helper that refuses to invent it. The helper
+deliberately imports nothing, so `app/sitemap.ts` and `app/robots.ts` can use it without pulling
+`lib/source` toward a client bundle. `scripts/lib/site-url.test.mjs` covers it, running each case
+in a subprocess with `--experimental-strip-types` because `node --test` cannot import TypeScript.
 
 `app/(home)/page.tsx` sets no canonical of its own and is the one remaining page without one.
 
