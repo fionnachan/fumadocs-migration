@@ -5,6 +5,7 @@ import { JetBrains_Mono } from 'next/font/google';
 import localFont from 'next/font/local';
 import type { ReactNode } from 'react';
 
+import { PostHogProvider } from '@/components/analytics/posthog-provider';
 import { Footer } from '@/components/footer';
 import { InkeepChatButton } from '@/components/inkeep/inkeep-chat-button';
 import InkeepSearchDialog from '@/components/inkeep/inkeep-search';
@@ -91,6 +92,9 @@ export default function Layout({ children }: { children: ReactNode }) {
               the layout inside the flex column body. See components/footer.tsx. */}
           <Footer />
           <InkeepChatButton />
+          {/* Renders nothing. Production-only web analytics; see
+              components/analytics/posthog-provider.tsx. */}
+          <PostHogProvider />
         </RootProvider>
       </body>
     </html>
