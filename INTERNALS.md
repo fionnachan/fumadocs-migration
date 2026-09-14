@@ -310,9 +310,10 @@ is still in the HTML and only the JavaScript is deferred.
 **VendingMachine.** The quickstart's "free cupcakes" demo (`components/mdx/VendingMachine/`), ported
 from the Docusaurus component of the same name. `type="web2"` keeps balances in tab memory; any other
 `type` talks to a `VendingMachine.sol` the reader deploys themselves, through the injected EIP-1193
-wallet using viem — reads with a public client, writes with a wallet client, no chain or contract
-address hardcoded. The ABI is transcribed into `abi.ts` as a TypeScript `as const` (the compiled
-artifact's bytecode was never used) so viem can infer argument and return types. With no wallet
+wallet using viem: reads go through a public client and writes through a wallet client, with no
+chain or contract address hardcoded. The ABI is transcribed into `abi.ts` as a TypeScript
+`as const` (the compiled artifact's bytecode was never used) so viem can infer argument and return
+types. With no wallet
 installed the widget renders a notice instead of throwing.
 
 **EdgeChallengeFlow.** The BoLD bisection replay (`components/mdx/EdgeChallengeFlow/`), ported from
