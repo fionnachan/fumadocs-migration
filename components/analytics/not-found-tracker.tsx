@@ -15,34 +15,49 @@ type PostHogClient = {
   capture: (event: string, properties?: Record<string, unknown>) => void;
 };
 
+/**
+ * Delay before each attempt, in milliseconds, measured from the attempt before it.
+ *
+ * The SDK arrives in a ~290 kB async chunk that another effect starts loading, so on a slow
+ * connection it resolves well after this component mounts and no ordering between the two is
+ * guaranteed. Retrying once a second later loses exactly the events worth having: the ones from
+ * readers on bad networks. This spans about 16 seconds and then stops, rather than leaving a timer
+ * alive for the life of the page.
+ */
+const RETRY_DELAYS_MS = [0, 250, 500, 1000, 2000, 4000, 8000];
+
 export function NotFoundTracker() {
   useEffect(() => {
-    // The SDK initialises from an effect too, and effect order across sibling
-    // trees is not guaranteed, so retry once on the next macrotask rather than
-    // dropping the event when this one wins the race.
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    // Snapshot the location now, not at capture time. A late attempt must still report the URL the
+    // reader actually landed on.
+    const properties = {
+      timestamp: new Date().toISOString(),
+      $current_url: window.location.href,
+      pathname: window.location.pathname,
+      search: window.location.search,
+      hash: window.location.hash,
+      referrer: document.referrer,
+      userAgent: window.navigator.userAgent,
+    };
 
-    const capture = (): boolean => {
+    let attempt = 0;
+    let timer: ReturnType<typeof setTimeout>;
+
+    const tryCapture = () => {
       const posthog = (window as unknown as { posthog?: PostHogClient }).posthog;
-      if (!posthog) return false;
+      if (posthog) {
+        posthog.capture('404_error', properties);
+        return;
+      }
 
-      posthog.capture('404_error', {
-        timestamp: new Date().toISOString(),
-        $current_url: window.location.href,
-        pathname: window.location.pathname,
-        search: window.location.search,
-        hash: window.location.hash,
-        referrer: document.referrer,
-        userAgent: window.navigator.userAgent,
-      });
-      return true;
+      attempt += 1;
+      if (attempt >= RETRY_DELAYS_MS.length) return;
+      timer = setTimeout(tryCapture, RETRY_DELAYS_MS[attempt]);
     };
 
-    if (!capture()) timer = setTimeout(capture, 1000);
+    timer = setTimeout(tryCapture, RETRY_DELAYS_MS[0]);
 
-    return () => {
-      if (timer) clearTimeout(timer);
-    };
+    return () => clearTimeout(timer);
   }, []);
 
   return null;
