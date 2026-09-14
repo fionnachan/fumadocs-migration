@@ -3,6 +3,8 @@ import type { ReactNode } from 'react';
 export interface AuctionStep {
   /** Modal heading. */
   title: ReactNode;
+  /** One-sentence summary of the step, shown above the list. */
+  lead: string;
   /** What happens at this step, in order. */
   points: ReactNode[];
   /** The call or payload the step is about. */
@@ -23,6 +25,7 @@ export interface AuctionStep {
 export const AUCTION_STEPS: Record<number, AuctionStep> = {
   1: {
     title: 'Step 1: Deposit funds into the auction contract',
+    lead: 'Users must first deposit ERC-20 tokens into the auction contract to participate in bidding.',
     points: [
       <>
         Call <code>submitDeposit()</code> on the IExpressLaneAuction contract
@@ -38,6 +41,7 @@ export const AUCTION_STEPS: Record<number, AuctionStep> = {
         Step 2: <code>timeboost_submitBid()</code>
       </>
     ),
+    lead: "Users submit bids through the auctioneer's RPC API for the upcoming round.",
     points: [
       'Create a bid with chain ID, round number, and bid amount',
       'Sign the bid data with your private key',
@@ -57,6 +61,7 @@ export const AUCTION_STEPS: Record<number, AuctionStep> = {
   },
   3: {
     title: 'Step 3: Auctioneer response',
+    lead: 'The auctioneer validates the bid and responds with success or failure.',
     points: [
       'Auctioneer verifies chain ID, round number, and signature',
       'Checks if sender is a depositor with sufficient balance',
@@ -78,6 +83,7 @@ export const AUCTION_STEPS: Record<number, AuctionStep> = {
         Step 4: <code>auctioneer_submitBidAuctionTransaction</code>
       </>
     ),
+    lead: 'The auctioneer submits the winning bids to resolve the auction.',
     points: [
       'Auctioneer collects and sorts all valid bids for the round',
       'Identifies the two highest bids',
@@ -92,6 +98,7 @@ export const AUCTION_STEPS: Record<number, AuctionStep> = {
   },
   5: {
     title: 'Step 5: Sequencer prioritizes the auction contract calls',
+    lead: 'The sequencer ensures timely processing of auction-related transactions.',
     points: [
       'Auction resolution transactions get priority processing',
       'Winner is declared as express lane controller for the round',

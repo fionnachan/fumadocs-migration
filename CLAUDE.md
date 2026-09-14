@@ -85,7 +85,7 @@ Design: [`.claude/docs/superpowers/specs/2026-07-09-partials-registry-design.md`
 
 **Glossary / inline references.** `content/glossary/*.mdx` is a reference collection (`{ id, title, sortAs? }` — *not* the page contract), surfaced by `<Reference>` / `<Term>` / `<ReferenceList>` via the registry in `lib/references.ts`. New reference types add a collection plus one registry entry. Spec: [`.claude/docs/superpowers/specs/2026-07-10-references-glossary-design.md`](.claude/docs/superpowers/specs/2026-07-10-references-glossary-design.md).
 
-**Custom MDX components.** `components/mdx.tsx` is the registry and the source of truth — read it rather than trusting a list here. Implementations in `components/mdx/`; Fumadocs' `Accordion`/`Accordions` and `Tab`/`Tabs` are re-exported. Some names are aliases of the same component (`AEL` → `AddressExplorerLink`, `ImageWithCaption` → `ImageZoom`). Every Docusaurus widget the content uses is ported; there is no placeholder component. Add a component here to make it available in all MDX.
+**Custom MDX components.** `components/mdx.tsx` is the registry and the source of truth, so read it rather than trusting a list here. Implementations in `components/mdx/`; Fumadocs' `Accordion`/`Accordions` and `Tab`/`Tabs` are re-exported. Some names are aliases of the same component (`AEL` → `AddressExplorerLink`, `ImageWithCaption` → `ImageZoom`). Every Docusaurus widget the content uses is ported; there is no placeholder component. Add a component here to make it available in all MDX.
 
 **Sidebar ordering** is controlled by `meta.json` in each content directory, not by file names.
 

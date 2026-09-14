@@ -14,8 +14,8 @@ import styles from './styles.module.css';
  *
  * Upstream split this across `NumberComponent`, `ButtonComponent` and `Modal`, and animated all
  * three with `@react-spring/web`. The animations are a pulsing ring, a hover grow, and a dialog
- * fade — each expressible as a CSS transition or keyframe, so the spring dependency is not carried
- * over. Radix (already used by `PdfModal`) supplies the focus trap, `Esc` handling and scroll lock,
+ * fade, and each one is expressible as a CSS transition or keyframe, so the spring dependency is
+ * not carried over. Radix (already used by `PdfModal`) supplies the focus trap, `Esc` handling and scroll lock,
  * and its `data-state` attributes drive the open and close animations.
  */
 export function AuctionStepMarker({ step, interactive }: { step: number; interactive?: boolean }) {
@@ -30,7 +30,7 @@ export function AuctionStepMarker({ step, interactive }: { step: number; interac
   const offsetY = coords.circle.y - coords.path.y + (coords.offset?.y ?? 0);
 
   const marker = (
-    <g id={`auction-step-${step}`} className={interactive ? styles.markerInteractive : undefined}>
+    <g id={`auction-step-${step}`}>
       {interactive ? (
         <circle
           className={styles.markerRing}
@@ -62,6 +62,9 @@ export function AuctionStepMarker({ step, interactive }: { step: number; interac
           role="button"
           tabIndex={0}
           aria-label={`Open step ${step}`}
+          // The focus ring belongs on the focusable element. It used to sit on the inner group,
+          // which never receives focus, so keyboard users saw nothing.
+          className={styles.markerInteractive}
           // Radix wires the click, but an SVG group is not a button: Enter and Space do not
           // synthesise one, so keyboard users need this.
           onKeyDown={(event) => {
@@ -86,6 +89,7 @@ export function AuctionStepMarker({ step, interactive }: { step: number; interac
           </div>
 
           <div className={styles.body}>
+            <p className={styles.lead}>{content.lead}</p>
             <ol className={styles.points}>
               {content.points.map((point, index) => (
                 // The list is static content in source order, so the index is a stable identity.
