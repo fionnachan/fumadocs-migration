@@ -2,9 +2,12 @@
   "$comment": [
     "Locates the upstream Docusaurus docs repo (OffchainLabs/arbitrum-docs) and pins the comparison",
     "window, so a multi-day sync is not chasing a moving target while upstream keeps committing.",
-    "Resolution order used by scripts/lib/upstream-tree.mjs: --tree-a flag, then UPSTREAM_DOCS_REPO env",
-    "var, then `repo` below, then sibling-directory probes. When none resolves, the drift scripts print",
-    "and exit 0 so CI stays green without an upstream checkout; pass --require-tree-a to make it fatal.",
+    "Resolution order, implemented in scripts/lib/upstream-tree.mjs: the --tree-a flag (which names",
+    "the docs tree itself), then the UPSTREAM_DOCS_REPO env var, then `repo` below, then `probePaths`.",
+    "The flag and the env var resolve against the cwd; `repo` and `probePaths` resolve against this",
+    "repo's root, so they keep working from a git worktree, where the cwd sits one level deeper.",
+    "Every source except --tree-a names the repo root, so `docsSubdir` is appended to it. When nothing",
+    "resolves, upstream-drift prints the full search order and exits 1.",
     "This file is checked in on purpose: .gitignore excludes .env*, so an env-file default could not be",
     "shared, which is why a machine-specific absolute path was hardcoded in upstream-drift.mjs before."
   ],
@@ -12,6 +15,66 @@
   "docsSubdir": "docs",
   "globalVarsPath": "src/resources/globalVars.js",
   "probePaths": ["../arbitrum-docs", "../../arbitrum-docs", "~/OCL/arbitrum-docs"],
+  "absentAllowlistComment": [
+    "Upstream pages that are deliberately not ported, so reporting them as ABSENT is a false positive",
+    "that teaches readers to skim the drift report. A page belongs here only when its content is",
+    "accounted for somewhere else; a page that is merely low priority does not.",
+    "Every entry carries the reason it is exempt, and drift prints the count it suppressed.",
+    "Every entry records reviewedUpstreamSha: the git blob hash of the upstream file when a human read",
+    "it and granted the exemption. Drift recomputes that hash on each run and re-flags the pair as",
+    "STALE-ALLOWLIST once upstream edits the page, because an exemption is a judgement about one",
+    "version of a page, not a permanent one. Without it, allowlisting a page is the surest way to hide",
+    "a real gap that lands in it later. Re-read both pages, then update the hash (git hash-object",
+    "docs/<path> in the upstream checkout) or drop the entry."
+  ],
+  "absentAllowlist": [
+    {
+      "path": "node-running/sequencer-content-map.mdx",
+      "reviewedUpstreamSha": "0719fd13f446bc4429218f79ffd355b0f8a5d71c",
+      "reason": "Content maps were replaced by index.mdx plus meta.json by design. Upstream's Docusaurus <Card> grid has no counterpart here because Fumadocs builds the same navigation from meta.json."
+    }
+  ],
+  "guttedAllowlistComment": [
+    "Upstream pages that ARE ported at content parity but still trip the 70% body-line ratio, because",
+    "the count includes lines the port does not carry: Docusaurus `import` statements and inline",
+    "grid-style boilerplate. Reporting these as GUTTED is a false positive.",
+    "Separate from absentAllowlist on purpose. Absent-exempt means the page was never ported;",
+    "gutted-exempt means it was ported in full and only the line count disagrees. A single list would",
+    "let an exemption earned for one reason quietly cover the other.",
+    "Add an entry only after reading both pages side by side and confirming the content matches.",
+    "Every entry records reviewedUpstreamSha: the git blob hash of the upstream file when a human read",
+    "it and granted the exemption. Drift recomputes that hash on each run and re-flags the pair as",
+    "STALE-ALLOWLIST once upstream edits the page, because an exemption is a judgement about one",
+    "version of a page, not a permanent one. Without it, allowlisting a page is the surest way to hide",
+    "a real gap that lands in it later. Re-read both pages, then update the hash (git hash-object",
+    "docs/<path> in the upstream checkout) or drop the entry."
+  ],
+  "guttedAllowlist": [
+    {
+      "path": "for-devs/dev-tools-and-resources/chain-info.mdx",
+      "reviewedUpstreamSha": "14997494ca30c8d8c70f0561870f98c68013e39f",
+      "local": "chain-info.mdx",
+      "reason": "Confirmed at full parity with upstream by the FS-2655 side-by-side review. The 0.61 ratio is Docusaurus import boilerplate the port does not carry."
+    },
+    {
+      "path": "get-started/overview.mdx",
+      "reviewedUpstreamSha": "f652f1a1b4e2f59c32cdc79da5e1e9da09ee3df5",
+      "local": "get-started/index.mdx",
+      "reason": "A deliberate card-landing rewrite, not a trim: the get-started landing was replaced by index.mdx plus cards by design. The remaining line gap is import lines and inline grid styling."
+    },
+    {
+      "path": "for-devs/oracles/oracles-content-map.mdx",
+      "reviewedUpstreamSha": "40d79721309e3b3b9310fc5031be39dc295f691c",
+      "local": "oracles/index.mdx",
+      "reason": "The same deliberate card-landing rewrite as get-started, confirmed by the FS-2655 side-by-side review. Upstream's content-map format has no counterpart here."
+    },
+    {
+      "path": "launch-arbitrum-chain/overview/introduction.mdx",
+      "reviewedUpstreamSha": "7604646def4ee13e60b0b2c248470f8b6d9323e6",
+      "local": "launch-arbitrum-chain/overview/a-gentle-introduction.mdx",
+      "reason": "A deliberate restructure, not a trim: the local page folds upstream's per-feature bullet blocks into comparison tables. A sentence-level comparison by the FS-2652 agent found every upstream block present, so the 0.51 ratio measures format, not content."
+    }
+  ],
   "portWindow": {
     "$comment": "Upstream commits bracketing the migration port waves (2026-07-13/14). Pinned 2026-08-17.",
     "baseSha": "1f8111f",
