@@ -21,8 +21,10 @@ canonical for humans, and the one to edit first.**
 - [Partial versioning](#partial-versioning)
 - [Glossary and inline references](#glossary-and-inline-references)
 - [Custom MDX components](#custom-mdx-components)
+- [The Node runtime](#the-node-runtime)
 - [Analytics](#analytics)
 - [The gates](#the-gates)
+- [Upstream drift](#upstream-drift)
 - [What nothing catches](#what-nothing-catches)
 - [Known trade-off: no static prerendering](#known-trade-off-no-static-prerendering)
 - [Design specs](#design-specs)
@@ -42,10 +44,10 @@ Four packages are installed here:
 
 | Package             | Version | Responsible for                                                                 |
 | ------------------- | ------- | ------------------------------------------------------------------------------- |
-| `fumadocs-core`     | 16.15.1 | Headless engine: the Loader API, page tree, search, TOC, MDX plugins            |
-| `fumadocs-mdx`      | 15.3.1  | The content source: compiles MDX into typed **collections**                     |
-| `fumadocs-ui`       | 16.15.1 | The default theme: `DocsPage`/`DocsBody` layouts, tabs, accordions, code blocks |
-| `fumadocs-twoslash` | 3.3.0   | Type-checked TypeScript code samples (` ```ts twoslash `)                       |
+| `fumadocs-core`     | 16.15.9 | Headless engine: the Loader API, page tree, search, TOC, MDX plugins            |
+| `fumadocs-mdx`      | 15.4.0  | The content source: compiles MDX into typed **collections**                     |
+| `fumadocs-ui`       | 16.15.9 | The default theme: `DocsPage`/`DocsBody` layouts, tabs, accordions, code blocks |
+| `fumadocs-twoslash` | 3.3.1   | Type-checked TypeScript code samples (` ```ts twoslash `)                       |
 
 `fumadocs-ui` is a theme, not a requirement — the headless core would work without it. We use it,
 and override its tokens rather than forking it.
@@ -332,6 +334,30 @@ component instead — for `_next/image` optimization — import it per file, whi
 for that file. The native component then requires `width`/`height` or the build fails; add
 `style={{ width: '100%', height: 'auto' }}` for responsiveness and drop `caption`.
 
+## The Node runtime
+
+**Node 22 LTS, everywhere.** Three files state it and they must agree:
+
+| Where                            | What it says       | Who reads it                                    |
+| -------------------------------- | ------------------ | ----------------------------------------------- |
+| `engines.node` in `package.json` | `>=22.0.0 <23.0.0` | pnpm, which refuses to install on another major |
+| `.node-version`                  | `22`               | Vercel, nvm, fnm, asdf                          |
+| Vercel project settings          | Node.js 22.x       | the build and the serverless functions          |
+
+`.node-version` is the one that makes a fresh machine and a fresh Vercel build agree without anyone
+remembering to configure it. Vercel reads it on every build and pins the runtime to that major;
+without it Vercel uses its own current default, which is ahead of `engines` and drifts again each
+time Vercel moves. Upstream `arbitrum-docs` carries the same file with the same content.
+
+**The Vercel project setting still has to be set to Node.js 22.x by hand** (Settings, then Build and
+Deployment, then Node.js Version). `.node-version` pins the build; the project setting is what the
+deployed functions run on, and a mismatch between them is not reported anywhere.
+
+**Locally, use nvm**: `nvm use 22` in this directory, or `nvm install 22` first. nvm reads
+`.node-version` as well as `.nvmrc`, so no argument is needed once the file is present. Node 24 and
+26 are rejected by `engines` before anything installs, which is the intended behaviour and not a bug
+to work around with `--ignore-engines`.
+
 ## Analytics
 
 Three independent paths send events to the same PostHog project. They share nothing but the
@@ -425,6 +451,93 @@ change under review. It still catches MDX compile errors that `types:check` cann
 `upstream-refresh.yml` runs Mondays at 08:00 UTC and on `workflow_dispatch`: `nitro:check-release`,
 then `precompiles:generate`, opening `automated/upstream-refresh` as a PR if anything changed. It
 never writes to `main` and no-ops when the tree is clean.
+
+## Upstream drift
+
+`pnpm drift` compares this repo against the upstream Docusaurus tree
+(`OffchainLabs/arbitrum-docs`) and reports two things: **ABSENT**, an upstream page with no
+counterpart here, and **GUTTED**, a page whose body here is under 70% of the upstream body.
+
+**Finding the upstream checkout.** `scripts/lib/upstream-tree.mjs` resolves it from
+`scripts/data/upstream.config.json`, first hit wins:
+
+1. `--tree-a <path>`, which names the docs tree itself, resolved against the cwd
+2. `UPSTREAM_DOCS_REPO`, which names the repo root, resolved against the cwd
+3. `repo` in the config, resolved against **this repo's root**
+4. `probePaths` in the config, in order, resolved against this repo's root
+
+Config paths resolve against the repo root rather than the cwd because the checkout's position
+relative to this repo is fixed while the cwd is not: the sibling clone sits at `../arbitrum-docs`
+from the main checkout and `../../arbitrum-docs` from a worktree, and both are in `probePaths`. So
+clone `arbitrum-docs` next to this repo and `pnpm drift` needs no arguments from anywhere.
+
+**Pairing happens across the whole tree at once, not file by file.** `pairTrees` makes two passes:
+directory-qualified matches first, each claiming its local file, then the bare-slug fallback for
+whatever is left, never onto a file the first pass already claimed. One local file therefore pairs
+with at most one upstream page.
+
+**One local file pairs with at most one upstream page, in both passes.** The claim rule is not just
+a tie-breaker for the fallback: two upstream pages can land on the same local file through the
+directory match too, once a rename points them there. The single exception is a deliberate
+two-into-one port, which both sides declare with `merge: true` in `RENAME_MAP` (upstream splits
+batch-poster and assertion config across two pages; the port combined them). Without that flag the
+collision is treated as accidental and the later page reports ABSENT, which is the honest answer,
+because the tool cannot tell on its own whether the second page's content survived inside the first.
+
+This matters because upstream keeps a concept page and a how-to page under the same basename:
+`arbos`, `stf`, and `batchposter` versus `batch-poster`. Resolving one path at a time, the concept
+page paired correctly by directory and the how-to page then grabbed the **same** local file through
+the fallback. The report called three ported pages GUTTED at 0.12, 0.20 and 0.48, purely because it
+was measuring a how-to against a concept page, and hid three unported how-tos behind those ratios.
+One mispairing, two wrong answers, in opposite directions. A fourth case was quieter still:
+upstream's `chain-config/costs/gas-optimization.mdx` paired against the unrelated Stylus
+`best-practices/gas-optimization.mdx`, whose line count happened to clear 70%, so it produced no
+finding at all. All four turned out to be plain renames once pairing was fixed.
+
+**Three mechanisms change what the report says, and they are deliberately not one mechanism:**
+
+| Mechanism         | Where                               | Means                                                        |
+| ----------------- | ----------------------------------- | ------------------------------------------------------------ |
+| `RENAME_MAP`      | `scripts/lib/tree-compare.mjs`      | The page was ported under a different name                   |
+| `absentAllowlist` | `scripts/data/upstream.config.json` | The page was deliberately never ported                       |
+| `guttedAllowlist` | `scripts/data/upstream.config.json` | The page was ported at parity; only the line count disagrees |
+
+`RENAME_MAP` makes a page pair up so it is actually compared, which is the opposite of suppressing
+it. The two allowlists suppress a verdict, and they stay separate because they are earned
+differently. Absent-exempt means the content is not here on purpose. Gutted-exempt means the content
+**is** here and the 70% ratio is counting Docusaurus `import` lines and inline grid boilerplate the
+port does not carry. One combined list would let an exemption earned for one reason quietly cover
+the other.
+
+Every allowlist entry carries its reason, every `guttedAllowlist` entry also names its local
+counterpart, and the script lists what it suppressed under `ALLOWED` rather than hiding it. Tests
+pin both allowlists to their current contents and assert that every `RENAME_MAP` target and every
+`local` path is a file that exists — so growing a list is a visible decision, and an entry that rots
+into a no-op after a page moves fails the suite instead of quietly regrowing a false positive.
+
+An absent-exempt page is still compared for GUTTED when a counterpart exists, so an exemption can
+never hide content loss in whichever page absorbed it.
+
+**Exemptions expire, by design.** Each allowlist entry records `reviewedUpstreamSha`, the git blob
+hash of the upstream page as it read when a human granted the exemption. Drift recomputes that hash
+on every run and re-flags the pair as `STALE-ALLOWLIST`, failing the run, once upstream edits the
+page. An exemption is a judgement about one version of a page, not about the page forever, and
+without an expiry the surest way to hide a real future gap would be to have already allowlisted the
+page it lands in. An entry with no recorded hash counts as stale, so an entry added without one
+demands a review rather than being trusted. To clear a stale entry, read both pages again and either
+update the hash with `git -C ../arbitrum-docs hash-object docs/<path>` or drop the entry.
+
+**Prefer a rename over an exemption whenever one is available.** `01-stf-gentle-intro.mdx` sat in
+`absentAllowlist` on the theory that it had been absorbed into `deep-dives/stf.mdx`. Once pairing
+was fixed it turned out to be an ordinary rename at ratio 1.74, so it moved to `RENAME_MAP`, where
+the two pages get compared on every run instead of one of them being skipped. An exemption stops
+looking; a rename keeps looking.
+
+**The baseline has to be fresh.** A stale upstream clone does not make the comparison fail, it makes
+it lie: everything upstream changed after the last fetch looks identical to ours. `drift` refuses to
+run against a clone that has not fetched in 24 hours or is behind its upstream branch, so run
+`git -C ../arbitrum-docs fetch` first if it has been a while. This guard is the reason drift can be
+trusted at all, so do not route around it.
 
 ## What nothing catches
 
