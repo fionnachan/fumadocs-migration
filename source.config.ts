@@ -19,10 +19,11 @@ import { referenceSchema } from './lib/reference-schema';
  * this repo at `--depth=10` (Vercel's default clone depth): 430 of ~450 pages came back stamped
  * with one boundary commit that in full history touched zero files under `content/docs`.
  *
- * A wrong "Last updated" date is worse than none, so the feature turns itself off unless the
- * history is complete. To get real dates on Vercel, set `VERCEL_DEEP_CLONE=true` in the project's
- * environment variables (see INTERNALS.md, "Last modified dates"); nothing else is needed, because
- * a deep clone makes this probe return `false` on its own.
+ * A wrong "Last updated" date is worse than none, so no date is resolved unless the history is
+ * complete (see `lastModified` below for how that is expressed without changing the collection's
+ * type). To get real dates on Vercel, set `VERCEL_DEEP_CLONE=true` in the project's environment
+ * variables (see INTERNALS.md, "Last modified dates"); nothing else is needed, because a deep
+ * clone makes this probe return `true` on its own.
  *
  * `git` missing entirely, or a non-repo checkout, lands in the `catch` and also omits the date.
  */
@@ -39,7 +40,24 @@ function hasFullGitHistory(): boolean {
   }
 }
 
-const lastModified = hasFullGitHistory();
+/**
+ * The `lastModified` option for both doc collections.
+ *
+ * Deliberately **never `false`**. The option is part of the collection's type contract, not just
+ * its behaviour: fumadocs-mdx only adds `lastModified?: Date` to the generated `DocData` when the
+ * option is truthy, so switching it off would delete the field from the type and
+ * `page.data.lastModified` would stop compiling. That would make `types:check` pass or fail
+ * depending on how the repository happened to be cloned, and it did: CI checks out shallow, so the
+ * first version of this change was green locally and red in CI.
+ *
+ * So the guard picks between two truthy values. With full history, `true` uses fumadocs-mdx's own
+ * batched `git log`. Without it, a resolver that answers "unknown" for every file keeps the field
+ * typed and simply yields no dates, which the page renders as no line at all.
+ *
+ * It has to be decided here rather than at render time: pages are rendered on demand in a
+ * serverless runtime that has neither git nor the repository.
+ */
+const lastModified = hasFullGitHistory() ? true : async () => undefined;
 
 /**
  * Per PRD §4.1, every doc page requires:

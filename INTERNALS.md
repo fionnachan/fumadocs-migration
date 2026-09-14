@@ -158,13 +158,27 @@ from git, and `page.data.lastModified` (a `Date`) reaches the page component thr
 `source` object as everything else. An archived version shows the archive file's own date, not the
 live page's.
 
-**The option is switched off unless the checkout has complete git history**, by the
+**No date is resolved unless the checkout has complete git history**, decided by the
 `hasFullGitHistory()` probe at the top of `source.config.ts`. This is not belt and braces. In a
 shallow clone the oldest commit is grafted in as a parentless root, so git diffs it against the
 empty tree and reports it as adding every file under it. Measured on this repo at `--depth=10`:
 430 of about 450 pages came back stamped with a single boundary commit that in full history
-touched no content at all. A wrong date on every page is worse than no date, so the probe omits
-the line entirely instead. Nothing renders, no error appears, and nothing fails.
+touched no content at all. A wrong date on every page is worse than no date, so the probe yields
+no dates instead. Nothing renders, no error appears, and nothing fails.
+
+**The option is never set to `false`, and that detail is load-bearing.** `lastModified` is part of
+the collection's _type_ contract, not only its behaviour: fumadocs-mdx adds the
+`lastModified?: Date` field to the generated `DocData` only when the option is truthy. Setting it
+to `false` in a shallow checkout deletes the field from the type, and the docs page then fails
+`types:check` with TS2339. That makes the gate pass or fail according to how the repository
+happened to be cloned, which is exactly what happened on the first attempt at this change: green
+locally, red in CI, because `actions/checkout` clones shallow. The probe therefore chooses between
+two _truthy_ values. With full history it passes `true`, which uses fumadocs-mdx's batched
+`git log`. Without it, it passes a resolver that returns `undefined` for every file, which keeps
+the field typed while yielding no dates.
+
+The choice is made in `source.config.ts` at build time rather than at render time because pages
+render on demand in a serverless runtime that has neither git nor the repository.
 
 **What a reviewer must configure.** Vercel clones at `--depth=10` by default, so the dates are
 absent on previews and in production until someone sets `VERCEL_DEEP_CLONE=true` in the Vercel
