@@ -1,29 +1,36 @@
 /**
- * remote-images-check — report images that are loaded from somebody else's server.
+ * remote-images-check — find images that are loaded from somebody else's server.
  *
- * Two things make a remote image a problem here:
+ * Two modes, because there are two different problems.
  *
- *   1. It cannot render. Markdown images resolve to `next/image`, and `next.config.mjs` sets no
- *      `images.remotePatterns`, so a remote src is rejected at render time.
- *   2. It rots. The host can 404, geo-block, or hotlink-block us at any time, and nobody notices
- *      because no gate looks at third-party URLs.
+ * **`--presence`. Offline, deterministic, and a blocking gate.** A markdown image with a remote src
+ * (`![alt](https://…)`) 500s the page it is on. It resolves to `next/image`, and since
+ * `source.config.ts` sets `remarkImageOptions.external: false` nothing measures it at build, so Next
+ * throws `Image with src "…" is missing required "width" property` at render. `types:check` cannot
+ * see that and no other gate requests the page. This mode fails on exactly that, touches no network,
+ * and therefore belongs in CI.
  *
- * `source.config.ts` sets `remarkImageOptions.external: false`, so a dead URL can no longer break
- * the MDX compile (FS-2681). That removed the only feedback we had. This script is the replacement:
- * copy the image into `public/img/` and reference it as `/img/…`, or drop it.
+ * **Default. Network reachability, report only.** Requests every remote image, markdown or JSX, and
+ * lists the ones that no longer answer. Deliberately not in CI: a third party's outage is not a
+ * reason to fail somebody else's pull request. Exits 0 unless `--strict`.
  *
- * Reports only. It is deliberately not wired into CI, because a third party's outage is not a
- * reason to fail somebody else's pull request.
+ * A remote src is fine through `<ImageZoom src="https://…">`, which renders a plain `<img>`. Rot is
+ * still the risk there, so the network mode covers it and `--presence` leaves it alone.
  *
  * Usage:
- *   pnpm images:check              # human report, always exits 0
- *   pnpm images:check --strict     # exits 1 if any remote image is unreachable
- *   pnpm images:check --json       # machine-readable, exits 0
+ *   pnpm images:check                # network report, always exits 0
+ *   pnpm images:check --strict       # network report, exits 1 on anything unreachable
+ *   pnpm images:presence             # offline, exits 1 on a remote markdown image
+ *   pnpm images:check --json         # machine-readable, exits 0
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { extractRemoteImages, isReachable } from './lib/remote-images.mjs';
+
+/** Anchored on this file, not on cwd: running from a subdirectory used to report a false clean. */
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const CONTENT_DIRS = ['content/docs', 'content/partials', 'content/glossary', 'content/_versions'];
 const TIMEOUT_MS = 15_000;
@@ -43,13 +50,13 @@ function walk(dir) {
   });
 }
 
-function collect(root) {
+function collect() {
   const byFile = new Map();
 
   for (const dir of CONTENT_DIRS) {
-    for (const file of walk(path.join(root, dir))) {
+    for (const file of walk(path.join(REPO_ROOT, dir))) {
       const images = extractRemoteImages(fs.readFileSync(file, 'utf8'));
-      if (images.length > 0) byFile.set(path.relative(root, file), images);
+      if (images.length > 0) byFile.set(path.relative(REPO_ROOT, file), images);
     }
   }
 
@@ -100,13 +107,51 @@ function describe(result) {
   return result.error ? `request failed: ${result.error}` : `HTTP ${result.status}`;
 }
 
-async function main() {
-  const args = process.argv.slice(2);
-  const strict = args.includes('--strict');
-  const json = args.includes('--json');
-  const root = process.cwd();
+function report(entries, heading, log) {
+  log(`\n${heading}`);
+  let current = null;
+  for (const entry of entries) {
+    if (entry.file !== current) {
+      current = entry.file;
+      log(`  ${current}`);
+    }
+    log(`    line ${entry.line}: ${entry.detail}`);
+    log(`      ${entry.url}`);
+  }
+}
 
-  const byFile = collect(root);
+/** Offline gate: a remote markdown image is a 500 waiting to happen. */
+function presence(byFile, json) {
+  const offenders = [];
+
+  for (const [file, images] of byFile) {
+    for (const image of images) {
+      if (image.syntax !== 'markdown') continue;
+      offenders.push({ file, line: image.line, url: image.url, detail: 'remote markdown image' });
+    }
+  }
+
+  if (json) {
+    console.log(JSON.stringify({ offenders }, null, 2));
+    return;
+  }
+
+  if (offenders.length === 0) {
+    console.log('remote-images-check --presence: no remote markdown images.');
+    return;
+  }
+
+  console.error(
+    `remote-images-check --presence: ${offenders.length} remote markdown image(s). Each renders as an HTTP 500.`,
+  );
+  console.error(
+    'next/image needs a width and the build no longer measures remote images. Copy the file into public/img/ and use /img/…, or embed it with <ImageZoom src="https://…" />.',
+  );
+  report(offenders, 'Offending images:', console.error);
+  process.exitCode = 1;
+}
+
+async function reachability(byFile, { json, strict }) {
   const urls = [...new Set([...byFile.values()].flat().map((image) => image.url))];
 
   if (urls.length === 0) {
@@ -122,7 +167,7 @@ async function main() {
     for (const image of images) {
       const result = results.get(image.url);
       if (!isReachable(result.status)) {
-        unreachable.push({ file, line: image.line, url: image.url, reason: describe(result) });
+        unreachable.push({ file, line: image.line, url: image.url, detail: describe(result) });
       }
     }
   }
@@ -135,26 +180,27 @@ async function main() {
   console.log(
     `remote-images-check: ${urls.length} remote image URL(s) across ${byFile.size} file(s).`,
   );
-  console.log(
-    'Remote images do not render on this site (no images.remotePatterns). Copy them into public/img/.',
-  );
 
   if (unreachable.length === 0) {
     console.log('All of them answered. None is unreachable.');
-  } else {
-    console.log(`\n${unreachable.length} unreachable:`);
-    let current = null;
-    for (const entry of unreachable) {
-      if (entry.file !== current) {
-        current = entry.file;
-        console.log(`  ${current}`);
-      }
-      console.log(`    line ${entry.line}: ${entry.reason}`);
-      console.log(`      ${entry.url}`);
-    }
+    return;
   }
 
-  if (strict && unreachable.length > 0) process.exitCode = 1;
+  report(unreachable, `${unreachable.length} unreachable:`, console.log);
+  if (strict) process.exitCode = 1;
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  const json = args.includes('--json');
+  const byFile = collect();
+
+  if (args.includes('--presence')) {
+    presence(byFile, json);
+    return;
+  }
+
+  await reachability(byFile, { json, strict: args.includes('--strict') });
 }
 
 await main();

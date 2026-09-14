@@ -305,8 +305,8 @@ for that file. The native component then requires `width`/`height` or the build 
 
 ## Remote images are never fetched at build
 
-`source.config.ts` sets `remarkImageOptions: { external: false }`. Every image in content must be
-committed under `public/` and referenced as `/img/…`.
+`source.config.ts` sets `remarkImageOptions: { external: false }`. Nothing in the build requests a
+third-party image.
 
 **Why.** Fumadocs' `remark-image` probes each image for its intrinsic size so it can emit
 `width`/`height`. For an `https://` src that probe is an HTTP request made while MDX compiles, and
@@ -315,32 +315,47 @@ during compilation and took down **every** docs page, not only the page holding 
 `/docs/get-started` served a 500 with `[Remark Image] Failed obtain image size for
 https://imgur.com/0q5bHZK.png`. That is the failure FS-2681 removed.
 
-**Why `external: false` and not `onError: 'ignore'`.** Skipping the probe costs nothing, because a
-remote image cannot render here in the first place. Markdown images resolve to `next/image` (via
-`defaultMdxComponents.img` in `fumadocs-ui/mdx`), and `next.config.mjs` declares no
-`images.remotePatterns`, so Next rejects any remote host at render time with `hostname … is not
-configured under images`. Probing a URL we are going to refuse anyway only buys a network
-dependency inside the compiler. Local images are still measured from disk, and `onError` stays at
-its default, so a typo in a `public/` path still fails the build: the repo is ours to keep correct,
-the network is not.
+**What this means per syntax.** The two ways to put an image on a page are no longer equivalent, and
+the difference is the thing to remember:
 
-**The trade-off.** If somebody adds a remote image anyway, it no longer breaks the compile. It
-breaks that one page at render instead, with `Image with src "…" is missing required "width"
-property`. Contained and loud, rather than global and confusing. Supporting remote images properly
-would mean adding `images.remotePatterns` to `next.config.mjs` and accepting that a third party can
-change or remove the file under us. Copying the image into `public/img/` is the cheaper answer.
+| Syntax                          | Component                                    | Remote src after this change |
+| ------------------------------- | -------------------------------------------- | ---------------------------- |
+| `![alt](https://…)`             | `next/image`, via `defaultMdxComponents.img` | **The page 500s.**           |
+| `<ImageZoom src="https://…" />` | `components/mdx/ImageZoom`, a plain `<img>`  | Renders.                     |
+| `![alt](/img/…)`                | `next/image`, measured from disk             | Renders, optimized.          |
 
-**Finding them.** `pnpm images:check` scans content for `http(s)` image srcs, requests each one with
-a browser user agent, and prints the unreachable ones grouped by file. It always exits 0 unless you
-pass `--strict`, and it is deliberately not in CI: a third party's outage is not a reason to fail
-somebody else's pull request. The tree currently has zero remote images, so the report is empty.
+Markdown is the broken one because `next/image` requires dimensions it can no longer obtain.
+Measured on a scratch page, not inferred: a reachable remote src in markdown syntax returns HTTP 500
+with `Image with src "…" is missing required "width" property`, while the same URL through
+`<ImageZoom>` returns 200 and emits `<img src="https://…">`. A remote markdown image would fail for
+a second reason as well if it got past the first, since `next.config.mjs` declares no
+`images.remotePatterns`.
+
+**So:** commit images under `public/` and reference them as `/img/…`. That is the only form that is
+both reliable and optimized. Where a third party's own CDN copy has to be used, `<ImageZoom>` is the
+supported way, as `content/docs/third-party-docs/Particle/particle.mdx` does.
+
+**Why `external: false` and not `onError: 'ignore'`.** Both stop the compile from throwing.
+`external: false` also stops the compile from touching the network at all, which keeps it
+deterministic and lets the `Build` job become blocking. `onError: 'ignore'` would keep a network
+round trip per remote image for a `width` that markdown cannot use anyway. Local images are still
+measured from disk, and `onError` stays at its default `error`, so a missing or corrupt file under
+`public/` still fails the build rather than shipping a broken page.
+
+**Finding them.** One script, two modes:
+
+- `pnpm images:presence` is offline and **blocking in CI**. It fails when a markdown image with a
+  remote src appears anywhere in content, which is exactly the case that 500s.
+- `pnpm images:check` requests every remote image, markdown or JSX, and prints the ones that no
+  longer answer. Report only, exits 0 unless `--strict`, and deliberately not in CI: a third party's
+  outage is not a reason to fail somebody else's pull request.
 
 ## The gates
 
 CI runs on push and PR to `main` (`.github/workflows/ci.yml`) in three jobs. **Only the first
 blocks.** A green PR does not mean the content is clean.
 
-**`Gates` (blocking)** — eight steps:
+**`Gates` (blocking)** — nine steps:
 
 | Step                       | Catches                                                                       |
 | -------------------------- | ----------------------------------------------------------------------------- |
@@ -351,6 +366,7 @@ blocks.** A green PR does not mean the content is clean.
 | `partials:check`           | Unresolved includes, routing leaks, stale catalog, `cwd` include in a partial |
 | `versioned-docs-check.mjs` | Archived-page registry drift                                                  |
 | `references:check`         | Glossary ids and `<Reference>` targets                                        |
+| `images:presence`          | A markdown image with a remote src, which renders as a 500                    |
 | `check-links`              | Broken internal doc links                                                     |
 
 `check-links` exists because Fumadocs has no equivalent of Docusaurus's `onBrokenLinks: 'throw'`.
@@ -369,10 +385,10 @@ is gone: the build no longer touches the network for images (see
 this job into `Gates` is now possible and wants its own change, not least because a full build is
 the slowest job here.
 
-**Run by hand only:** `drift`, `precompiles:check`, `redirects:legacy`, `redirects:check`,
-`images:check`. `redirects:check` cannot run in CI as-is because it reads `/llms.txt` off a running
-site. `images:check` reaches out to third-party hosts, so its result depends on somebody else's
-uptime.
+**Run by hand only:** `drift`, `precompiles:check`, `redirects:legacy`, `redirects:check`, and the
+network mode of `images:check`. `redirects:check` cannot run in CI as-is because it reads
+`/llms.txt` off a running site. `images:check` reaches out to third-party hosts, so its result
+depends on somebody else's uptime. Its offline sibling `images:presence` does run in CI.
 
 `upstream-refresh.yml` runs Mondays at 08:00 UTC and on `workflow_dispatch`: `nitro:check-release`,
 then `precompiles:generate`, opening `automated/upstream-refresh` as a PR if anything changed. It
@@ -390,9 +406,9 @@ Every gate has a blind spot. These are the ones that have bitten:
   literal `:::`, `undefined`, or HTTP 500. Confirm content changes in a browser.
 - **A redirect to the wrong-but-existing page.** `redirects:check` only proves the destination
   resolves.
-- **A third-party image that has rotted.** Nothing in CI requests it. Since the compile stopped
-  fetching remote images, a dead URL is silent rather than fatal. `pnpm images:check` is the manual
-  sweep.
+- **A third-party image that has rotted.** Nothing in CI requests it, so a dead URL behind
+  `<ImageZoom src="https://…">` is silent. `pnpm images:check` is the manual sweep. The one case CI
+  does catch is a remote image in markdown syntax, via the offline `images:presence` gate.
 
 **Browse on `localhost:3000`, not `127.0.0.1`.** On `127.0.0.1` React does not hydrate and every
 component looks broken.

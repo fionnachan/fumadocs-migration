@@ -108,15 +108,14 @@ export default defineConfig({
     // URL threw and took the whole MDX compile down: every docs page 500s, not just the page
     // holding the image (FS-2681).
     //
-    // The probe buys us nothing anyway. Markdown images render through `next/image`, and
-    // `next.config.mjs` declares no `images.remotePatterns`, so a remote src is rejected at render
-    // whether or not we know its size. Remote images have to be copied into `public/img/` to work
-    // at all; see INTERNALS.md "Remote images are never fetched at build" and
-    // `pnpm images:check`.
+    // `external: false` disables the probe for remote URLs only, and nothing else changes for
+    // local images: `useImport` stays on, so a `/img/…` src is imported and the bundler fails the
+    // build on a path that does not exist.
     //
-    // `external: false` disables the probe for remote URLs only. Local images are still measured
-    // from disk, and `onError` stays at its default `error`, so a typo in a `public/` path still
-    // fails the build. The repo is ours to keep correct; the network is not.
+    // The consequence to know about is that a markdown image with a remote src now reaches
+    // `next/image` without a `width` and renders as an HTTP 500. That is the case
+    // `pnpm images:presence` blocks in CI. `<ImageZoom src="https://…" />` is unaffected, because
+    // it is a plain `<img>`. See INTERNALS.md "Remote images are never fetched at build".
     remarkImageOptions: {
       external: false,
     },

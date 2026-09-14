@@ -32,6 +32,7 @@
     "vars:check": "node scripts/vars-check.mjs",
     "content:lint": "node scripts/content-lint.mjs",
     "images:check": "node scripts/remote-images-check.mjs",
+    "images:presence": "node scripts/remote-images-check.mjs --presence",
     "test": "node --test \"scripts/**/*.test.mjs\"",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
