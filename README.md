@@ -164,9 +164,14 @@ retiring it is a content edit. Five keys control it:
 | `announcementLinkHref` | Where the link goes                                          |
 | `announcementId`       | Dismissal key. **Change it whenever you change the message** |
 
-A reader who closes the banner has `announcementId` written to their browser, and never sees that
-id again. Reuse an id for a new message and everyone who dismissed the old one misses the new one,
-so give each message its own id.
+**Dismissal is permanent per viewer, not per session.** A reader who closes the banner has
+`announcementId` written to their browser's `localStorage`, which survives closing the tab and
+every later visit, so they never see that id again on that browser. Reuse an id for a new message
+and everyone who dismissed the old one misses the new one. Give each message its own id.
+
+`announcementLinkHref` is checked by `pnpm vars:check`: it has to be an `https` URL, or a
+root-absolute internal path that resolves to a real page or a file under `public/`. Nothing else
+would catch a typo there, because `pnpm check-links` only reads MDX.
 
 ## Move a page
 

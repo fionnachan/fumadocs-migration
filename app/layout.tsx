@@ -97,7 +97,7 @@ export default function Layout({ children }: { children: ReactNode }) {
               Writers control it from content/vars.json: text, link, and the
               enabled flag, so changing or retiring the message is a content
               edit rather than a code change. `announcementId` is both the
-              dismissal key and the cache-buster — a viewer who closes the
+              dismissal key and the cache-buster. A viewer who closes the
               banner has that id written to localStorage, so a new message
               needs a new id or it stays hidden from everyone who dismissed
               the last one. */}

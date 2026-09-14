@@ -204,9 +204,18 @@ Three things about it are not obvious:
 
 - **The keys are not `<Var>` substitutions.** `pnpm vars:check` reports them as configured but
   unreferenced in MDX. That warning is expected for this block and is not a defect.
-- **`announcementId` is the dismissal key.** Fumadocs writes `nd-banner-<base32(id)>` to the
-  viewer's `localStorage` on close and injects a script that hides the banner before hydration.
-  Reusing an id for a new message hides it from everyone who dismissed the old one.
+- **`announcementId` is the dismissal key, and dismissal is permanent.** Fumadocs writes
+  `nd-banner-<base32(id)>` to the viewer's `localStorage` on close and injects a script that hides
+  the banner before hydration. `localStorage` outlives the tab and the session, so a reader who
+  closes the banner is done with that id on that browser for good. The ticket asked for "per
+  session"; this is stronger, and it is what Fumadocs' component does. Reusing an id for a new
+  message therefore hides it from everyone who dismissed the old one.
+- **`announcementLinkHref` is gated.** `pnpm vars:check` requires an `https` URL or a root-absolute
+  internal path that resolves to a page or a `public/` file, with the rule in
+  `scripts/lib/announcement-link.mjs` and its tests beside it. `check-links` walks MDX only and this
+  value lives in JSON, so without that check the most visible link on the site is the one nothing
+  validates. Relative hrefs are rejected rather than resolved: the banner renders on every route, so
+  there is no page to resolve them against.
 - **`height` has to be a real length.** The prop lands in an inline style and in
   `--fd-banner-height`, which the docs and notebook containers feed into `calc()` and a sticky
   `top`. `auto` breaks the grid. The message fits one line from 640px up and wraps to two below, so
