@@ -375,9 +375,10 @@ what is captured.
 `components/analytics/not-found-tracker.tsx`, with the same fields the Docusaurus `NotFound`
 swizzle sent: pathname, search, hash, referrer, user agent, and full URL. It reads `window.posthog`
 rather than importing the SDK, so it captures nothing outside production instead of pulling a few
-hundred kilobytes into every deployment. Because the SDK initialises from an effect of its own and
-sibling effect order is not guaranteed, the tracker retries once after a second rather than losing
-the event to that race. These events are what M-53 monitors after cutover to find inbound URLs the
+hundred kilobytes into every deployment. Because the SDK initialises from an effect of its own, out
+of a ~290 kB async chunk, and no ordering between the two effects is guaranteed, the tracker retries
+on a backoff spanning about sixteen seconds rather than losing the event to that race. It snapshots
+the location at mount, so a late attempt still reports the URL the reader landed on. These events are what M-53 monitors after cutover to find inbound URLs the
 redirect map still misses.
 
 **Environment variables.** `NEXT_PUBLIC_POSTHOG_KEY` is the PostHog project token (`phc_…`), which
