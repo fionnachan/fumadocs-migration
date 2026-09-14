@@ -39,23 +39,34 @@ Config lives in `lib/inkeep.ts`; the widgets mount in `components/inkeep/` and a
 None of these are needed to run the site locally; everything that reads them degrades to a no-op
 or a documented fallback.
 
-| Variable                     | Used by                                                                                  | Without it                                                                  |
-| ---------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_INKEEP_API_KEY` | search and the "Ask AI" button                                                           | both are unavailable                                                        |
-| `NEXT_PUBLIC_SITE_URL`       | `metadataBase`, `app/sitemap.ts`, `app/robots.ts`, request tracking                      | falls back to `http://localhost:3000`                                       |
-| `NEXT_PUBLIC_POSTHOG_KEY`    | page feedback (`lib/posthog.ts`) and markdown/`llms*.txt` request tracking in `proxy.ts` | feedback submissions and tracking events are dropped with a server-side log |
+| Variable                     | Used by                                                                             | Without it                                                                  |
+| ---------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_INKEEP_API_KEY` | search and the "Ask AI" button                                                      | both are unavailable                                                        |
+| `NEXT_PUBLIC_SITE_URL`       | `metadataBase`, `app/sitemap.ts`, `app/robots.ts`, request tracking                 | falls back to `http://localhost:3000`                                       |
+| `NEXT_PUBLIC_POSTHOG_KEY`    | page feedback (`lib/posthog.ts`), web analytics, and request tracking in `proxy.ts` | feedback submissions and tracking events are dropped with a server-side log |
+| `NEXT_PUBLIC_VERCEL_ENV`     | the production gate on web analytics and the Inkeep event bridge                    | neither fires; Vercel sets this one, you never do                           |
+
+Set the PostHog token the same way as the Inkeep key, in a local `.env` (gitignored):
+
+```bash
+NEXT_PUBLIC_POSTHOG_KEY=phc_<posthog-project-token>
+```
 
 `NEXT_PUBLIC_POSTHOG_KEY` is PostHog's documented name for the publishable `phc_` project token
 (Project settings, Project API key). It is write-only, so the `NEXT_PUBLIC_` prefix is safe even
-though both consumers read it on the server. Set it on Vercel for Preview and Production.
+though two of its three consumers read it on the server. Set it on Vercel for Preview and
+Production.
 
-Request tracking only fires when `VERCEL_ENV` is `production`, which Vercel sets for you. Nothing
-is sent locally or from a preview deployment, so no key is needed for either.
+Page feedback needs the key locally. Web analytics does not fire locally or on a preview deployment
+no matter what you set, because `components/analytics/posthog-provider.tsx` also requires
+`NEXT_PUBLIC_VERCEL_ENV` to be `production` and only Vercel sets that. Request tracking is gated the
+same way, on the server-side `VERCEL_ENV`, so nothing is sent locally or from a preview and no key
+is needed for either. See [Analytics](INTERNALS.md#analytics).
 
-Those events carry a `distinct_id` derived from the reader's IP, hashed with that day's date as the
-salt. The raw address is never sent. **The hash is pseudonymous rather than anonymous:** the salt is
-a public date, so it stops a reader being linked across days but not re-identified by anyone willing
-to hash the IPv4 space against it. Treat it as personal data when querying or exporting. See
+Tracking events carry a `distinct_id` derived from the reader's IP, hashed with that day's date as
+the salt. The raw address is never sent. **The hash is pseudonymous rather than anonymous:** the
+salt is a public date, so it stops a reader being linked across days but not re-identified by anyone
+willing to hash the IPv4 space against it. Treat it as personal data when querying or exporting. See
 [Routing and `proxy.ts`](INTERNALS.md#routing-and-proxyts).
 
 ## Before you push
