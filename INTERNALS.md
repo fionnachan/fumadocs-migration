@@ -192,6 +192,12 @@ catches a `<Var name>` with no matching key.**
 Values mirror upstream `arbitrum-docs/src/resources/globalVars.js`. Keep them in sync while that
 site is still live.
 
+**`<Var>` does not render inside code.** MDX does not evaluate components inside a fenced code
+block or an inline code span, so a `<Var name="…" />` placed there ships as the literal tag text.
+Neither `vars:check` nor `types:check` sees this, since both only prove the variable exists, not
+where it's used. `content-lint` rule A6 catches it; fix a finding by hardcoding the current value in
+the code and putting the live `<Var>` in the prose next to it.
+
 ## Redirects
 
 Every redirect lives in `redirects.config.mjs`, consumed by `next.config.mjs`'s `redirects()`.

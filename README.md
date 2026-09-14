@@ -131,6 +131,12 @@ The current Nitro release is <Var name="nitroVersionTag" />.
 
 `Var` is registered globally, so pages need no import. It works inside partials too.
 
+**Variables do not work inside code.** MDX does not evaluate components inside a fenced code block
+or an inline code span, so `<Var name="…" />` there renders as a literal tag, not its value.
+Hardcode the current value in the code instead, and reference the variable in the prose next to it
+so the two can be checked against each other. `pnpm content:lint` (rule A6) fails on any `<Var>`
+found inside code.
+
 **To update a value:** edit [`content/vars.json`](content/vars.json), then run `pnpm vars:check`.
 
 **To add a new variable:** add the key to `content/vars.json` **and** its type to the `varsSchema`
