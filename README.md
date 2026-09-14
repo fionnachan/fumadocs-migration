@@ -50,7 +50,12 @@ or a documented fallback.
 though both consumers read it on the server. Set it on Vercel for Preview and Production.
 
 Request tracking only fires when `VERCEL_ENV` is `production`, which Vercel sets for you. Nothing
-is sent locally or from a preview deployment, so no key is needed for either. See
+is sent locally or from a preview deployment, so no key is needed for either.
+
+Those events carry a `distinct_id` derived from the reader's IP, hashed with that day's date as the
+salt. The raw address is never sent. **The hash is pseudonymous rather than anonymous:** the salt is
+a public date, so it stops a reader being linked across days but not re-identified by anyone willing
+to hash the IPv4 space against it. Treat it as personal data when querying or exporting. See
 [Routing and `proxy.ts`](INTERNALS.md#routing-and-proxyts).
 
 ## Before you push

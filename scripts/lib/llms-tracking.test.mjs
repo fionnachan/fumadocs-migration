@@ -8,7 +8,9 @@
  * imports of its own.
  */
 import { strict as assert } from 'node:assert';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
   buildTrackingPayload,
@@ -19,6 +21,9 @@ import {
 } from '../../lib/llms-tracking.ts';
 
 const ignored = { kind: 'ignored', trackedPath: null, fileType: null };
+
+const repoFile = (name) =>
+  readFileSync(fileURLToPath(new URL(`../../${name}`, import.meta.url)), 'utf8');
 
 // --- classifyUA -------------------------------------------------------------------------------
 
@@ -356,4 +361,99 @@ test('buildTrackingPayload: the same ip on the same day gives the same distinct_
   });
 
   assert.equal(p1.distinct_id, p2.distinct_id);
+});
+
+test('buildTrackingPayload: a different day gives a different distinct_id for the same ip', async () => {
+  const common = {
+    trackedPath: '/llms.txt',
+    fileType: 'index',
+    userAgent: 'GPTBot/1.0',
+    referrer: '',
+    ip: '203.0.113.42',
+    posthogKey: 'phc_TEST',
+    siteUrl: 'https://docs.arbitrum.io',
+  };
+  const day1 = await buildTrackingPayload({ ...common, now: new Date('2026-05-22T14:30:00Z') });
+  const day2 = await buildTrackingPayload({ ...common, now: new Date('2026-05-23T14:30:00Z') });
+
+  assert.notEqual(day1.distinct_id, day2.distinct_id);
+});
+
+test('buildTrackingPayload: an absent ip gets a random id, not one shared bucket', async () => {
+  // Hashing '' is a constant, so without this every request lacking x-forwarded-for would collapse
+  // into a single PostHog person and read as one extraordinarily busy client.
+  const common = {
+    trackedPath: '/llms.txt',
+    fileType: 'index',
+    userAgent: 'GPTBot/1.0',
+    referrer: '',
+    ip: '',
+    posthogKey: 'phc_TEST',
+    siteUrl: 'https://docs.arbitrum.io',
+    now: new Date('2026-05-22T14:30:00Z'),
+  };
+  const a = await buildTrackingPayload(common);
+  const b = await buildTrackingPayload(common);
+
+  assert.notEqual(a.distinct_id, b.distinct_id);
+  // And specifically not the hash of the empty string, which is what a naive fallback produces.
+  assert.notEqual(a.distinct_id, await ipHash('', dailySalt(common.now)));
+});
+
+test('buildTrackingPayload: the raw ip never appears anywhere in the payload', async () => {
+  const payload = await buildTrackingPayload({
+    trackedPath: '/llms.txt',
+    fileType: 'index',
+    userAgent: 'GPTBot/1.0',
+    referrer: '',
+    ip: '203.0.113.42',
+    posthogKey: 'phc_TEST',
+    siteUrl: 'https://docs.arbitrum.io',
+    now: new Date('2026-05-22T14:30:00Z'),
+  });
+
+  assert.equal(JSON.stringify(payload).includes('203.0.113.42'), false);
+});
+
+// --- how the capture is scheduled ---------------------------------------------------------------
+
+// These are source assertions rather than behavioural ones: `proxy.ts` imports through the `@/`
+// alias, which plain node does not resolve, so it cannot be imported here. They exist because the
+// failure they guard against is invisible at runtime and in every local test.
+//
+// `waitUntil` from `@vercel/functions` resolves the request context through
+// `globalThis[Symbol.for('@vercel/request-context')]`. When that symbol is absent, its `getContext()`
+// returns `{}` and the call becomes `undefined?.(promise)`: the promise is dropped with no error,
+// no log, and no type error. Next 16 does not install that symbol (it installs
+// `@next/request-context`), so on Vercel the capture would be at the mercy of whether the
+// invocation happens to stay alive past the response.
+//
+// Nothing catches this locally, because the promise chain begins executing the moment it is built.
+// In `next dev` the fetch completes either way, so an end-to-end check passes while production
+// silently loses events. Hence a test on the wiring itself.
+
+test('proxy schedules the capture with the NextFetchEvent Next provides', () => {
+  const proxy = repoFile('proxy.ts');
+
+  assert.match(proxy, /event\.waitUntil\(/, 'the capture must be scheduled via event.waitUntil()');
+  assert.match(
+    proxy,
+    /NextFetchEvent/,
+    'the proxy must take the NextFetchEvent Next passes as its second argument',
+  );
+});
+
+test('proxy does not use @vercel/functions waitUntil, which no-ops under Next 16', () => {
+  // Matches an import of the package, not a mention of it: the doc comment in proxy.ts names
+  // @vercel/functions on purpose, to tell the next reader why it is not used.
+  assert.equal(
+    /(?:^|\n)\s*import[^\n;]*['"]@vercel\/functions['"]/.test(repoFile('proxy.ts')),
+    false,
+    'proxy.ts must not import @vercel/functions; its waitUntil silently drops the promise here',
+  );
+  assert.equal(
+    JSON.parse(repoFile('package.json')).dependencies['@vercel/functions'],
+    undefined,
+    '@vercel/functions must not be a dependency; Next provides waitUntil natively',
+  );
 });

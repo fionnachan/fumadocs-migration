@@ -129,8 +129,15 @@ export function pathInfo(pathname: string, accept: string): PathInfoResult {
 /**
  * The distinct_id salt, rotated daily (UTC).
  *
- * Rotating it means a raw IP cannot be looked up across days from the stored hash, while requests
- * from one client on one day still collapse into a single PostHog person rather than one per hit.
+ * Rotating it is what stops a reader being linked across days: the same IP hashes differently
+ * tomorrow. Within one day, requests from one client still collapse into a single PostHog person
+ * rather than one per hit, which is the whole point of hashing rather than randomising.
+ *
+ * **This is pseudonymisation, not anonymisation.** The salt is a public date string, so the entire
+ * IPv4 space can be hashed against it in seconds and a stored distinct_id matched back to an
+ * address. Treat the id as personal data. Making it genuinely one-way needs a secret salt, which
+ * means a server-side env var and a decision about what happens when it is unset; that is a
+ * deliberate follow-up, not something to bolt on here.
  */
 export function dailySalt(now: Date = new Date()): string {
   return now.toISOString().slice(0, 10);
@@ -149,6 +156,7 @@ export interface BuildPayloadInput {
   fileType: 'index' | 'page';
   userAgent: string;
   referrer: string;
+  /** Client IP, or `''` when `x-forwarded-for` was absent. Never included in the payload. */
   ip: string;
   posthogKey: string;
   /** Origin the tracked path is resolved against, e.g. `https://docs.arbitrum.io`. No trailing slash. */
@@ -177,13 +185,19 @@ export interface TrackingPayload {
  * project, so renaming them here would orphan the existing dashboards rather than continue them.
  *
  * Unlike `lib/posthog.ts`, this does not set `$process_person_profile: false`. That is upstream's
- * behaviour and the point of the daily IP hash — it is what makes "how many distinct crawlers
+ * behaviour and the point of the daily IP hash: it is what makes "how many distinct crawlers
  * fetched this page today" answerable. It does mean one person profile per client per day.
+ *
+ * **An absent IP gets a random id, not a hash of the empty string.** Hashing `''` is a constant, so
+ * every request without an `x-forwarded-for` header would land on one shared PostHog person and
+ * read as a single extraordinarily busy client. A random id keeps those requests countable as
+ * events while making no claim that any two of them came from the same place. The header is always
+ * present on Vercel, so in production this is a fallback rather than the common path.
  */
 export async function buildTrackingPayload(input: BuildPayloadInput): Promise<TrackingPayload> {
   const category = classifyUA(input.userAgent);
   const salt = dailySalt(input.now);
-  const distinct_id = await ipHash(input.ip, salt);
+  const distinct_id = input.ip === '' ? crypto.randomUUID() : await ipHash(input.ip, salt);
 
   return {
     api_key: input.posthogKey,

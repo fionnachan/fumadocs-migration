@@ -297,17 +297,38 @@ of `.md` outside the docs tree.
 preview deployments stay out of the numbers and need no key. The key is `NEXT_PUBLIC_POSTHOG_KEY`,
 the same publishable `phc_` token `lib/posthog.ts` uses, posted to the same `us.i.posthog.com` host.
 
-**Tracking can never break a response.** The capture is handed to `waitUntil` from
-`@vercel/functions` so the response is not held for it, and every failure path, including
-`waitUntil` itself throwing outside a request context, is caught and logged. A missing key logs
-once per request and drops the event.
+**Tracking can never break a response.** The capture is handed to `event.waitUntil()` so the
+response is not held for it, and every failure path is caught and logged. A missing key logs once
+per request and drops the event.
 
-The reader's IP is never stored: `buildTrackingPayload` hashes it with a UTC daily salt into the
-`distinct_id`. Rotating the salt daily means the stored hash cannot be walked back to an IP across
-days, while one client's requests on one day still collapse into a single PostHog person rather
-than one per hit. Unlike `lib/posthog.ts`, this does not set `$process_person_profile: false` —
-that is upstream's behaviour and the point of the stable daily id, at the cost of one person
-profile per client per day.
+**Schedule it with the `NextFetchEvent` Next passes as the proxy's second argument, never with
+`waitUntil` from `@vercel/functions`.** That helper resolves the request context through
+`globalThis[Symbol.for('@vercel/request-context')]`; when the symbol is absent its `getContext()`
+returns `{}`, the call becomes `undefined?.(promise)`, and the promise is dropped with no error, no
+log and no type error. **Next 16 does not install that symbol** (it installs
+`@next/request-context`), so the capture would be at the mercy of whether the invocation happened to
+outlive the response. Upstream's middleware used the framework's event for the same reason.
+
+Nothing catches that locally, which is what makes it worth a paragraph: the promise chain starts
+executing the moment it is constructed, so in `next dev` the fetch completes either way and an
+end-to-end check passes while production loses events. `waitUntil` only extends the runtime's
+lifetime past the response. Two tests in `scripts/lib/llms-tracking.test.mjs` assert the wiring
+directly, because no runtime check can.
+
+**The `distinct_id` is pseudonymous, not anonymous.** `buildTrackingPayload` hashes the client IP
+with a UTC daily salt and sends only the hash; the raw address is never in the payload. Rotating the
+salt daily prevents linking a reader across days, while one client's requests within a day still
+collapse into a single PostHog person rather than one per hit. **It does not prevent re-identification:**
+the salt is a public date string, so the whole IPv4 space can be hashed against it in seconds and a
+stored id matched back to an address. Treat the id as personal data. Making it genuinely one-way
+needs a secret salt and a decision about the unset case, which is deliberately left as follow-up
+rather than half-built here.
+
+A request with no `x-forwarded-for` gets a random id instead of the hash of the empty string, which
+is a constant and would pile every such request onto one shared person that reads as a single
+extraordinarily busy client. Unlike `lib/posthog.ts`, this does not set
+`$process_person_profile: false`; that is upstream's behaviour and the point of the stable daily id,
+at the cost of one person profile per client per day.
 
 `lib/llms-tracking.ts` is **deliberately import-free**, including of `lib/shared.ts`, so that
 `scripts/lib/llms-tracking.test.mjs` can import it directly under `node --test` using Node 22's

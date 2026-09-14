@@ -1,6 +1,5 @@
-import { waitUntil } from '@vercel/functions';
 import { isMarkdownPreferred, rewritePath } from 'fumadocs-core/negotiation';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextFetchEvent, NextRequest, NextResponse } from 'next/server';
 
 import {
   DOCS_CONTENT_ROUTE,
@@ -52,17 +51,30 @@ const POSTHOG_HOST = 'https://us.i.posthog.com';
  * neither sends anything. That keeps development traffic and per-PR crawling out of the numbers,
  * and means no key is needed to run this app.
  *
- * Never blocks and never throws: the capture is handed to `waitUntil` so the response goes out
- * immediately, and every failure path is swallowed after logging. A docs page must not fail
+ * Never blocks and never throws: the capture is handed to `event.waitUntil()` so the response goes
+ * out immediately, and every failure path is swallowed after logging. A docs page must not fail
  * because an analytics write did.
+ *
+ * **The `event.waitUntil` here must not be replaced with `waitUntil` from `@vercel/functions`.**
+ * That helper resolves the request context through
+ * `globalThis[Symbol.for('@vercel/request-context')]`, and when the symbol is absent `getContext()`
+ * returns `{}` and `.waitUntil?.()` is a no-op that drops the promise without a word. Next 16 does
+ * not install that symbol; it installs `@next/request-context`. The `NextFetchEvent` Next hands the
+ * proxy as its second argument is the framework's own documented mechanism and is always present,
+ * which is also what upstream's middleware used.
+ *
+ * This distinction is invisible locally: the promise chain starts executing the moment it is
+ * constructed, so in `next dev` the fetch completes either way. `waitUntil` only extends the
+ * runtime's lifetime past the response, which matters solely on a serverless host that would
+ * otherwise freeze the invocation with the request in flight.
  */
-function trackRequest(request: NextRequest, path: string): void {
+function trackRequest(request: NextRequest, event: NextFetchEvent, path: string): void {
   if (process.env.VERCEL_ENV !== 'production') return;
 
   const info = pathInfo(path, request.headers.get('accept') ?? '');
   if (info.kind === 'ignored') return;
 
-  // Read on the server despite the NEXT_PUBLIC_ prefix — that is PostHog's documented name for the
+  // Read on the server despite the NEXT_PUBLIC_ prefix. That is PostHog's documented name for the
   // publishable `phc_` project token, which is write-only. Same variable `lib/posthog.ts` uses.
   const posthogKey = process.env.NEXT_PUBLIC_POSTHOG_KEY;
   if (!posthogKey) {
@@ -74,14 +86,16 @@ function trackRequest(request: NextRequest, path: string): void {
   }
 
   try {
-    waitUntil(
+    event.waitUntil(
       buildTrackingPayload({
         trackedPath: info.trackedPath,
         fileType: info.fileType,
         userAgent: request.headers.get('user-agent') ?? '',
         referrer: request.headers.get('referer') ?? '',
-        // Only the first entry is the client; the rest are proxies. The value is never stored —
-        // `buildTrackingPayload` hashes it with a daily salt into the distinct_id.
+        // Only the first entry is the client; the rest are proxies. The raw value never leaves this
+        // function: `buildTrackingPayload` turns it into the salted hash that becomes the
+        // distinct_id. An empty string here means the header was absent, and the payload builder
+        // gives those requests a random id rather than one shared bucket.
         ip: request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? '',
         posthogKey,
         siteUrl: process.env.NEXT_PUBLIC_SITE_URL ?? request.nextUrl.origin,
@@ -98,21 +112,21 @@ function trackRequest(request: NextRequest, path: string): void {
         }),
     );
   } catch (error) {
-    // `waitUntil` itself can throw outside a request context. Nothing about tracking is worth a 500.
+    // Defensive: scheduling should not throw here, but nothing about tracking is worth a 500.
     console.error('[llms-tracking] could not schedule the capture:', error);
   }
 }
 
-export default function proxy(request: NextRequest) {
+export default function proxy(request: NextRequest, event: NextFetchEvent) {
   const path = request.nextUrl.pathname;
 
   // Before the bypass list: `/llms.txt`, `/llms-full.txt` and the `/llms.mdx/` mirrors are all
   // served verbatim below, and they are exactly the fetches worth counting. A rewrite does not
   // re-enter the proxy, so a `/docs/x.md` request is counted here once, not again as the
   // `/llms.mdx/docs/x/content.md` it rewrites to.
-  trackRequest(request, path);
+  trackRequest(request, event, path);
 
-  // Routes served verbatim — skip markdown content-negotiation entirely.
+  // Routes served verbatim: skip markdown content-negotiation entirely.
   if (
     path.startsWith('/_next/') ||
     path.startsWith('/img/') ||

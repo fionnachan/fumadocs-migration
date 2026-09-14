@@ -41,7 +41,6 @@
     "@floating-ui/react": "0.27.20",
     "@inkeep/cxkit-react": "0.5.119",
     "@radix-ui/react-dialog": "1.1.23",
-    "@vercel/functions": "3.9.7",
     "class-variance-authority": "0.7.1",
     "fumadocs-core": "16.15.1",
     "fumadocs-mdx": "15.3.1",
