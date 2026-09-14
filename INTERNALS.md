@@ -270,12 +270,18 @@ segment, and `createI18nMiddleware`.
 
 ### `/sitemap.xml` and `/robots.txt`
 
-Both are Next **metadata routes** (`app/sitemap.ts`, `app/robots.ts`) — file conventions, not route
-handlers, so there is no `route.ts` and no hand-written XML. Both read the deployed origin from
-`NEXT_PUBLIC_SITE_URL`, falling back to `http://localhost:3000` exactly as `metadataBase` in
-`app/layout.tsx` does, so a local build is self-consistent rather than broken.
+Both are Next **metadata routes** (`app/sitemap.ts`, `app/robots.ts`), file conventions rather than
+route handlers, so there is no `route.ts` and no hand-written XML. Neither sets `revalidate`: a
+metadata route with no request-time input is already cached at build time by default.
 
-**The sitemap derives every entry from `source.getPages()`** — the same choke point every other
+**Both read the deployed origin from `NEXT_PUBLIC_SITE_URL`**, falling back to
+`http://localhost:3000` exactly as `metadataBase` in `app/layout.tsx` does, so a local build is
+self-consistent rather than broken. That variable is inlined at build time, so **if it is unset in
+the Vercel build environment, production serves a sitemap and a robots.txt pointing at localhost**,
+and nothing here fails loudly. FS-2668 adds a `getSiteUrl()` helper to `lib/shared.ts` that throws
+in production when the variable is unset; both routes should adopt it once that lands.
+
+**The sitemap derives every entry from `source.getPages()`**, the same choke point every other
 content consumer reads. Adding a page to `content/docs/` puts it in the sitemap with no further
 change. The home page at `/` is not in the doc collection and is prepended by hand.
 
@@ -298,7 +304,7 @@ defensively so enabling the flag needs no change there.
 - **`Content-Signal: search=yes, ai-input=yes, ai-train=no` is emitted through the rule's `other`
   field.** The directive is not RFC 9309; it is draft-romm-aipref-contentsignals
   ([contentsignals.org](https://contentsignals.org/)). Next models only the standard directives and
-  documents `other` as the pass-through for exactly this, available since Next 16.3.0 — so no
+  documents `other` as the pass-through for exactly this, available since Next 16.3.0, so no
   separate `app/robots.txt/route.ts` handler is needed. Next emits `Allow` before `other`, which
   reorders the lines relative to upstream's file; robots.txt directives are order-independent
   within a group, so the meaning is unchanged.

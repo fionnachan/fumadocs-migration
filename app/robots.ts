@@ -1,7 +1,7 @@
 import type { MetadataRoute } from 'next';
 
 /**
- * `/robots.txt` — ports upstream `static/robots.txt` from arbitrum-docs.
+ * `/robots.txt` ports upstream `static/robots.txt` from arbitrum-docs.
  *
  * Two differences from upstream, both deliberate:
  *
@@ -12,7 +12,7 @@ import type { MetadataRoute } from 'next';
  *
  * 2. **`Content-Signal` goes through `other`.** It is not part of RFC 9309; it is
  *    draft-romm-aipref-contentsignals (https://contentsignals.org/). Next's `Robots` object models
- *    only the standard directives, and `other` is its documented escape hatch for exactly this —
+ *    only the standard directives, and `other` is its documented escape hatch for exactly this:
  *    keys keep their casing and values pass through verbatim, scoped to this rule's `User-Agent`
  *    block. Available since Next 16.3.0, so no separate `app/robots.txt/route.ts` handler is
  *    needed. The emitted line order differs from upstream's file (Next writes `Allow` before
@@ -21,10 +21,11 @@ import type { MetadataRoute } from 'next';
  *
  * The signal is permissive for reading and restrictive for training: the docs may be indexed for
  * search and used as input to AI assistants, but not used as training data.
+ *
+ * No `revalidate` export: a metadata route with no request-time input is already cached at build
+ * time by default, so setting it would only restate the default.
  */
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
-
-export const revalidate = false;
 
 export default function robots(): MetadataRoute.Robots {
   return {
