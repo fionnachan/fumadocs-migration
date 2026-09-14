@@ -28,6 +28,11 @@
  * hidden. An absent-exempt page is still compared for GUTTED when a counterpart exists, so an
  * exemption can never hide content loss in the page that absorbed it.
  *
+ * Exemptions expire. Each entry pins the git blob hash of the upstream page as it read when a human
+ * granted the exemption; once upstream edits that page the pair comes back as STALE-ALLOWLIST and
+ * fails the run, because the judgement was about one version of the page and not about the page
+ * forever. Otherwise allowlisting a page would be the surest way to hide a gap that lands in it later.
+ *
  * Pairing runs over the whole tree at once via `pairTrees`, not file by file, because upstream has
  * pages in two places that share a basename. See that function for what went wrong when it did not.
  */
@@ -38,9 +43,10 @@ import path from 'node:path';
 import { baselineVerdict, readBaseline } from './lib/git-freshness.mjs';
 import { bodyLineCount, buildTreeIndex, pairTrees } from './lib/tree-compare.mjs';
 import {
-  allowlistedAbsent,
-  allowlistedGutted,
+  allowlistEntries,
   describeSearchOrder,
+  gitBlobHash,
+  isAllowlistStale,
   readUpstreamConfig,
   repoRoot,
   resolveUpstreamTree,
@@ -98,8 +104,8 @@ function main() {
   }
 
   const { docs: treeA, repo: treeARepo } = resolved;
-  const absentAllowlist = allowlistedAbsent(config);
-  const guttedAllowlist = allowlistedGutted(config);
+  const absentAllowlist = allowlistEntries(config.absentAllowlist);
+  const guttedAllowlist = allowlistEntries(config.guttedAllowlist);
 
   const verdict = baselineVerdict(readBaseline(treeARepo));
   for (const w of verdict.warnings) console.error(`upstream-drift: warning: ${treeARepo} ${w}`);
@@ -119,45 +125,74 @@ function main() {
   const absent = [];
   const gutted = [];
   const allowed = [];
+  const stale = [];
+
+  /**
+   * Apply an exemption, unless upstream has edited the page since it was granted.
+   *
+   * Returns true when the finding is handled (suppressed or re-flagged as stale) and false when no
+   * exemption exists, so the caller reports normally.
+   */
+  const exempt = (list, relA, source, detail) => {
+    const entry = list.get(relA);
+    if (!entry) return false;
+    if (isAllowlistStale(entry, gitBlobHash(source))) {
+      stale.push({ ...detail, treeA: relA, reviewed: entry.reviewedUpstreamSha ?? null });
+    } else {
+      allowed.push({ ...detail, treeA: relA });
+    }
+    return true;
+  };
 
   for (const relA of candidates) {
     const relB = paired.get(relA);
+    const aSource = readFileSync(path.join(treeA, relA), 'utf8');
 
     if (!relB) {
-      if (absentAllowlist.has(relA)) {
-        allowed.push({ verdict: 'ABSENT', treeA: relA });
-        continue;
-      }
+      if (exempt(absentAllowlist, relA, aSource, { verdict: 'ABSENT' })) continue;
       const added = addedDate(treeARepo, path.relative(treeARepo, path.join(treeA, relA)));
       absent.push({ treeA: relA, added, kind: added && added > PORT_WINDOW_END ? 'DRIFT' : 'MISS' });
       continue;
     }
 
-    const aLines = bodyLineCount(readFileSync(path.join(treeA, relA), 'utf8'));
+    const aLines = bodyLineCount(aSource);
     const bLines = bodyLineCount(readFileSync(path.join(treeB, relB), 'utf8'));
     if (aLines > 20 && bLines / aLines < GUTTED_RATIO) {
       const ratio = +(bLines / aLines).toFixed(2);
-      if (guttedAllowlist.has(relA)) {
-        allowed.push({ verdict: 'GUTTED', treeA: relA, treeB: relB, ratio });
-        continue;
-      }
+      if (exempt(guttedAllowlist, relA, aSource, { verdict: 'GUTTED', treeB: relB, ratio })) continue;
       gutted.push({ treeA: relA, treeB: relB, aLines, bLines, ratio });
     }
   }
 
   if (json) {
-    console.log(JSON.stringify({ treeA, absent, gutted, allowlisted: allowed }, null, 2));
+    console.log(JSON.stringify({ treeA, absent, gutted, stale, allowlisted: allowed }, null, 2));
     return;
   }
 
+  const staleCount = stale.length ? `, ${stale.length} stale allowlist` : '';
   console.log(`upstream-drift: comparing against ${treeA} (via ${resolved.source})`);
-  console.log(`upstream-drift: ${absent.length} absent, ${gutted.length} gutted\n`);
+  console.log(
+    `upstream-drift: ${absent.length} absent, ${gutted.length} gutted${staleCount}\n`,
+  );
   for (const a of [...absent].sort((x, y) => (y.added ?? '').localeCompare(x.added ?? ''))) {
     console.log(`  ABSENT  ${a.kind}  added ${a.added ?? 'unknown'}  ${a.treeA}`);
   }
   if (absent.length && gutted.length) console.log('');
   for (const g of [...gutted].sort((x, y) => x.ratio - y.ratio)) {
     console.log(`  GUTTED  ratio ${g.ratio}  ${g.aLines}->${g.bLines}  ${g.treeA}  ->  ${g.treeB}`);
+  }
+
+  if (stale.length) {
+    console.log(
+      `\nupstream-drift: ${stale.length} allowlisted page(s) changed upstream since they were ` +
+        'reviewed, so their exemptions no longer apply. Re-read each pair, then either update ' +
+        'reviewedUpstreamSha in scripts/data/upstream.config.json or drop the entry.',
+    );
+    for (const s of [...stale].sort((x, y) => x.treeA.localeCompare(y.treeA))) {
+      const suffix = s.verdict === 'GUTTED' ? `  ratio ${s.ratio}  ->  ${s.treeB}` : '';
+      const at = s.reviewed ? `reviewed at ${s.reviewed.slice(0, 8)}` : 'never pinned to a revision';
+      console.log(`  STALE-ALLOWLIST  ${s.verdict}  ${s.treeA}${suffix}  (${at})`);
+    }
   }
 
   if (allowed.length) {
@@ -172,7 +207,7 @@ function main() {
     }
   }
 
-  if (absent.length || gutted.length) process.exitCode = 1;
+  if (absent.length || gutted.length || stale.length) process.exitCode = 1;
 }
 
 main();

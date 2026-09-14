@@ -20,6 +20,7 @@
  * Every source except `--tree-a` names the repo root, so `docsSubdir` ("docs") is appended to it.
  * `--tree-a` names the docs tree directly, matching how the flag has always been documented.
  */
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -103,29 +104,51 @@ export function resolveUpstreamTree({
 }
 
 /**
- * Upstream paths that must never be reported as ABSENT, from `absentAllowlist` in the config.
+ * Git's blob hash for some content: sha1 over `blob <bytes>\0<content>`.
  *
- * @param {object} [config] Parsed `upstream.config.json`.
- * @returns {Set<string>} Upstream-relative paths to suppress.
+ * Identical to `git hash-object <file>`, computed here so nothing has to shell out to git, or care
+ * whether the upstream checkout has the file committed at the revision in hand. Allowlist entries
+ * record this for the upstream page they exempt, so drift can tell that the page has changed since
+ * a human read it.
+ *
+ * @param {string|Buffer} contents
+ * @returns {string} 40-character hex sha1.
  */
-export function allowlistedAbsent(config = readUpstreamConfig()) {
-  return new Set((config.absentAllowlist ?? []).map((entry) => entry.path));
+export function gitBlobHash(contents) {
+  const body = Buffer.from(contents);
+  return createHash('sha1')
+    .update(Buffer.concat([Buffer.from(`blob ${body.length}\0`), body]))
+    .digest('hex');
 }
 
 /**
- * Upstream paths that must never be reported as GUTTED, from `guttedAllowlist` in the config.
+ * Decide whether an allowlist exemption still applies to the upstream file it was granted for.
  *
- * Kept separate from the absent allowlist because the two suppress different verdicts and are
- * earned differently. A page is absent-exempt when it was deliberately never ported. A page is
- * gutted-exempt when it *was* ported at content parity and only the line count disagrees, because
- * Docusaurus import lines and inline grid boilerplate do not survive the port. One list would let
- * an exemption granted for one reason quietly cover the other.
+ * An exemption is a judgement about one version of a page: someone read it against ours and decided
+ * the difference was fine. Upstream then keeps committing. Without this check the exemption is
+ * permanent and silent, and the one guaranteed way to hide a real future gap is to have already
+ * allowlisted the page it lands in. Comparing against the hash recorded at review time turns the
+ * exemption into something that expires the moment upstream edits the page.
  *
- * @param {object} [config] Parsed `upstream.config.json`.
- * @returns {Set<string>} Upstream-relative paths to suppress.
+ * A missing `reviewedUpstreamSha` counts as stale on purpose: an entry added without one has never
+ * been pinned to a reviewed version, so it should demand a review rather than be trusted.
+ *
+ * @param {{reviewedUpstreamSha?: string}} entry
+ * @param {string} currentSha Blob hash of the upstream file right now.
+ * @returns {boolean}
  */
-export function allowlistedGutted(config = readUpstreamConfig()) {
-  return new Set((config.guttedAllowlist ?? []).map((entry) => entry.path));
+export function isAllowlistStale(entry, currentSha) {
+  return entry?.reviewedUpstreamSha !== currentSha;
+}
+
+/**
+ * Index an allowlist by upstream path, keeping each entry so its recorded hash stays reachable.
+ *
+ * @param {Array<{path: string}>} [entries]
+ * @returns {Map<string, object>}
+ */
+export function allowlistEntries(entries = []) {
+  return new Map(entries.map((entry) => [entry.path, entry]));
 }
 
 /**

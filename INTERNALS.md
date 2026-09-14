@@ -389,6 +389,14 @@ directory-qualified matches first, each claiming its local file, then the bare-s
 whatever is left, never onto a file the first pass already claimed. One local file therefore pairs
 with at most one upstream page.
 
+**One local file pairs with at most one upstream page, in both passes.** The claim rule is not just
+a tie-breaker for the fallback: two upstream pages can land on the same local file through the
+directory match too, once a rename points them there. The single exception is a deliberate
+two-into-one port, which both sides declare with `merge: true` in `RENAME_MAP` (upstream splits
+batch-poster and assertion config across two pages; the port combined them). Without that flag the
+collision is treated as accidental and the later page reports ABSENT, which is the honest answer,
+because the tool cannot tell on its own whether the second page's content survived inside the first.
+
 This matters because upstream keeps a concept page and a how-to page under the same basename:
 `arbos`, `stf`, and `batchposter` versus `batch-poster`. Resolving one path at a time, the concept
 page paired correctly by directory and the how-to page then grabbed the **same** local file through
@@ -423,6 +431,15 @@ into a no-op after a page moves fails the suite instead of quietly regrowing a f
 An absent-exempt page is still compared for GUTTED when a counterpart exists, so an exemption can
 never hide content loss in whichever page absorbed it.
 
+**Exemptions expire, by design.** Each allowlist entry records `reviewedUpstreamSha`, the git blob
+hash of the upstream page as it read when a human granted the exemption. Drift recomputes that hash
+on every run and re-flags the pair as `STALE-ALLOWLIST`, failing the run, once upstream edits the
+page. An exemption is a judgement about one version of a page, not about the page forever, and
+without an expiry the surest way to hide a real future gap would be to have already allowlisted the
+page it lands in. An entry with no recorded hash counts as stale, so an entry added without one
+demands a review rather than being trusted. To clear a stale entry, read both pages again and either
+update the hash with `git -C ../arbitrum-docs hash-object docs/<path>` or drop the entry.
+
 **Prefer a rename over an exemption whenever one is available.** `01-stf-gentle-intro.mdx` sat in
 `absentAllowlist` on the theory that it had been absorbed into `deep-dives/stf.mdx`. Once pairing
 was fixed it turned out to be an ordinary rename at ratio 1.74, so it moved to `RENAME_MAP`, where
@@ -431,7 +448,9 @@ looking; a rename keeps looking.
 
 **The baseline has to be fresh.** A stale upstream clone does not make the comparison fail, it makes
 it lie: everything upstream changed after the last fetch looks identical to ours. `drift` refuses to
-run against a clone that has not fetched in 24 hours or is behind its upstream branch.
+run against a clone that has not fetched in 24 hours or is behind its upstream branch, so run
+`git -C ../arbitrum-docs fetch` first if it has been a while. This guard is the reason drift can be
+trusted at all, so do not route around it.
 
 ## What nothing catches
 

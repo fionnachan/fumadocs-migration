@@ -8,13 +8,15 @@ import {
   bodyLineCount,
   buildTreeIndex,
   mapSectionPath,
+  isMergeRename,
   normalizeSlug,
   pairTrees,
 } from './lib/tree-compare.mjs';
 import {
-  allowlistedAbsent,
-  allowlistedGutted,
+  allowlistEntries,
   expandHome,
+  gitBlobHash,
+  isAllowlistStale,
   readUpstreamConfig,
   repoRoot,
   resolveUpstreamTree,
@@ -201,12 +203,12 @@ test('expandHome only expands a leading ~ segment', () => {
 
 // --- absent allowlist ---------------------------------------------------------------------------
 
-test('allowlistedAbsent reads the configured paths', () => {
-  assert.deepEqual([...allowlistedAbsent(CONFIG)], ['a/b.mdx']);
+test('allowlistEntries reads the configured paths', () => {
+  assert.deepEqual([...allowlistEntries(CONFIG.absentAllowlist).keys()], ['a/b.mdx']);
 });
 
-test('allowlistedAbsent is empty when the config has no allowlist', () => {
-  assert.equal(allowlistedAbsent({}).size, 0);
+test('allowlistEntries is empty when the config has no such allowlist', () => {
+  assert.equal(allowlistEntries(undefined).size, 0);
 });
 
 test('the checked-in config absent-allowlists only the content map', () => {
@@ -216,7 +218,10 @@ test('the checked-in config absent-allowlists only the content map', () => {
   // out to be a rename belongs in the rename map, where the pages get compared rather than skipped.
   // Anything else appearing here is a real gap being silenced and should fail this test.
   const config = readUpstreamConfig();
-  assert.deepEqual([...allowlistedAbsent(config)], ['node-running/sequencer-content-map.mdx']);
+  assert.deepEqual(
+    [...allowlistEntries(config.absentAllowlist).keys()],
+    ['node-running/sequencer-content-map.mdx'],
+  );
   for (const entry of config.absentAllowlist) {
     assert.ok(entry.reason, `allowlist entry ${entry.path} must carry a reason`);
   }
@@ -230,16 +235,14 @@ test('the checked-in config still points at the sibling checkout from both layou
   assert.ok(probePaths.includes('../../arbitrum-docs'));
 });
 
-test('allowlistedGutted reads its own list, not the absent one', () => {
-  assert.deepEqual([...allowlistedGutted(CONFIG)], ['c/d.mdx']);
+test('the two allowlists are read separately and never bleed into each other', () => {
+  const absent = allowlistEntries(CONFIG.absentAllowlist);
+  const gutted = allowlistEntries(CONFIG.guttedAllowlist);
+  assert.deepEqual([...gutted.keys()], ['c/d.mdx']);
   // The two lists suppress different verdicts and must never bleed into each other: a page exempted
   // from ABSENT was never ported, a page exempted from GUTTED was ported in full.
-  assert.equal(allowlistedGutted(CONFIG).has('a/b.mdx'), false);
-  assert.equal(allowlistedAbsent(CONFIG).has('c/d.mdx'), false);
-});
-
-test('allowlistedGutted is empty when the config has no gutted allowlist', () => {
-  assert.equal(allowlistedGutted({}).size, 0);
+  assert.equal(gutted.has('a/b.mdx'), false);
+  assert.equal(absent.has('c/d.mdx'), false);
 });
 
 test('the checked-in config allowlists exactly the four gutted false positives', () => {
@@ -247,7 +250,7 @@ test('the checked-in config allowlists exactly the four gutted false positives',
   // by side-by-side review. Anything else here is real content loss being silenced.
   const config = readUpstreamConfig();
   assert.deepEqual(
-    [...allowlistedGutted(config)].sort(),
+    [...allowlistEntries(config.guttedAllowlist).keys()].sort(),
     [
       'for-devs/dev-tools-and-resources/chain-info.mdx',
       'for-devs/oracles/oracles-content-map.mdx',
@@ -278,7 +281,8 @@ test('every RENAME_MAP and guttedAllowlist target is a file that exists in conte
   // A rename or exemption pointing at a path that does not exist silently stops suppressing
   // anything, and the report quietly regrows a false positive nobody notices.
   const root = path.join(repoRoot, 'content', 'docs');
-  for (const target of Object.values(RENAME_MAP)) {
+  for (const value of Object.values(RENAME_MAP)) {
+    const target = typeof value === 'string' ? value : value.to;
     assert.ok(existsSync(path.join(root, target)), `RENAME_MAP target missing: ${target}`);
   }
   for (const entry of readUpstreamConfig().guttedAllowlist) {
@@ -353,4 +357,106 @@ test('the upstream pages that share a basename with a deep-dive now map to their
   for (const [upstream, local] of Object.entries(cases)) {
     assert.equal(mapSectionPath(upstream), local, `${upstream} should map to ${local}`);
   }
+});
+
+// --- deliberate merges ---------------------------------------------------------------------------
+// Upstream splits batch-poster and assertion config across two pages; the port combined them, so two
+// upstream paths legitimately share one local file. Everything else sharing a target is a collision.
+
+test('pairTrees refuses a second directory match onto an already-claimed file', () => {
+  // The claim rule has to hold in pass 1, not just in the fallback. These two Tree A paths both
+  // resolve to the same Tree B directory and slug, the first directly and the second through the
+  // for-devs/oracles section rename, so both get an exact match on one file. Without the check the
+  // second silently re-pairs onto it and is then measured against content that is not its own.
+  const index = buildTreeIndex(['oracles/thing.mdx']);
+  const paired = pairTrees(index, ['oracles/thing.mdx', 'for-devs/oracles/thing.mdx']);
+  const values = [...paired.values()];
+  assert.equal(values.filter((v) => v === 'oracles/thing.mdx').length, 1);
+  assert.equal(values.filter((v) => v === null).length, 1);
+});
+
+test('pairTrees gives one local file to one upstream page unless both declare a merge', () => {
+  const index = buildTreeIndex([
+    'launch-arbitrum-chain/configuration/sequencer/batch-posting-assertion-control.mdx',
+  ]);
+  const merged = [
+    'launch-arbitrum-chain/chain-config/batch-poster/config-batch-poster.mdx',
+    'launch-arbitrum-chain/chain-config/validation/assertion-control.mdx',
+  ];
+  const paired = pairTrees(index, merged);
+  // Both are marked merge: true, so both pair with the combined page rather than one reporting ABSENT.
+  for (const relA of merged) {
+    assert.equal(
+      paired.get(relA),
+      'launch-arbitrum-chain/configuration/sequencer/batch-posting-assertion-control.mdx',
+      `${relA} should pair with the merged page`,
+    );
+  }
+});
+
+test('isMergeRename is true only for entries that declare it', () => {
+  assert.equal(
+    isMergeRename('launch-arbitrum-chain/chain-config/batch-poster/config-batch-poster.mdx'),
+    true,
+  );
+  assert.equal(isMergeRename('for-devs/contribute.mdx'), false);
+  assert.equal(isMergeRename('not/in/the/map.mdx'), false);
+});
+
+test('every RENAME_MAP target shared by two upstream paths declares the merge on both', () => {
+  // A shared target that is not a declared merge means two upstream pages are silently competing
+  // for one local file, which is the collision pairTrees is meant to surface rather than resolve.
+  const bySource = {};
+  for (const [from, value] of Object.entries(RENAME_MAP)) {
+    const to = typeof value === 'string' ? value : value.to;
+    (bySource[to] ??= []).push(from);
+  }
+  for (const [to, froms] of Object.entries(bySource)) {
+    if (froms.length < 2) continue;
+    for (const from of froms) {
+      assert.equal(isMergeRename(from), true, `${from} shares ${to} but is not marked merge: true`);
+    }
+  }
+});
+
+// --- allowlist staleness -------------------------------------------------------------------------
+// An exemption is a judgement about one version of an upstream page. Upstream keeps committing, so
+// without an expiry the surest way to hide a future gap is to have already allowlisted its page.
+
+test('gitBlobHash matches what git hash-object produces', () => {
+  // git hashes `blob <bytes>\0<content>`. The well-known hash of "hello\n" pins the format.
+  assert.equal(gitBlobHash('hello\n'), 'ce013625030ba8dba906f756967f9e9ca394464a');
+  assert.equal(gitBlobHash(''), 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391');
+});
+
+test('isAllowlistStale only accepts the exact reviewed revision', () => {
+  const sha = gitBlobHash('upstream content');
+  assert.equal(isAllowlistStale({ reviewedUpstreamSha: sha }, sha), false);
+  assert.equal(isAllowlistStale({ reviewedUpstreamSha: sha }, gitBlobHash('edited upstream')), true);
+});
+
+test('isAllowlistStale treats a missing reviewedUpstreamSha as stale', () => {
+  // An entry that was never pinned to a revision has never been reviewed against one, so it must
+  // demand a review rather than be trusted by default.
+  assert.equal(isAllowlistStale({}, gitBlobHash('anything')), true);
+  assert.equal(isAllowlistStale(undefined, gitBlobHash('anything')), true);
+});
+
+test('every checked-in allowlist entry pins the upstream revision it was reviewed at', () => {
+  const config = readUpstreamConfig();
+  for (const key of ['absentAllowlist', 'guttedAllowlist']) {
+    for (const entry of config[key]) {
+      assert.match(
+        entry.reviewedUpstreamSha ?? '',
+        /^[0-9a-f]{40}$/,
+        `${key} entry ${entry.path} needs a 40-character reviewedUpstreamSha`,
+      );
+    }
+  }
+});
+
+test('allowlistEntries keeps the whole entry so the recorded hash stays reachable', () => {
+  const entries = allowlistEntries([{ path: 'a.mdx', reviewedUpstreamSha: 'abc', reason: 'r' }]);
+  assert.equal(entries.get('a.mdx').reviewedUpstreamSha, 'abc');
+  assert.equal(allowlistEntries().size, 0);
 });

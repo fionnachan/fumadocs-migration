@@ -20,8 +20,13 @@ export const SECTION_MAP = {
  *
  * Pairing is otherwise done on the normalized slug, which cannot match a page whose filename changed
  * during the migration. Without these entries the renamed pages below are reported ABSENT (looks like
- * a missing page) instead of GUTTED (a present page that lost content) — the wrong verdict for the
+ * a missing page) instead of GUTTED (a present page that lost content), the wrong verdict for the
  * wrong reason. Add an entry here whenever a port renames a file.
+ *
+ * A value is normally the Tree B path. It may instead be `{ to, merge: true }`, which says this
+ * upstream page was deliberately folded into a Tree B page that another upstream page also maps to.
+ * `pairTrees` refuses to let two upstream pages claim one Tree B file unless both say `merge`, so
+ * the flag is what separates an intended merge from an accidental collision.
  */
 export const RENAME_MAP = {
   'for-devs/contribute.mdx': 'contribute.mdx',
@@ -31,8 +36,12 @@ export const RENAME_MAP = {
   'how-arbitrum-works/deep-dives/01-stf-gentle-intro.mdx': 'how-arbitrum-works/deep-dives/stf.mdx',
   'for-devs/oracles/oracles-content-map.mdx': 'oracles/index.mdx',
   'get-started/overview.mdx': 'get-started/index.mdx',
-  'launch-arbitrum-chain/chain-config/batch-poster/config-batch-poster.mdx':
-    'launch-arbitrum-chain/configuration/sequencer/batch-posting-assertion-control.mdx',
+  // Deliberate merge: upstream splits batch-poster and assertion config across two pages and the
+  // port combined them, so both upstream paths legitimately point at one local file.
+  'launch-arbitrum-chain/chain-config/batch-poster/config-batch-poster.mdx': {
+    to: 'launch-arbitrum-chain/configuration/sequencer/batch-posting-assertion-control.mdx',
+    merge: true,
+  },
   'launch-arbitrum-chain/chain-config/batch-poster/enable-4844-blobs.mdx':
     'launch-arbitrum-chain/configuration/data-availability/enable-post-4844-blobs.mdx',
   'launch-arbitrum-chain/chain-config/batch-poster/fee-tuning.mdx':
@@ -65,9 +74,11 @@ export const RENAME_MAP = {
     'launch-arbitrum-chain/configuration/sequencer/config-sequencer-timing-adjustments.mdx',
   'launch-arbitrum-chain/chain-config/sequencer/timeboost.mdx':
     'launch-arbitrum-chain/configuration/sequencer/timeboost-for-arbitrum-chains.mdx',
-  // Upstream split batch-poster and assertion config across two pages; the port merged them.
-  'launch-arbitrum-chain/chain-config/validation/assertion-control.mdx':
-    'launch-arbitrum-chain/configuration/sequencer/batch-posting-assertion-control.mdx',
+  // The other half of the merge above.
+  'launch-arbitrum-chain/chain-config/validation/assertion-control.mdx': {
+    to: 'launch-arbitrum-chain/configuration/sequencer/batch-posting-assertion-control.mdx',
+    merge: true,
+  },
   'launch-arbitrum-chain/chain-config/validation/bold.mdx':
     'launch-arbitrum-chain/configuration/sequencer/bold-adoption-for-arbitrum-chains.mdx',
   'launch-arbitrum-chain/chain-config/validation/bond-and-validator.mdx':
@@ -133,6 +144,22 @@ export const RENAME_MAP = {
   'node-running/faq.mdx': 'run-a-node/faq.mdx',
 };
 
+/** The Tree B path a RENAME_MAP value points at, for either supported shape. */
+function renameTarget(value) {
+  return typeof value === 'string' ? value : value.to;
+}
+
+/**
+ * Whether this Tree A path is allowed to share its Tree B counterpart with another Tree A path.
+ *
+ * Only a RENAME_MAP entry marked `merge: true` may, which is how a deliberate two-into-one port is
+ * told apart from two pages accidentally colliding on the same target.
+ */
+export function isMergeRename(relA) {
+  const value = RENAME_MAP[relA];
+  return typeof value === 'object' && value.merge === true;
+}
+
 /** Reduce a path to a comparable slug: basename, no extension, no ordering prefix, alphanumeric only. */
 export function normalizeSlug(filePath) {
   const base = filePath.split('/').pop() ?? '';
@@ -146,7 +173,7 @@ export function normalizeSlug(filePath) {
 
 /** Rewrite a Tree A relative path onto Tree B's layout. Explicit renames win over section prefixes. */
 export function mapSectionPath(relPath) {
-  if (Object.hasOwn(RENAME_MAP, relPath)) return RENAME_MAP[relPath];
+  if (Object.hasOwn(RENAME_MAP, relPath)) return renameTarget(RENAME_MAP[relPath]);
 
   const keys = Object.keys(SECTION_MAP).sort((a, b) => b.length - a.length);
   for (const from of keys) {
@@ -213,7 +240,15 @@ function lookupKeys(relA) {
  *
  * A cross-section move still pairs, because nothing else claimed its target. A second upstream page
  * with the same basename now correctly reports ABSENT instead of stealing the first one's match.
- * Pass 2 is processed in sorted order and also claims, so the outcome cannot depend on readdir order.
+ *
+ * **One Tree B file, one Tree A page, in both passes.** The claim rule is not a tie-breaker for the
+ * fallback alone: two upstream pages can land on the same Tree B file through the directory match
+ * too, once a rename points them there. The single exception is a deliberate two-into-one port,
+ * which both sides declare with `merge: true` in RENAME_MAP. Without that flag the collision is
+ * treated as accidental and the later page reports ABSENT, which is the honest answer: the drift
+ * tool cannot tell on its own whether a second page's content survived inside the first one's.
+ *
+ * Both passes run in sorted order, so which page wins a contested file never depends on readdir.
  *
  * @param {{byDirSlug: Map<string,string>, bareSlug: Map<string,string>}} index From `buildTreeIndex`.
  * @param {string[]} relAPaths Tree A relative paths.
@@ -223,21 +258,26 @@ export function pairTrees(index, relAPaths) {
   const paired = new Map();
   const claimed = new Set();
   const pending = [];
+  const sorted = [...relAPaths].sort((x, y) => x.localeCompare(y));
 
-  for (const relA of relAPaths) {
+  for (const relA of sorted) {
     const { dirSlug, slug } = lookupKeys(relA);
     const exact = index.byDirSlug.get(dirSlug);
-    if (exact) {
-      paired.set(relA, exact);
-      claimed.add(exact);
-    } else {
+    if (!exact) {
       pending.push({ relA, slug });
+      continue;
     }
+    if (claimed.has(exact) && !isMergeRename(relA)) {
+      paired.set(relA, null);
+      continue;
+    }
+    paired.set(relA, exact);
+    claimed.add(exact);
   }
 
-  for (const { relA, slug } of pending.sort((x, y) => x.relA.localeCompare(y.relA))) {
+  for (const { relA, slug } of pending) {
     const candidate = index.bareSlug.get(slug);
-    if (candidate && !claimed.has(candidate)) {
+    if (candidate && (!claimed.has(candidate) || isMergeRename(relA))) {
       paired.set(relA, candidate);
       claimed.add(candidate);
     } else {
