@@ -10,6 +10,7 @@ import { createRelativeLink } from 'fumadocs-ui/mdx';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 
+import { RequestUpdateLink } from '@/components/RequestUpdateLink';
 import { VersionSwitcher } from '@/components/VersionSwitcher';
 import { Feedback } from '@/components/feedback/client';
 import { getMDXComponents } from '@/components/mdx';
@@ -94,12 +95,13 @@ export default async function Page({
           <time dateTime={lastModified.toISOString()}>{formatLastModified(lastModified)}</time>
         </p>
       ) : null}
-      <div className="flex flex-row gap-2 items-center border-b pb-6">
+      <div className="flex flex-row flex-wrap gap-2 items-center border-b pb-6">
         <MarkdownCopyButton markdownUrl={markdownUrl} />
         <ViewOptionsPopover
           markdownUrl={markdownUrl}
           githubUrl={`https://github.com/${gitConfig.user}/${gitConfig.repo}/blob/${gitConfig.branch}/${repoPath}`}
         />
+        <RequestUpdateLink pageUrl={page.url} />
         {versions ? <VersionSwitcher options={versions} current={currentVersionId} /> : null}
       </div>
       <DocsBody>
