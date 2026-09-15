@@ -7,7 +7,7 @@ import {
   buildTrackingPayload,
   pathInfo,
 } from '@/lib/llms-tracking';
-import { docsContentRoute, docsRoute } from '@/lib/shared';
+import { docsContentRoute, docsRoute, getSiteUrl } from '@/lib/shared';
 import { redirects } from '@/redirects.config.mjs';
 
 // `lib/llms-tracking.ts` keeps its own copies of these two constants so it stays import-free and
@@ -98,7 +98,14 @@ function trackRequest(request: NextRequest, event: NextFetchEvent, path: string)
         // gives those requests a random id rather than one shared bucket.
         ip: request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? '',
         posthogKey,
-        siteUrl: process.env.NEXT_PUBLIC_SITE_URL ?? request.nextUrl.origin,
+        // The configured origin, not `request.nextUrl.origin`. A production deployment answers on
+        // its `*.vercel.app` alias as well as on the custom domain, so the request origin would
+        // record two different `$current_url` values for one page and split the series. This is
+        // also the one helper that owns the site-URL rule (`lib/site-url.mjs`), so reading the
+        // variable here by hand would put a second consumer outside it. It throws when the
+        // variable is unset in production, which `next.config.mjs` already refuses to build
+        // without; the `try` below contains that throw either way.
+        siteUrl: getSiteUrl(),
       })
         .then((payload) =>
           fetch(`${POSTHOG_HOST}/i/v0/e/`, {
@@ -107,6 +114,18 @@ function trackRequest(request: NextRequest, event: NextFetchEvent, path: string)
             body: JSON.stringify(payload),
           }),
         )
+        .then(async (response) => {
+          // `fetch` rejects only on a network failure, so a rejected event resolves here rather
+          // than in the `catch` below. Without this, a revoked or mistyped project token would
+          // return 401 and read exactly like no traffic at all, and this feature only runs in
+          // production, where nobody is watching a console for it.
+          if (!response.ok) {
+            console.error(
+              `[llms-tracking] PostHog rejected the event (${response.status}): ` +
+                `${await response.text()}`,
+            );
+          }
+        })
         .catch((error) => {
           console.error('[llms-tracking] could not reach PostHog:', error);
         }),

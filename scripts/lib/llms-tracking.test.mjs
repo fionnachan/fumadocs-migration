@@ -233,6 +233,17 @@ test('pathInfo: a clean URL without a markdown Accept is ignored', () => {
   assert.deepEqual(pathInfo('/docs/get-started', 'text/html'), ignored);
 });
 
+test('pathInfo: a dotted docs slug is tracked, matching what the proxy actually rewrites', () => {
+  // The proxy's negotiation rewrite is `/docs{/*path}`, which matches dots. Requiring a dot-free
+  // path here would serve markdown for such a slug and record nothing. There are no dotted slugs
+  // in content/docs today, so this pins the behaviour before one exists rather than after.
+  assert.deepEqual(pathInfo('/docs/v1.2/guide', 'text/markdown'), {
+    kind: 'markdown-negotiate',
+    trackedPath: '/docs/v1.2/guide.md',
+    fileType: 'page',
+  });
+});
+
 test('pathInfo: Accept text/markdown outside /docs is ignored', () => {
   // The home page has no markdown mirror, so there is nothing to record a fetch of.
   assert.deepEqual(pathInfo('/', 'text/markdown'), ignored);
@@ -398,6 +409,40 @@ test('buildTrackingPayload: an absent ip gets a random id, not one shared bucket
   assert.notEqual(a.distinct_id, b.distinct_id);
   // And specifically not the hash of the empty string, which is what a naive fallback produces.
   assert.notEqual(a.distinct_id, await ipHash('', dailySalt(common.now)));
+});
+
+test('buildTrackingPayload: the random-id fallback mints no PostHog person profile', async () => {
+  // A unique id per request would otherwise create a profile per request, each one unrelatable to
+  // anything by construction. The opt-out keeps the event countable without the profile.
+  const payload = await buildTrackingPayload({
+    trackedPath: '/llms.txt',
+    fileType: 'index',
+    userAgent: 'GPTBot/1.0',
+    referrer: '',
+    ip: '',
+    posthogKey: 'phc_TEST',
+    siteUrl: 'https://docs.arbitrum.io',
+    now: new Date('2026-05-22T14:30:00Z'),
+  });
+
+  assert.equal(payload.properties.$process_person_profile, false);
+});
+
+test('buildTrackingPayload: a hashed ip keeps its person profile', async () => {
+  // The daily hash exists precisely so one client collapses into one person for the day. Opting
+  // out here would throw that away and leave the dashboards unable to count distinct crawlers.
+  const payload = await buildTrackingPayload({
+    trackedPath: '/llms.txt',
+    fileType: 'index',
+    userAgent: 'GPTBot/1.0',
+    referrer: '',
+    ip: '203.0.113.42',
+    posthogKey: 'phc_TEST',
+    siteUrl: 'https://docs.arbitrum.io',
+    now: new Date('2026-05-22T14:30:00Z'),
+  });
+
+  assert.equal('$process_person_profile' in payload.properties, false);
 });
 
 test('buildTrackingPayload: the raw ip never appears anywhere in the payload', async () => {

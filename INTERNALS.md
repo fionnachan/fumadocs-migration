@@ -462,7 +462,9 @@ the same publishable `phc_` token `lib/posthog.ts` uses, posted to the same `us.
 
 **Tracking can never break a response.** The capture is handed to `event.waitUntil()` so the
 response is not held for it, and every failure path is caught and logged. A missing key logs once
-per request and drops the event.
+per request and drops the event. A **rejected** event is logged too, which needs its own line of
+code: `fetch` rejects only on a network failure, so a 401 from a revoked project token resolves
+normally, and without a `response.ok` check it would read exactly like no traffic at all.
 
 **Schedule it with the `NextFetchEvent` Next passes as the proxy's second argument, never with
 `waitUntil` from `@vercel/functions`.** That helper resolves the request context through
@@ -489,9 +491,24 @@ rather than half-built here.
 
 A request with no `x-forwarded-for` gets a random id instead of the hash of the empty string, which
 is a constant and would pile every such request onto one shared person that reads as a single
-extraordinarily busy client. Unlike `lib/posthog.ts`, this does not set
-`$process_person_profile: false`; that is upstream's behaviour and the point of the stable daily id,
-at the cost of one person profile per client per day.
+extraordinarily busy client. **That branch, and only that branch, also sets
+`$process_person_profile: false`,** because a unique id per request would otherwise mint a person
+profile per request and none of them could ever be related to anything. On the hashed path the
+profile is the point: it is what makes "how many distinct crawlers fetched this page today"
+answerable, at the cost of one profile per client per day, and it is upstream's behaviour.
+
+**Tracking applies exactly the condition the negotiation rewrite applies, and no more.** That
+rewrite is `/docs{/*path}`, which matches dotted slugs, so requiring a dot-free path in
+`lib/llms-tracking.ts` made a slug like `/docs/v1.2/guide` serve markdown and record nothing. The
+proxy cannot check that a page exists, since it cannot import `lib/source`, so this can track a
+request that 404s, exactly as the `.md` branch already does for `/docs/nope.md`. That is the right
+way round: an overcount shows up in PostHog as a `file` value nobody recognises, an undercount
+shows up as silence.
+
+**The `$current_url` origin comes from `getSiteUrl()`,** not from `request.nextUrl.origin`. A
+production deployment answers on its `*.vercel.app` alias as well as on the custom domain, so the
+request origin would record two `$current_url` values for one page and split the series. It also
+keeps the site-URL rule in the one module that owns it (see [Page metadata](#page-metadata)).
 
 `lib/llms-tracking.ts` is **deliberately import-free**, including of `lib/shared.ts`, so that
 `scripts/lib/llms-tracking.test.mjs` can import it directly under `node --test` using Node 22's
@@ -671,8 +688,8 @@ section is about the three client and server-action paths.
 **The production gate.** `VERCEL_ENV` is a server-only variable, so a client component cannot read
 it. Vercel exposes the same value to the browser as `NEXT_PUBLIC_VERCEL_ENV`, which is what the
 provider checks. Request tracking runs in the proxy and so reads the server-side `VERCEL_ENV`
-directly; the two gates are the same value reached from different sides. It is `production` on the production deployment, `preview` on every preview build,
-and unset locally.
+directly; the two gates are the same value reached from different sides. It is `production` on the
+production deployment, `preview` on every preview build, and unset locally.
 
 That check has to stay written as a literal `process.env.NEXT_PUBLIC_VERCEL_ENV` member expression.
 Next inlines those at build time, so on a non-production build the enabled flag folds to `false`

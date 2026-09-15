@@ -114,10 +114,19 @@ export function pathInfo(pathname: string, accept: string): PathInfoResult {
     return { kind: 'ignored', trackedPath: null, fileType: null };
   }
 
+  // Deliberately the same condition the proxy's negotiation rewrite applies, and no more: that
+  // rewrite matches any path under `${DOCS_ROUTE}`, dots included, so a slug like `/docs/v1.2/x`
+  // is served markdown. An earlier version also required the path to contain no dot, which made
+  // such a slug serve markdown and record nothing. There are no dotted slugs in `content/docs`
+  // today, so that was latent, and latent in the direction that shows up as nothing at all.
+  //
+  // The proxy cannot check that the page exists (it cannot import `lib/source`), so this tracks a
+  // request that may 404, exactly as the `.md` branch above already does for `/docs/nope.md`. An
+  // overcount appears in PostHog as a `file` value nobody recognises; an undercount appears as
+  // silence.
   const isDocsPath = pathname === DOCS_ROUTE || pathname.startsWith(`${DOCS_ROUTE}/`);
-  const isCleanUrl = !pathname.includes('.');
   const wantsMarkdown = accept.includes('text/markdown');
-  if (isDocsPath && isCleanUrl && wantsMarkdown) {
+  if (isDocsPath && wantsMarkdown) {
     const stripped = pathname.replace(/\/$/, '');
     const slug = stripped.slice(DOCS_ROUTE.length).replace(/^\//, '');
     return { kind: 'markdown-negotiate', trackedPath: markdownPathFor(slug), fileType: 'page' };
@@ -175,6 +184,12 @@ export interface TrackingPayload {
     bot_category: BotCategory;
     $user_agent: string;
     $referrer: string;
+    /**
+     * Set only on the random-id fallback below, never on the hashed-IP path. Optional rather than
+     * `boolean` so the common path cannot accidentally opt out and lose the person counts the
+     * daily hash exists to produce.
+     */
+    $process_person_profile?: false;
   };
 }
 
@@ -188,16 +203,22 @@ export interface TrackingPayload {
  * behaviour and the point of the daily IP hash: it is what makes "how many distinct crawlers
  * fetched this page today" answerable. It does mean one person profile per client per day.
  *
- * **An absent IP gets a random id, not a hash of the empty string.** Hashing `''` is a constant, so
+ * **An absent IP gets a random id with person processing off.** Hashing `''` is a constant, so
  * every request without an `x-forwarded-for` header would land on one shared PostHog person and
- * read as a single extraordinarily busy client. A random id keeps those requests countable as
- * events while making no claim that any two of them came from the same place. The header is always
- * present on Vercel, so in production this is a fallback rather than the common path.
+ * read as a single extraordinarily busy client. A random id fixes that, but on its own it swaps
+ * one problem for its mirror image: because this payload deliberately omits the person-profile
+ * opt-out that the common path needs, a unique id per request would mint a profile per request,
+ * and every one of them would be unrelatable to anything by construction. Opting out on this
+ * branch alone keeps the request countable as an event without the profile, and leaves the hashed
+ * path and the dashboards untouched. This is the same treatment `lib/posthog.ts` gives its
+ * anonymous feedback events. The header is always present on Vercel, so in production this is a
+ * fallback rather than the common path.
  */
 export async function buildTrackingPayload(input: BuildPayloadInput): Promise<TrackingPayload> {
   const category = classifyUA(input.userAgent);
   const salt = dailySalt(input.now);
-  const distinct_id = input.ip === '' ? crypto.randomUUID() : await ipHash(input.ip, salt);
+  const hasIp = input.ip !== '';
+  const distinct_id = hasIp ? await ipHash(input.ip, salt) : crypto.randomUUID();
 
   return {
     api_key: input.posthogKey,
@@ -210,6 +231,7 @@ export async function buildTrackingPayload(input: BuildPayloadInput): Promise<Tr
       bot_category: category,
       $user_agent: input.userAgent,
       $referrer: input.referrer,
+      ...(hasIp ? {} : { $process_person_profile: false as const }),
     },
   };
 }
