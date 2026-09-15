@@ -12,6 +12,7 @@ import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
 import {
+  codeCell,
   escapeCell,
   groupByNamespace,
   renderGeneratedRegion,
@@ -69,6 +70,22 @@ func ConfigAddOptions(prefix string, f *flag.FlagSet) {
 	f.Bool(prefix+".tls", ConfigDefault.TLS, "serve over TLS")
 	f.Int(prefix+".buffer", bufferBytes, "read buffer size")
 	f.Uint64(prefix+".unset", ConfigDefault.Missing, "a field the literal omits")
+}
+`,
+  'cmd/config/unfollowable.go': `package config
+
+import (
+	flag "github.com/spf13/pflag"
+
+	"example.com/fixture/server"
+	"example.com/outside/absent"
+)
+
+// Both calls hand over the FlagSet and so register flags, and neither can be followed: the first
+// names a package that is not in the tree, the second builds its prefix from a variable.
+func UnfollowableAddOptions(f *flag.FlagSet) {
+	absent.ConfigAddOptions("node.absent", f)
+	server.ConfigAddOptions(chosenPrefix, f)
 }
 `,
   'poster/poster.go': `package poster
@@ -234,6 +251,75 @@ describe('extractFlags', () => {
     assert.match(problems[0], /has no entry in customFlagTypes/);
   });
 
+  it('reports a customFlagTypes entry that matches no flag rather than letting it rot', () => {
+    const { problems } = extractFlags({
+      dirs: indexed.dirs,
+      fileImports: indexed.fileImports,
+      entryPoint: { dir: 'cmd/config', func: 'NodeConfigAddOptions' },
+      customTypes: {
+        'node.batch-poster.levels': { type: 'CompressionLevelStepList', default: '[]' },
+        'node.staker.levels': { type: 'CompressionLevelStepList', default: '[]' },
+        'node.retired.levels': { type: 'CompressionLevelStepList', default: '[]' },
+      },
+    });
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /customFlagTypes entry "node\.retired\.levels" .* matched no flag/);
+  });
+
+  it('reports a defaultOverrides entry that matches no flag rather than letting it rot', () => {
+    const { problems } = extractFlags({
+      dirs: indexed.dirs,
+      fileImports: indexed.fileImports,
+      entryPoint: { dir: 'cmd/config', func: 'NodeConfigAddOptions' },
+      customTypes: {
+        'node.batch-poster.levels': { type: 'CompressionLevelStepList', default: '[]' },
+        'node.staker.levels': { type: 'CompressionLevelStepList', default: '[]' },
+      },
+      defaultOverrides: { 'node.gone.threads': 'GOMAXPROCS' },
+    });
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /defaultOverrides entry "node\.gone\.threads" .* matched no flag/);
+  });
+
+  it('accepts an override for a flag the caller later excludes from the page', () => {
+    // `defaultOverrides` declares `blocks-reexecutor.room`, which the blocks-reexecutor exclusion
+    // rule keeps off the published page. The check runs against the flags as collected, so a live
+    // entry for an about-to-be-excluded flag must not be reported as unused.
+    const { flags, problems } = extractFlags({
+      dirs: indexed.dirs,
+      fileImports: indexed.fileImports,
+      entryPoint: { dir: 'cmd/config', func: 'NodeConfigAddOptions' },
+      customTypes: {
+        'node.batch-poster.levels': { type: 'CompressionLevelStepList', default: '[]' },
+        'node.staker.levels': { type: 'CompressionLevelStepList', default: '[]' },
+      },
+      defaultOverrides: { 'node.batch-poster.max-delay': 'GOMAXPROCS' },
+    });
+    assert.deepEqual(problems, []);
+    const overridden = flags.find((flag) => flag.flag === 'node.batch-poster.max-delay');
+    assert.equal(overridden.default, 'GOMAXPROCS');
+  });
+
+  it('reports a registration call it cannot follow instead of dropping the namespace', () => {
+    const { flags, problems } = extractFlags({
+      dirs: indexed.dirs,
+      fileImports: indexed.fileImports,
+      entryPoint: { dir: 'cmd/config', func: 'UnfollowableAddOptions' },
+    });
+    assert.deepEqual(flags, []);
+    assert.equal(problems.length, 2);
+    assert.match(problems[0], /absent\.ConfigAddOptions .* resolves to no indexed package/);
+  });
+
+  it('reports a prefix it cannot read instead of dropping the namespace', () => {
+    const { problems } = extractFlags({
+      dirs: indexed.dirs,
+      fileImports: indexed.fileImports,
+      entryPoint: { dir: 'cmd/config', func: 'UnfollowableAddOptions' },
+    });
+    assert.match(problems[1], /unreadable prefix chosenPrefix for ConfigAddOptions/);
+  });
+
   it('reports a missing entry point rather than returning nothing', () => {
     const { problems } = extractFlags({
       dirs: indexed.dirs,
@@ -249,8 +335,18 @@ describe('page rendering', () => {
     { flag: 'http.addr', type: 'string', default: '127.0.0.1', description: 'listening interface' },
     { flag: 'http.tls', type: 'bool', default: '', description: 'serve over TLS' },
     { flag: 'node.enable', type: 'bool', default: 'true', description: 'a|b <c> {d}' },
+    {
+      flag: 'node.levels',
+      type: 'CompressionLevelStepList',
+      default: '[{"backlog":0}] <?x?> a|b',
+      description: 'JSON array',
+    },
   ];
   const options = {
+    introLinks: [
+      { label: 'Configuration system', href: '/docs/x' },
+      { label: 'DA tools reference', href: '/docs/da' },
+    ],
     namespaceLinks: { http: { label: 'Configuration system', href: '/docs/x' } },
     defaultNamespaceLink: { label: 'Fallback', href: '/docs/y' },
     nitroVersionTag: 'v9.9.9',
@@ -259,12 +355,36 @@ describe('page rendering', () => {
   it('groups flags by their first dotted segment, alphabetically', () => {
     assert.deepEqual(
       groupByNamespace(flags).map((g) => `${g.namespace}:${g.flags.length}`),
-      ['http:2', 'node:1'],
+      ['http:2', 'node:2'],
     );
   });
 
   it('escapes the characters that would break a table row or the MDX parse', () => {
     assert.equal(escapeCell('a|b <c> {d}'), 'a\\|b &lt;c&gt; \\{d\\}');
+  });
+
+  it('escapes only the pipe inside a code span, where the rest would be literal text', () => {
+    assert.equal(codeCell('a|b <c> {d}'), '`a\\|b <c> {d}`');
+  });
+
+  it('widens the fence around a value that contains backticks', () => {
+    assert.equal(codeCell('a`b'), '``a`b``');
+    assert.equal(codeCell('`x`'), '`` `x` ``');
+  });
+
+  it('renders a default with braces and angle brackets as the reader must type it', () => {
+    const out = renderGeneratedRegion(flags, options);
+    assert.ok(out.includes('`[{"backlog":0}] <?x?> a\\|b`'));
+    assert.ok(!out.includes('&lt;?x?&gt;'));
+    assert.ok(!out.includes('\\{"backlog"'));
+  });
+
+  it('escapes the type column too, so a custom pflag type cannot break the row', () => {
+    const out = renderGeneratedRegion(
+      [{ flag: 'a.b', type: 'weird|type', default: '', description: 'd' }],
+      options,
+    );
+    assert.ok(out.includes('| `a.b` | weird\\|type | - | d |'));
   });
 
   it('renders an empty default as a dash', () => {
@@ -274,12 +394,17 @@ describe('page rendering', () => {
 
   it('reports the flag count and the Nitro tag it read', () => {
     const out = renderGeneratedRegion(flags, options);
-    assert.match(out, /\*\*Total flags:\*\* 3 across 2 namespaces, read from Nitro `v9\.9\.9`\./);
+    assert.match(out, /\*\*Total flags:\*\* 4 across 2 namespaces, read from Nitro `v9\.9\.9`\./);
   });
 
   it('falls back to the default guide link for an unlisted namespace', () => {
     const out = renderGeneratedRegion(flags, options);
     assert.match(out, /Related guide: \[Fallback\]\(\/docs\/y\)/);
+  });
+
+  it('lists the curated intro guides, including one that is no namespace', () => {
+    const out = renderGeneratedRegion(flags, options);
+    assert.ok(out.includes('- [Configuration system](/docs/x)\n- [DA tools reference](/docs/da)'));
   });
 
   it('keeps the existing frontmatter and the prose outside the markers', () => {
@@ -307,6 +432,24 @@ describe('page rendering', () => {
     assert.ok(out.includes('Hand-written outro.'));
     assert.ok(out.includes('new tables'));
     assert.ok(!out.includes('old tables'));
+  });
+
+  it('refuses to rewrite an existing page whose markers are damaged', () => {
+    const existing = [
+      '---',
+      'title: t',
+      '---',
+      '',
+      'Prose a writer owns.',
+      '',
+      'old tables',
+      '',
+    ].join('\n');
+    assert.throws(() => splicePage(existing, 'new tables'), /no usable .* pair/);
+    assert.throws(
+      () => splicePage(existing.replace('old tables', '{/* GENERATED:START */}'), 'new tables'),
+      /no usable .* pair/,
+    );
   });
 
   it('writes a full scaffold when the page does not exist yet', () => {

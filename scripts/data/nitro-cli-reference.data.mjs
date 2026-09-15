@@ -1,6 +1,6 @@
 /**
  * Editorial inputs for `scripts/generate-cli-reference.mjs`: which flags to publish, where each
- * namespace sends the reader next, and the two flags whose type the Go reader cannot infer.
+ * namespace sends the reader next, and the three flags whose type the Go reader cannot infer.
  *
  * Everything here is a judgement call a writer may want to revisit. The mechanical part (reading
  * flags out of Nitro) lives in `scripts/lib/nitro-cli-flags.mjs` and needs no curation.
@@ -24,6 +24,20 @@ const TUNING = {
   label: 'Node tuning and monitoring',
   href: '/docs/run-a-node/nitro/node-tuning-and-monitoring',
 };
+const DA_TOOLS = {
+  label: 'DA tools reference',
+  href: '/docs/run-a-node/nitro/da-tools-reference',
+};
+
+/**
+ * The guides the page's intro admonition sends the reader to, in order.
+ *
+ * Not derived from `namespaceLinks` below: this list deliberately includes the DA tools
+ * reference, which explains a body of flags without being any single namespace's guide, and
+ * derivation would drop it. Keeping it here means every editorial href in the page lives in this
+ * file, so a guide that moves is one edit rather than a hunt through the renderer.
+ */
+export const introLinks = [CONFIGURATION, BINARIES, TUNING, DA_TOOLS];
 
 /** Top-level namespace to the curated guide that explains it. */
 export const namespaceLinks = {

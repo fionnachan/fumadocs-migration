@@ -4,7 +4,11 @@
  * Usage:
  *   pnpm cli:generate                        # clone the pinned Nitro tag and write the page
  *   pnpm cli:generate --nitro-path ../nitro  # read an existing Nitro clone instead
+ *   pnpm cli:generate --verbose              # also name every flag the exclusion rules dropped
  *   pnpm cli:check                           # exit 1 with a diff summary when the page is stale
+ *
+ * `--nitro-path` also reads from `NITRO_REPO_PATH`, so a shell that always has a Nitro clone
+ * around can export it once; the flag wins when both are set.
  *
  * The flags come from the Nitro source at the tag pinned as `nitroVersionTag` in
  * content/vars.json, read straight from the Go that registers them. Two alternatives were
@@ -25,7 +29,6 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import prettier from 'prettier';
 
 import {
   customFlagTypes,
@@ -33,11 +36,13 @@ import {
   defaultOverrides,
   entryPoint,
   exclusions,
+  introLinks,
   namespaceLinks,
 } from './data/nitro-cli-reference.data.mjs';
 import { renderGeneratedRegion, splicePage } from './lib/cli-reference-page.mjs';
 import { StaleFileError, isCheckMode, runScript, writeOrCheck } from './lib/generated-partial.mjs';
 import { indexGoTree } from './lib/go-source.mjs';
+import { diffSummary } from './lib/line-diff.mjs';
 import { extractFlags } from './lib/nitro-cli-flags.mjs';
 
 const OUTPUT_PATH = path.join('content', 'docs', 'run-a-node', 'nitro', 'cli-flags-reference.mdx');
@@ -52,9 +57,14 @@ const GETH_MODULE = 'github.com/ethereum/go-ethereum';
 const MDX_FORMAT = { parser: 'mdx', printWidth: 9999, proseWrap: 'preserve', plugins: [] };
 
 function parseArgs(argv) {
-  const args = { check: isCheckMode(), nitroPath: process.env.NITRO_REPO_PATH ?? null };
+  const args = {
+    check: isCheckMode(),
+    nitroPath: process.env.NITRO_REPO_PATH ?? null,
+    verbose: false,
+  };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--nitro-path' && argv[i + 1]) args.nitroPath = argv[++i];
+    else if (argv[i] === '--verbose') args.verbose = true;
   }
   return args;
 }
@@ -110,7 +120,10 @@ function materializeNitro({ tag, nitroPath, workDir }) {
     extractTree(gethRepo, sha, path.join(treeDir, 'go-ethereum'));
   } else {
     console.log(`cloning ${NITRO_URL} at ${tag} (shallow)`);
-    git(['clone', '--depth', '1', '--branch', tag, '--quiet', NITRO_URL, treeDir]);
+    // Cloning a tag lands on a detached HEAD, and git's advice about it is several lines of
+    // workflow guidance aimed at someone about to commit. Nothing here commits.
+    const quiet = ['-c', 'advice.detachedHead=false'];
+    git([...quiet, 'clone', '--depth', '1', '--branch', tag, '--quiet', NITRO_URL, treeDir]);
     git(['submodule', 'update', '--init', '--depth', '1', '--quiet', 'go-ethereum'], treeDir);
   }
 
@@ -123,29 +136,8 @@ function materializeNitro({ tag, nitroPath, workDir }) {
   return treeDir;
 }
 
-async function diffSummary(filePath, content) {
-  const config = await prettier.resolveConfig(filePath);
-  const expected = await prettier.format(content, { ...config, filepath: filePath, ...MDX_FORMAT });
-  const current = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf-8') : '';
-
-  const currentLines = current.split('\n');
-  const expectedLines = expected.split('\n');
-  let changed = 0;
-  const sample = [];
-  for (let i = 0; i < Math.max(currentLines.length, expectedLines.length); i++) {
-    if (currentLines[i] === expectedLines[i]) continue;
-    changed++;
-    if (sample.length >= 40) continue;
-    if (currentLines[i] !== undefined) sample.push(`  - ${currentLines[i]}`);
-    if (expectedLines[i] !== undefined) sample.push(`  + ${expectedLines[i]}`);
-  }
-  return [`${changed} line(s) differ (- committed, + generated); first 20 shown:`, ...sample].join(
-    '\n',
-  );
-}
-
 async function main() {
-  const { check, nitroPath } = parseArgs(process.argv.slice(2));
+  const { check, nitroPath, verbose } = parseArgs(process.argv.slice(2));
   const vars = JSON.parse(fs.readFileSync(VARS_PATH, 'utf-8'));
   const tag = vars.nitroVersionTag;
 
@@ -183,8 +175,22 @@ async function main() {
       );
     }
 
-    const published = flags.filter((flag) => !exclusions.some((rule) => rule.matches(flag)));
+    // Group the dropped flags by the first rule that matched, rather than filtering in one pass,
+    // so the log can say *why* each one left. One rule matches on the flag's description
+    // (`/experimental/i`), so a Nitro release that reworks a docstring can drop a flag off the
+    // page with nothing in the diff to explain it, and a missing flag reads to a node operator as
+    // "Nitro does not have this". First-match grouping keeps the per-rule counts summing to the
+    // total, which a "matches any rule" grouping would not.
+    const excludedBy = new Map(exclusions.map((rule) => [rule, []]));
+    const published = [];
+    for (const flag of flags) {
+      const rule = exclusions.find((candidate) => candidate.matches(flag));
+      if (rule) excludedBy.get(rule).push(flag.flag);
+      else published.push(flag);
+    }
+
     const generated = renderGeneratedRegion(published, {
+      introLinks,
       namespaceLinks,
       defaultNamespaceLink,
       nitroVersionTag: tag,
@@ -196,6 +202,14 @@ async function main() {
       `nitro ${tag}: ${flags.length} flag(s) read, ` +
         `${flags.length - published.length} excluded, ${published.length} published.`,
     );
+    for (const rule of exclusions) {
+      const names = excludedBy.get(rule);
+      console.log(`  ${String(names.length).padStart(3)} excluded -- ${rule.reason}`);
+      if (verbose) for (const name of names) console.log(`        ${name}`);
+    }
+    if (!verbose && flags.length > published.length) {
+      console.log('  (re-run with --verbose to name them)');
+    }
   } finally {
     fs.rmSync(workDir, { recursive: true, force: true });
   }
@@ -203,7 +217,13 @@ async function main() {
   try {
     await writeOrCheck(OUTPUT_PATH, content, { check, overrides: MDX_FORMAT });
   } catch (error) {
-    if (error instanceof StaleFileError) console.error(await diffSummary(OUTPUT_PATH, content));
+    // "The page is stale" does not say whether a flag or a default moved or only whitespace did,
+    // which is what a reviewer of the weekly upstream-refresh PR needs to know. `writeOrCheck`
+    // hands back the text it formatted, so this prints the diff without formatting it again.
+    if (error instanceof StaleFileError) {
+      const current = fs.existsSync(OUTPUT_PATH) ? fs.readFileSync(OUTPUT_PATH, 'utf-8') : '';
+      console.error(diffSummary(current, error.formatted));
+    }
     throw error;
   }
 
