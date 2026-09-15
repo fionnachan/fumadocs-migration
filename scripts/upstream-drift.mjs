@@ -79,7 +79,9 @@ function addedDate(treeARepo, pathspec) {
       'git',
       ['-C', treeARepo, 'log', '--diff-filter=A', '--format=%ad', '--date=short', '--', pathspec],
       { encoding: 'utf8' },
-    ).trim().split('\n');
+    )
+      .trim()
+      .split('\n');
     return out[out.length - 1] || null;
   } catch {
     return null;
@@ -151,7 +153,11 @@ function main() {
     if (!relB) {
       if (exempt(absentAllowlist, relA, aSource, { verdict: 'ABSENT' })) continue;
       const added = addedDate(treeARepo, path.relative(treeARepo, path.join(treeA, relA)));
-      absent.push({ treeA: relA, added, kind: added && added > PORT_WINDOW_END ? 'DRIFT' : 'MISS' });
+      absent.push({
+        treeA: relA,
+        added,
+        kind: added && added > PORT_WINDOW_END ? 'DRIFT' : 'MISS',
+      });
       continue;
     }
 
@@ -159,7 +165,8 @@ function main() {
     const bLines = bodyLineCount(readFileSync(path.join(treeB, relB), 'utf8'));
     if (aLines > 20 && bLines / aLines < GUTTED_RATIO) {
       const ratio = +(bLines / aLines).toFixed(2);
-      if (exempt(guttedAllowlist, relA, aSource, { verdict: 'GUTTED', treeB: relB, ratio })) continue;
+      if (exempt(guttedAllowlist, relA, aSource, { verdict: 'GUTTED', treeB: relB, ratio }))
+        continue;
       gutted.push({ treeA: relA, treeB: relB, aLines, bLines, ratio });
     }
   }
@@ -171,9 +178,7 @@ function main() {
 
   const staleCount = stale.length ? `, ${stale.length} stale allowlist` : '';
   console.log(`upstream-drift: comparing against ${treeA} (via ${resolved.source})`);
-  console.log(
-    `upstream-drift: ${absent.length} absent, ${gutted.length} gutted${staleCount}\n`,
-  );
+  console.log(`upstream-drift: ${absent.length} absent, ${gutted.length} gutted${staleCount}\n`);
   for (const a of [...absent].sort((x, y) => (y.added ?? '').localeCompare(x.added ?? ''))) {
     console.log(`  ABSENT  ${a.kind}  added ${a.added ?? 'unknown'}  ${a.treeA}`);
   }
@@ -190,7 +195,9 @@ function main() {
     );
     for (const s of [...stale].sort((x, y) => x.treeA.localeCompare(y.treeA))) {
       const suffix = s.verdict === 'GUTTED' ? `  ratio ${s.ratio}  ->  ${s.treeB}` : '';
-      const at = s.reviewed ? `reviewed at ${s.reviewed.slice(0, 8)}` : 'never pinned to a revision';
+      const at = s.reviewed
+        ? `reviewed at ${s.reviewed.slice(0, 8)}`
+        : 'never pinned to a revision';
       console.log(`  STALE-ALLOWLIST  ${s.verdict}  ${s.treeA}${suffix}  (${at})`);
     }
   }
