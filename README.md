@@ -150,8 +150,10 @@ or an inline code span, so `<Var name="…" />` there renders as a literal tag, 
 Usually the value was never code to begin with, and dropping the backticks is the whole fix. When a
 reader is meant to copy the line, as in a `docker run` command, hardcode the current value in the
 code and reference the variable in the prose next to it. `pnpm content:lint` (rule A6) fails on any
-`<Var>` found inside code, and `pnpm nitro:check-release` rewrites hardcoded copies of
-`latestNitroNodeImage` when it bumps that variable, so the two do not drift apart.
+`<Var>` found inside code. To have a hardcoded copy of `latestNitroNodeImage` kept current for you,
+put `{/* sync-with-var: latestNitroNodeImage */}` anywhere in the page and `pnpm nitro:check-release`
+will rewrite it whenever it bumps that variable. Do not put that marker on a page that states a
+Nitro version as a historical fact, such as an ArbOS release note, or a bump will rewrite history.
 
 **To update a value:** edit [`content/vars.json`](content/vars.json), then run `pnpm vars:check`.
 

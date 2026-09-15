@@ -68,6 +68,11 @@ We'll generate a BLS keypair. The private key will be used to sign the <Term id=
 
 The keypair is generated with the `anytrusttool keygen` utility, which ships in the same Docker image as the DAS (currently <Var name="latestNitroNodeImage" />), so you can run it with `docker run` and a volume mount to have the keys land on your host:
 
+{/* sync-with-var: latestNitroNodeImage */}
+{/* The docker run commands below hardcode the image tag, because <Var> does not evaluate inside a
+    code fence. The marker above lets `pnpm nitro:check-release` rewrite them when it bumps the
+    variable. Do not add it to a page that states a Nitro version as a historical fact. */}
+
 ```shell
 docker run --rm -v $(pwd)/bls_keys:/home/user/bls_keys --entrypoint anytrusttool \
 offchainlabs/nitro-node:v3.11.3-beb2108 keygen --dir /home/user/bls_keys

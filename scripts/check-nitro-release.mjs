@@ -10,10 +10,11 @@
  *   nitroVersionTag       the git tag, which also drives the precompile source links
  *   latestNitroNodeImage  the published node Docker image, read from Docker Hub
  *
- * It then rewrites any hardcoded copy of the **outgoing** image tag under `content/` to the new one.
- * Those copies exist because `<Var>` does not evaluate inside a code fence (content-lint rule A6),
- * so a copy-pasteable `docker run` command has to spell the tag out. Matching the outgoing value
- * exactly means a deliberately pinned older tag in a historical example is never touched.
+ * It then rewrites hardcoded copies of the **outgoing** image tag, but only in the files that opt in
+ * with a `sync-with-var: latestNitroNodeImage` marker. Those copies exist because `<Var>` does not
+ * evaluate inside a code fence (content-lint rule A6), so a copy-pasteable `docker run` command has
+ * to spell the tag out. See scripts/lib/nitro-node-image.mjs for why matching the outgoing value is
+ * not safe on its own: the ArbOS release notes pin the same string as a fact about the past.
  *
  * Callers must regenerate the precompile tables afterwards — their implementation links
  * embed `nitroVersionTag`, so a bump leaves them stale. `.github/workflows/upstream-refresh.yml`
@@ -132,8 +133,8 @@ async function main() {
 
   // A `docker run` line a reader copies has to carry the image tag literally, because `<Var>` does
   // not evaluate inside a code fence (content-lint A6). Those copies would otherwise keep the old
-  // tag while the prose beside them advertises the new one, with no gate to catch it. Only the
-  // exact outgoing value is rewritten, so deliberately pinned older tags are left alone.
+  // tag while the prose beside them advertises the new one, with no gate to catch it. Only files
+  // that opted in are rewritten; a page stating a Nitro version historically carries no marker.
   const synced = syncImageInContent(
     process.cwd(),
     vars.latestNitroNodeImage,

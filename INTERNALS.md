@@ -312,16 +312,27 @@ site is still live.
 **`<Var>` does not render inside code.** MDX does not evaluate components inside a fenced code
 block or an inline code span, so a `<Var name="…" />` placed there ships as the literal tag text.
 Neither `vars:check` nor `types:check` sees this, since both only prove the variable exists, not
-where it's used. `content-lint` rule A6 catches it. Fix a finding by removing the code span if the value was never
-code to begin with, which is the common case; a `docker run` command a reader copies genuinely needs
-the value spelled out, so hardcode it there and put the live `<Var>` in the prose next to it.
+where it's used. `content-lint` rule A6 catches it. Fix a finding by removing the code span if the
+value was never code to begin with, which is the common case; a `docker run` command a reader copies
+genuinely needs the value spelled out, so hardcode it there and put the live `<Var>` in the prose
+next to it.
 
-The hardcoded copies are kept in step by `pnpm nitro:check-release`, which rewrites every occurrence
-of the **outgoing** `latestNitroNodeImage` value under `content/` when it bumps the variable. It
-matches that one string exactly rather than the `offchainlabs/nitro-node:` prefix, because `content/`
-holds dozens of older tags pinned deliberately in historical examples and a prefix match cannot tell
-those from a stale copy. A rule that flagged every non-current literal was considered and rejected
-for the same reason: it would open with 47 findings, none of them defects.
+The hardcoded copies are kept in step by `pnpm nitro:check-release`, which rewrites the **outgoing**
+`latestNitroNodeImage` value when it bumps the variable, but only in a file that opts in by carrying
+the marker `{/* sync-with-var: latestNitroNodeImage */}`. Two weaker rules were tried and rejected:
+
+- Flagging every `offchainlabs/nitro-node:` literal that is not the current value. `content/` holds
+  47 older tags pinned deliberately in historical examples, so the rule would open with 47 findings,
+  none of them defects, and push `content:lint` further from promotion into the blocking tier.
+- Rewriting every occurrence of the outgoing value with no marker. That looks safe, since the
+  outgoing value can only ever be a copy of what was current, and it is not:
+  `content/docs/run-a-node/arbos-releases/*.mdx` pin the minimum Nitro version for each ArbOS
+  release, and `arbos61.mdx` pins `v3.11.3-beb2108`, which _is_ the current image right up until the
+  next release ships. An unattended rewrite would make that page claim ArbOS 61 requires a build
+  published after it. A version stated as a fact about the past and a version stated as "the latest"
+  are the same string, and nothing but an explicit marker tells them apart.
+
+So do not put the marker on a page that states a Nitro version historically.
 
 ### Announcement banner
 
