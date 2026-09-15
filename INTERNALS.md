@@ -200,6 +200,52 @@ catches a `<Var name>` with no matching key.**
 Values mirror upstream `arbitrum-docs/src/resources/globalVars.js`. Keep them in sync while that
 site is still live.
 
+### Announcement banner
+
+`app/layout.tsx` renders Fumadocs' `Banner` above everything else in `RootProvider`, which puts it
+above the navbar because every layout's header lives inside `{children}`. Its text, link, enabled
+flag, and id all come from `vars.json`, so writers change the message without touching code. It
+replaces the Docusaurus `announcementBar`.
+
+Three things about it are not obvious:
+
+- **The keys are not `<Var>` substitutions.** `pnpm vars:check` reports them as configured but
+  unreferenced in MDX. That warning is expected for this block and is not a defect.
+- **`announcementId` is the dismissal key, and dismissal is permanent.** Fumadocs writes
+  `nd-banner-<base32(id)>` to the viewer's `localStorage` on close and injects a script that hides
+  the banner before hydration. `localStorage` outlives the tab and the session, so a reader who
+  closes the banner is done with that id on that browser for good. The ticket asked for "per
+  session"; this is stronger, and it is what Fumadocs' component does. Reusing an id for a new
+  message therefore hides it from everyone who dismissed the old one.
+- **`announcementLinkHref` is gated.** `pnpm vars:check` requires an `https` URL or a root-absolute
+  internal path that resolves to a page or a `public/` file, with the rule in
+  `scripts/lib/announcement-link.mjs` and its tests beside it. `check-links` walks MDX only and this
+  value lives in JSON, so without that check the most visible link on the site is the one nothing
+  validates. Relative hrefs are rejected rather than resolved: the banner renders on every route, so
+  there is no page to resolve them against.
+- **`height` has to be a real length.** The prop lands in an inline style and in
+  `--fd-banner-height`, which the docs and notebook containers feed into `calc()` and a sticky
+  `top`. `auto` breaks the grid. The message fits one line from 640px up and wraps to two below, so
+  the layout passes a custom property that a media query switches between `3rem` and `4rem` rather
+  than a constant.
+- **The height and the text are coupled, and only the text is writer-facing.** The heights above
+  were chosen for a message of the current length, and that message is a `vars.json` value a writer
+  is meant to change without a code review. `3rem` holds two lines of `text-sm`, `4rem` holds three,
+  and a long enough message overflows. No gate sees this, because the text lives in JSON and the
+  height lives in TSX. The constraint is therefore stated in the [README](README.md#announcement-banner)
+  next to the key, as a budget of roughly 140 characters for `announcementText` plus
+  `announcementLinkText`. A character gate was considered and rejected: any threshold would be a
+  guess at Aeonik's metrics, and a gate that fires on a message which actually renders fine is worse
+  than the prose. Measuring the rendered bar and writing `--fd-banner-height` from a
+  `ResizeObserver` would remove the coupling properly; it needs a client component and was out of
+  scope here.
+- **`announcementId` is constrained by a pattern in the schema.** Banner writes it into the
+  element's `id` and into a generated `.<key> #<id> { display: none }` rule. The class half is
+  `nd-banner-<base32(id)>` and is always a legal identifier; the `#<id>` half is the raw value. A
+  space or a leading digit makes that selector match nothing, so closing the banner would look like
+  it worked and the banner would return on the next page load, silently. `content/vars.ts` requires
+  `^[A-Za-z][A-Za-z0-9_-]*$` so the failure happens at module load instead.
+
 ## Redirects
 
 Every redirect lives in `redirects.config.mjs`, consumed by `next.config.mjs`'s `redirects()`.
