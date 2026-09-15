@@ -41,7 +41,8 @@
     "test": "node --test \"scripts/**/*.test.mjs\"",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "postinstall": "fumadocs-mdx"
+    "postinstall": "fumadocs-mdx",
+    "prepare": "husky || true"
   },
   "dependencies": {
     "@ethersproject/address": "5.8.0",
@@ -82,6 +83,8 @@
     "@types/node": "^25.9.5",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
+    "husky": "9.1.7",
+    "lint-staged": "17.5.1",
     "postcss": "^8.5.26",
     "prettier": "3.9.6",
     "tailwindcss": "^4.3.3",

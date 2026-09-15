@@ -1000,6 +1000,36 @@ only the per-rule counts. One rule matches on the flag's **description**, so a N
 reworks a docstring can drop a flag off the page, and the counts are what make that visible in the
 weekly refresh PR's log.
 
+## The local pre-commit hook
+
+A Husky pre-commit hook (`.husky/pre-commit`) runs `pnpm exec lint-staged` on every `git commit`,
+configured in `.lintstagedrc.mjs`. It exists to catch what the gates above only catch several
+commits later, in CI. It is a separate, third tier from the two CI tiers, not a copy of either
+one:
+
+- Prettier runs on every staged file type it understands, except `meta.json`. `meta.json` is
+  generator output (`stringifyMeta` in `scripts/lib/doc-links.mjs`), written one array entry per
+  line on purpose; Prettier collapses a short array onto one line, so the two would fight each
+  other on every `pnpm move-doc` run. `format:check` already tracks the resulting debt in
+  `Content debt`, so excluding it here does not hide anything new.
+- Staged `content/**/*.mdx` files get `content:lint`, restricted to the staged files, but only for
+  the rules that are already at zero findings across the whole tree (`A1`, `A3`, `A4`). `A2` and
+  `A5` still have pre-existing findings and stay non-blocking in CI for exactly that reason: making
+  the hook enforce a rule CI itself does not enforce yet would reject a commit over a defect the
+  contributor did not introduce, with `--no-verify` as the only way out. Widen the rule list here
+  in the same commit that clears a rule's CI count to zero and promotes it out of `Content debt`.
+- Prettier and content-lint run as one sequential array entry for `content/**/*.mdx`, not as two
+  separate glob entries. lint-staged runs separate glob entries concurrently by default, and an
+  `.mdx` file under `content/` would otherwise match both the general Prettier glob and the
+  content-lint glob at the same time, letting one read a file the other is still rewriting.
+- A staged `.ts`/`.tsx` file runs one full `pnpm types:check`, not a bare `tsc --noEmit`. Next's
+  route-handler types and the fumadocs-mdx `.source/` collection are both generated, so plain
+  `tsc` fails on a fresh checkout with no `.next/types` yet; `types:check` regenerates both first.
+  This also means the hook cost is not proportional to the edit: even a one-line `.ts` change pays
+  for a full regenerate-and-typecheck pass.
+
+The hook skips entirely when `CI=true` (CI already runs the full `Gates` job) and when `HUSKY=0`.
+
 ## Upstream drift
 
 `pnpm drift` compares this repo against the upstream Docusaurus tree
