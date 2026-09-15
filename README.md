@@ -36,17 +36,40 @@ NEXT_PUBLIC_INKEEP_API_KEY=<inkeep-search-key>
 Config lives in `lib/inkeep.ts`; the widgets mount in `components/inkeep/` and are wired into
 `RootProvider` in `app/layout.tsx`.
 
-Analytics use [PostHog](https://posthog.com). Set the project token the same way:
+### Environment variables
+
+None of these are needed to run the site locally; everything that reads them degrades to a no-op
+or a documented fallback.
+
+| Variable                     | Used by                                                                             | Without it                                                                  |
+| ---------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_INKEEP_API_KEY` | search and the "Ask AI" button                                                      | both are unavailable                                                        |
+| `NEXT_PUBLIC_SITE_URL`       | `metadataBase`, `app/sitemap.ts`, `app/robots.ts`, request tracking                 | `http://localhost:3000` locally; a **production build fails**               |
+| `NEXT_PUBLIC_POSTHOG_KEY`    | page feedback (`lib/posthog.ts`), web analytics, and request tracking in `proxy.ts` | feedback submissions and tracking events are dropped with a server-side log |
+| `NEXT_PUBLIC_VERCEL_ENV`     | the production gate on web analytics and the Inkeep event bridge                    | neither fires; Vercel sets this one, you never do                           |
+
+Set the PostHog token the same way as the Inkeep key, in a local `.env` (gitignored):
 
 ```bash
 NEXT_PUBLIC_POSTHOG_KEY=phc_<posthog-project-token>
 ```
 
-Page feedback needs it locally; web analytics does not fire locally or on a preview deployment no
-matter what you set, because `components/analytics/posthog-provider.tsx` also requires
-`NEXT_PUBLIC_VERCEL_ENV` to be `production` and only Vercel sets that. On Vercel, set
-`NEXT_PUBLIC_POSTHOG_KEY` for both Preview and Production. See
-[Analytics](INTERNALS.md#analytics).
+`NEXT_PUBLIC_POSTHOG_KEY` is PostHog's documented name for the publishable `phc_` project token
+(Project settings, Project API key). It is write-only, so the `NEXT_PUBLIC_` prefix is safe even
+though two of its three consumers read it on the server. Set it on Vercel for Preview and
+Production.
+
+Page feedback needs the key locally. Web analytics does not fire locally or on a preview deployment
+no matter what you set, because `components/analytics/posthog-provider.tsx` also requires
+`NEXT_PUBLIC_VERCEL_ENV` to be `production` and only Vercel sets that. Request tracking is gated the
+same way, on the server-side `VERCEL_ENV`, so nothing is sent locally or from a preview and no key
+is needed for either. See [Analytics](INTERNALS.md#analytics).
+
+Tracking events carry a `distinct_id` derived from the reader's IP, hashed with that day's date as
+the salt. The raw address is never sent. **The hash is pseudonymous rather than anonymous:** the
+salt is a public date, so it stops a reader being linked across days but not re-identified by anyone
+willing to hash the IPv4 space against it. Treat it as personal data when querying or exporting. See
+[Routing and `proxy.ts`](INTERNALS.md#routing-and-proxyts).
 
 ## Before you push
 
@@ -161,6 +184,16 @@ The current Nitro release is <Var name="nitroVersionTag" />.
 ```
 
 `Var` is registered globally, so pages need no import. It works inside partials too.
+
+**Variables do not work inside code.** MDX does not evaluate components inside a fenced code block
+or an inline code span, so `<Var name="…" />` there renders as a literal tag, not its value.
+Usually the value was never code to begin with, and dropping the backticks is the whole fix. When a
+reader is meant to copy the line, as in a `docker run` command, hardcode the current value in the
+code and reference the variable in the prose next to it. `pnpm content:lint` (rule A6) fails on any
+`<Var>` found inside code. To have a hardcoded copy of `latestNitroNodeImage` kept current for you,
+put `{/* sync-with-var: latestNitroNodeImage */}` anywhere in the page and `pnpm nitro:check-release`
+will rewrite it whenever it bumps that variable. Do not put that marker on a page that states a
+Nitro version as a historical fact, such as an ArbOS release note, or a bump will rewrite history.
 
 **To update a value:** edit [`content/vars.json`](content/vars.json), then run `pnpm vars:check`.
 

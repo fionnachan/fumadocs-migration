@@ -144,6 +144,40 @@ test('findings carry 1-indexed line numbers', () => {
   assert.equal(found[0].line, 3);
 });
 
+test('A6 does NOT fire on a Var in prose', () => {
+  assert.deepEqual(rules('The current release is <Var name="nitroVersionTag" />.'), []);
+});
+
+test('A6 fires on a Var in a fenced code block', () => {
+  const found = lintSource('```shell\ndocker run <Var name="latestNitroNodeImage" /> keygen\n```');
+  assert.deepEqual(
+    found.map((f) => f.rule),
+    ['A6'],
+  );
+  assert.match(found[0].message, /fenced code block/);
+});
+
+test('A6 fires on a Var in an inline code span', () => {
+  const found = lintSource('The image: `<Var name="latestNitroNodeImage" />`');
+  assert.deepEqual(
+    found.map((f) => f.rule),
+    ['A6'],
+  );
+  assert.match(found[0].message, /inline code span/);
+});
+
+test('A6 checks fenced blocks inside a partial too', () => {
+  // Partials have no frontmatter and are consumed via <include>, but lintSource itself is
+  // frontmatter-agnostic: it is only ever handed the raw text of one file, partial or page.
+  const found = lintSource(
+    '<include cwd>content/partials/_reference-nitro-cli.mdx</include>\n\n```shell\n<Var name="latestNitroNodeImage" />\n```',
+  );
+  assert.deepEqual(
+    found.map((f) => f.rule),
+    ['A6'],
+  );
+});
+
 test('lintContent({ files }) lints only the given files, not the whole tree', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'content-lint-'));
   try {
