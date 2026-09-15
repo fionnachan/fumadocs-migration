@@ -340,6 +340,24 @@ describe('page rendering', () => {
     assert.ok(!out.includes('old tables'));
   });
 
+  it('refuses to rewrite an existing page whose markers are damaged', () => {
+    const existing = [
+      '---',
+      'title: t',
+      '---',
+      '',
+      'Prose a writer owns.',
+      '',
+      'old tables',
+      '',
+    ].join('\n');
+    assert.throws(() => splicePage(existing, 'new tables'), /no usable .* pair/);
+    assert.throws(
+      () => splicePage(existing.replace('old tables', '{/* GENERATED:START */}'), 'new tables'),
+      /no usable .* pair/,
+    );
+  });
+
   it('writes a full scaffold when the page does not exist yet', () => {
     const out = splicePage('', 'tables');
     assert.match(out, /^---\ntitle: 'CLI flags reference'/);

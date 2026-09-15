@@ -155,18 +155,32 @@ nitro --conf.file=/path/to/config.json
 /**
  * Produce the full file content, keeping the existing frontmatter and any prose outside the
  * markers. `existing` is '' when the page does not exist yet.
+ *
+ * A page that exists but has no usable marker pair is an error, not a scaffold. Rewriting it
+ * would mean returning the frontmatter and a fresh region with the body dropped, which silently
+ * deletes whatever prose a writer had put around the tables -- the one thing this whole splice
+ * exists to protect.
  */
 export function splicePage(existing, generated) {
   const { frontmatter, body } = splitFrontmatter(existing);
   const region = `${START_MARKER}\n\n${generated.trim()}\n\n${END_MARKER}`;
 
-  const start = body.indexOf(START_MARKER);
-  const end = body.indexOf(END_MARKER);
-  if (start !== -1 && end !== -1 && end > start) {
-    const head = body.slice(0, start);
-    const tail = body.slice(end + END_MARKER.length);
-    return `${frontmatter || SCAFFOLD_FRONTMATTER}${head}${region}${tail}`;
+  if (existing.trim() === '') {
+    return `${SCAFFOLD_FRONTMATTER}\n${DO_NOT_EDIT}\n\n${region}\n`;
   }
 
-  return `${frontmatter || SCAFFOLD_FRONTMATTER}\n${DO_NOT_EDIT}\n\n${region}\n`;
+  const start = body.indexOf(START_MARKER);
+  const end = body.indexOf(END_MARKER);
+  if (start === -1 || end === -1 || end < start) {
+    throw new Error(
+      `the CLI flags reference page has no usable ${START_MARKER} ... ${END_MARKER} pair, so the ` +
+        `generated region cannot be placed. Restore both markers in the right order; refusing to ` +
+        `rewrite the page and lose the prose around them. To start the page over instead, ` +
+        `delete the file and re-run the generator.`,
+    );
+  }
+
+  const head = body.slice(0, start);
+  const tail = body.slice(end + END_MARKER.length);
+  return `${frontmatter || SCAFFOLD_FRONTMATTER}${head}${region}${tail}`;
 }
