@@ -703,9 +703,12 @@ report and a missing upstream clone never blocks the refresh PR.
 
 `upstream-drift.mjs` exits 1 both when it finds drift and when it refuses to run at all (missing
 tree, or a clone stale enough to under-report), so the job cannot read the exit code alone. It
-checks that the first stdout line is the `N absent, M gutted` summary; anything else fails the job
-instead of closing the issue on a report that never happened. Two details of that clone are
-load-bearing and easy to get wrong:
+requires the `N absent, M gutted` summary to appear somewhere on stdout; anything else fails the job
+instead of closing the issue on a report that never happened. **Match that line anywhere, and keep
+its suffix optional.** The script prints a `comparing against <path>` line ahead of it, so a guard
+pinned to line one never matches, and it appends `, N stale allowlist` exactly when an exemption has
+expired, so a guard anchored at `gutted$` rejects the one case the report most needs to deliver.
+Two details of the clone are equally load-bearing and easy to get wrong:
 
 - It is cloned `--filter=blob:none`, **not** `--depth 1`. The report splits absent pages into DRIFT
   (added upstream after the port window) and MISS (should already have been ported) using
