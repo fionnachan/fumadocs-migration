@@ -2,29 +2,37 @@
 
 import { buttonVariants } from 'fumadocs-ui/components/ui/button';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import {
-  type Address,
-  type EIP1193Provider,
-  createPublicClient,
-  createWalletClient,
-  custom,
-  isAddress,
-} from 'viem';
+import { type Address, createPublicClient, createWalletClient, custom, isAddress } from 'viem';
+// viem ships the `Window.ethereum` augmentation as its own module. Importing it beats re-declaring
+// the global here, where a second copy elsewhere in the app would conflict. Type-only, so nothing
+// reaches the bundle.
+import type {} from 'viem/window';
 
 import { cn } from '@/lib/cn';
 
 import { vendingMachineAbi } from './abi';
 
-declare global {
-  interface Window {
-    ethereum?: EIP1193Provider;
-  }
-}
+/**
+ * The three widgets the quickstart renders, in page order. A closed union rather than `string`
+ * because `web2` and `web3` are opposite halves of the page's argument: a value that is neither
+ * must not quietly pick one of them.
+ */
+export type VendingMachineMode = 'web2' | 'web3-localhost' | 'web3-arb-sepolia';
+
+const WEB3_MODES = new Set<string>(['web3-localhost', 'web3-arb-sepolia']);
 
 /** Milliseconds a web2 identity must wait between cupcakes. Mirrors the quickstart's "Rule 1". */
 const RATE_LIMIT_MS = 5000;
 const RATE_LIMIT_MESSAGE =
   'HTTP 429: Too Many Cupcakes (you must wait at least 5 seconds between cupcakes)';
+/** How long the cupcake emoji stays on screen, and how long its fade runs. */
+const CUPCAKE_VISIBLE_MS = 5500;
+/**
+ * Upper bound on the receipt wait. Without one, a wedged local devnet (the setup this page walks the
+ * reader through) leaves both buttons disabled on "Working…" with no way out but a reload. viem's
+ * timeout error carries a `shortMessage`, so it surfaces as the component's normal error text.
+ */
+const RECEIPT_TIMEOUT_MS = 90_000;
 
 function truncateAddress(text: string) {
   if (!text) return 'no name';
@@ -52,8 +60,11 @@ function errorMessage(error: unknown) {
  * and writes on whatever network the reader picked in their wallet. No chain or contract address is
  * hardcoded, because readers deploy their own instance from Remix.
  */
-export function VendingMachine({ id, type = 'web2' }: { id?: string; type?: string }) {
-  const isWeb3 = type !== 'web2';
+export function VendingMachine({ id, type = 'web2' }: { id?: string; type?: VendingMachineMode }) {
+  // Membership test rather than `type !== 'web2'`: MDX call sites are not type-checked, and a
+  // misspelling should fall back to the harmless web2 widget instead of asking a reader on a web2
+  // page for a contract address and a wallet signature.
+  const isWeb3 = WEB3_MODES.has(type);
   const identityLabel = isWeb3 ? 'Metamask wallet address' : 'Name';
 
   const generatedId = useId();
@@ -70,6 +81,7 @@ export function VendingMachine({ id, type = 'web2' }: { id?: string; type?: stri
   // Undefined until mounted: `window.ethereum` cannot be read during render without breaking
   // hydration, so the wallet notice appears after the first client pass.
   const [hasWallet, setHasWallet] = useState<boolean | undefined>(undefined);
+  const [reducedMotion, setReducedMotion] = useState(false);
 
   // Web2 "back end": a plain object in this tab's memory, the counterpart to the contract storage
   // the web3 modes use. A ref rather than state so a re-render never resets the balances.
@@ -81,6 +93,14 @@ export function VendingMachine({ id, type = 'web2' }: { id?: string; type?: stri
 
   useEffect(() => {
     setHasWallet(typeof window !== 'undefined' && typeof window.ethereum !== 'undefined');
+  }, []);
+
+  useEffect(() => {
+    const query = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const sync = () => setReducedMotion(query.matches);
+    sync();
+    query.addEventListener('change', sync);
+    return () => query.removeEventListener('change', sync);
   }, []);
 
   useEffect(
@@ -95,9 +115,14 @@ export function VendingMachine({ id, type = 'web2' }: { id?: string; type?: stri
     fadeTimers.current = [];
     setCupcakeShown(true);
     setCupcakeFading(false);
-    fadeTimers.current.push(setTimeout(() => setCupcakeFading(true), 0));
-    fadeTimers.current.push(setTimeout(() => setCupcakeShown(false), 5500));
-  }, []);
+    // Under `prefers-reduced-motion` the cupcake simply stays put for its full time and then goes,
+    // rather than crossfading. Suppressing the transition alone would make it vanish immediately,
+    // which loses the reward the button is there to give.
+    if (!reducedMotion) {
+      fadeTimers.current.push(setTimeout(() => setCupcakeFading(true), 0));
+    }
+    fadeTimers.current.push(setTimeout(() => setCupcakeShown(false), CUPCAKE_VISIBLE_MS));
+  }, [reducedMotion]);
 
   /**
    * Reads go through a public client and writes through a wallet client, both over the injected
@@ -120,7 +145,10 @@ export function VendingMachine({ id, type = 'web2' }: { id?: string; type?: stri
     if (!isWeb3) return web2Store.current.balances[identity || 'no name'] ?? 0;
 
     const { account, contract } = requireWeb3Inputs();
-    const publicClient = createPublicClient({ transport: custom(requireProvider()) });
+    const publicClient = createPublicClient({
+      transport: custom(requireProvider()),
+      pollingInterval: 1_000,
+    });
     const balance = await publicClient.readContract({
       address: contract,
       abi: vendingMachineAbi,
@@ -152,7 +180,10 @@ export function VendingMachine({ id, type = 'web2' }: { id?: string; type?: stri
       if (isWeb3) {
         const { account, contract } = requireWeb3Inputs();
         const provider = requireProvider();
-        const publicClient = createPublicClient({ transport: custom(provider) });
+        const publicClient = createPublicClient({
+          transport: custom(provider),
+          pollingInterval: 1_000,
+        });
         const walletClient = createWalletClient({ transport: custom(provider) });
         // Prompts the wallet to connect if it has not been connected yet.
         const [signer] = await walletClient.requestAddresses();
@@ -176,7 +207,7 @@ export function VendingMachine({ id, type = 'web2' }: { id?: string; type?: stri
           functionName: 'giveCupcakeTo',
           args: [account],
         });
-        await publicClient.waitForTransactionReceipt({ hash });
+        await publicClient.waitForTransactionReceipt({ hash, timeout: RECEIPT_TIMEOUT_MS });
         const after = Number(
           await publicClient.readContract({
             address: contract,
@@ -279,7 +310,7 @@ export function VendingMachine({ id, type = 'web2' }: { id?: string; type?: stri
         className="block text-3xl"
         style={{
           opacity: cupcakeShown && !cupcakeFading ? 1 : 0,
-          transition: cupcakeFading ? 'opacity 5.5s linear' : 'none',
+          transition: cupcakeFading ? `opacity ${CUPCAKE_VISIBLE_MS}ms linear` : 'none',
         }}
       >
         🧁
@@ -299,17 +330,25 @@ export function VendingMachine({ id, type = 'web2' }: { id?: string; type?: stri
         </p>
       ) : null}
 
-      {status ? (
-        <p role="status" className="m-0 mt-1 text-[11px] text-fd-muted-foreground">
-          {status}
-        </p>
-      ) : null}
+      {/* Mounted unconditionally: assistive technology commonly misses a live region that appears
+          at the same moment as its first message, so only the text inside it changes. */}
+      <p
+        role="status"
+        aria-live="polite"
+        className={cn(
+          'm-0 text-[11px]',
+          status && 'mt-1',
+          failed ? 'font-semibold text-fd-danger' : 'text-fd-muted-foreground',
+        )}
+      >
+        {status}
+      </p>
 
       <span
         aria-hidden="true"
         className={cn(
           'absolute right-4 bottom-4 size-2.5 rounded-full',
-          failed ? 'bg-red-600' : 'bg-green-600',
+          failed ? 'bg-fd-danger' : 'bg-fd-success',
         )}
       />
     </div>

@@ -2,6 +2,8 @@
 
 import dynamic from 'next/dynamic';
 
+import type { VendingMachineMode } from './VendingMachine';
+
 /**
  * Lazy boundary for the cupcake demo.
  *
@@ -14,6 +16,6 @@ const VendingMachineImpl = dynamic(() =>
   import('./VendingMachine').then((mod) => mod.VendingMachine),
 );
 
-export function VendingMachine(props: { id?: string; type?: string }) {
+export function VendingMachine(props: { id?: string; type?: VendingMachineMode }) {
   return <VendingMachineImpl {...props} />;
 }

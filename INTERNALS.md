@@ -511,13 +511,15 @@ therefore sits behind a `'use client'` wrapper that `next/dynamic`s the implemen
 is still in the HTML and only the JavaScript is deferred.
 
 **VendingMachine.** The quickstart's "free cupcakes" demo (`components/mdx/VendingMachine/`), ported
-from the Docusaurus component of the same name. `type="web2"` keeps balances in tab memory; any other
-`type` talks to a `VendingMachine.sol` the reader deploys themselves, through the injected EIP-1193
-wallet using viem: reads go through a public client and writes through a wallet client, with no
-chain or contract address hardcoded. The ABI is transcribed into `abi.ts` as a TypeScript
-`as const` (the compiled artifact's bytecode was never used) so viem can infer argument and return
-types. With no wallet
-installed the widget renders a notice instead of throwing.
+from the Docusaurus component of the same name. `type` is a closed union: `web2` keeps balances in
+tab memory, while `web3-localhost` and `web3-arb-sepolia` talk to a `VendingMachine.sol` the reader
+deploys themselves, through the injected EIP-1193 wallet using viem. Reads go through a public
+client and writes through a wallet client, with no chain or contract address hardcoded. Anything
+outside the union falls back to the web2 widget, because MDX call sites are not type-checked and a
+misspelling must not put a reader on a web2 page in front of a wallet prompt. The ABI is transcribed
+into `abi.ts` as a TypeScript `as const` (the compiled artifact's bytecode was never used) so viem
+can infer argument and return types. With no wallet installed the widget renders a notice instead of
+throwing.
 
 **Image zoom.** `<ImageZoom>` resolves to the wrapper in `components/mdx/ImageZoom/`: plain `<img>`
 child, supports `caption`, needs no dimensions, no Next image optimization. To use Fumadocs' native
