@@ -1,9 +1,11 @@
 /**
- * faq-data-check — fail when a `faqsId` used in `content/docs` has no matching data file, or a
- * data file under `components/mdx/FAQStructuredData/data/` is malformed.
+ * faq-data-check — fail when a `faqsId` used in `content/docs` has no matching data file, is not
+ * a member of the `FaqsId` union in `types.ts`, or has a data file under
+ * `components/mdx/FAQStructuredData/data/` that is malformed. An unused data file is reported as
+ * a warning, not a failure.
  *
  * Usage:
- *   node scripts/faq-data-check.mjs          # human report; exits 1 on any defect
+ *   node scripts/faq-data-check.mjs          # human report; exits 1 on a missing/malformed entry
  *   node scripts/faq-data-check.mjs --json   # JSON report to stdout; exits 0 (for tooling)
  */
 import path from 'node:path';
@@ -13,16 +15,27 @@ import { checkFaqData } from './lib/faq-data.mjs';
 function main() {
   const json = process.argv.slice(2).includes('--json');
   const docsRoot = path.join(process.cwd(), 'content', 'docs');
-  const dataDir = path.join(process.cwd(), 'components', 'mdx', 'FAQStructuredData', 'data');
+  const faqDir = path.join(process.cwd(), 'components', 'mdx', 'FAQStructuredData');
+  const dataDir = path.join(faqDir, 'data');
+  const typesFile = path.join(faqDir, 'types.ts');
 
-  const { missingDataFile, malformed, unusedDataFile } = checkFaqData({ docsRoot, dataDir });
+  const { missingDataFile, missingDeclaration, malformed, unusedDataFile } = checkFaqData({
+    docsRoot,
+    dataDir,
+    typesFile,
+  });
 
   if (json) {
-    console.log(JSON.stringify({ missingDataFile, malformed, unusedDataFile }));
+    console.log(JSON.stringify({ missingDataFile, missingDeclaration, malformed, unusedDataFile }));
     return;
   }
 
-  if (missingDataFile.length === 0 && malformed.length === 0 && unusedDataFile.length === 0) {
+  if (
+    missingDataFile.length === 0 &&
+    missingDeclaration.length === 0 &&
+    malformed.length === 0 &&
+    unusedDataFile.length === 0
+  ) {
     console.log('faq-data-check: every faqsId has a well-formed data file.');
     return;
   }
@@ -32,6 +45,16 @@ function main() {
       `faq-data-check: ${missingDataFile.length} faqsId(s) used in content/docs with no matching data file:`,
     );
     for (const { id, sites } of missingDataFile) {
+      console.error(`  "${id}"`);
+      for (const s of sites) console.error(`      ${s.rel}:${s.line}`);
+    }
+  }
+
+  if (missingDeclaration.length > 0) {
+    console.error(
+      `faq-data-check: ${missingDeclaration.length} faqsId(s) used in content/docs that are not in the FaqsId union (types.ts):`,
+    );
+    for (const { id, sites } of missingDeclaration) {
       console.error(`  "${id}"`);
       for (const s of sites) console.error(`      ${s.rel}:${s.line}`);
     }
@@ -52,7 +75,7 @@ function main() {
     );
   }
 
-  if (missingDataFile.length > 0 || malformed.length > 0) {
+  if (missingDataFile.length > 0 || missingDeclaration.length > 0 || malformed.length > 0) {
     process.exitCode = 1;
   }
 }

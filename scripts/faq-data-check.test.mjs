@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { extractFaqsIdUsages, validateFaqEntries } from './lib/faq-data.mjs';
+import {
+  extractFaqsIdUnion,
+  extractFaqsIdUsages,
+  validateFaqEntries,
+} from './lib/faq-data.mjs';
 
 test('extractFaqsIdUsages finds a double-quoted faqsId with its line number', () => {
   const source = 'line one\n<FAQStructuredDataJsonLd faqsId="bridging" />\n';
@@ -13,9 +17,17 @@ test('extractFaqsIdUsages finds a single-quoted faqsId', () => {
   assert.deepEqual(extractFaqsIdUsages(source), [{ id: 'node-running', line: 1 }]);
 });
 
+test('extractFaqsIdUsages also matches the shorter FAQStructuredData alias', () => {
+  // `FAQStructuredData` and `FAQStructuredDataJsonLd` are registered as the same component in
+  // components/mdx.tsx, so a page using either name must be found by the check.
+  const source = '<FAQStructuredData faqsId="get-started" />';
+  assert.deepEqual(extractFaqsIdUsages(source), [{ id: 'get-started', line: 1 }]);
+});
+
 test('extractFaqsIdUsages ignores other components and other attributes', () => {
   const source = '<Var name="faqsId" />\n<SomeOtherThing faqsId="not-this-one-either" foo="bar" />';
-  // `SomeOtherThing` is not `FAQStructuredDataJsonLd`, so it should not match.
+  // `SomeOtherThing` is neither `FAQStructuredData` nor `FAQStructuredDataJsonLd`, so it should
+  // not match.
   const usages = extractFaqsIdUsages(source).filter((u) => u.id !== 'not-this-one-either');
   assert.deepEqual(usages, []);
 });
@@ -30,6 +42,29 @@ test('extractFaqsIdUsages finds multiple usages across a file', () => {
     { id: 'a', line: 1 },
     { id: 'b', line: 3 },
   ]);
+});
+
+test('extractFaqsIdUnion parses the FaqsId string-literal union', () => {
+  const source = [
+    "export type FaqsId =",
+    "  'bridging' | 'building' | 'building-orbit' | 'building-stylus' | 'get-started' | 'node-running';",
+    '',
+    'export interface FAQStructuredDataProps {',
+    '  faqsId: FaqsId;',
+    '}',
+  ].join('\n');
+  assert.deepEqual(extractFaqsIdUnion(source), [
+    'bridging',
+    'building',
+    'building-orbit',
+    'building-stylus',
+    'get-started',
+    'node-running',
+  ]);
+});
+
+test('extractFaqsIdUnion returns an empty array when there is no FaqsId declaration', () => {
+  assert.deepEqual(extractFaqsIdUnion('export interface FAQ { question: string; }'), []);
 });
 
 test('validateFaqEntries accepts a well-formed non-empty array', () => {
