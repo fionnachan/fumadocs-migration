@@ -441,17 +441,106 @@ Single locale, no i18n. Pages live directly under `content/docs/…` and serve a
 no `[lang]` route segment and no locale middleware; `lib/i18n.ts` was deleted on 2026-08-18 along
 with the `ja` and `zh-CN` trees.
 
-`proxy.ts` does exactly two things:
+`proxy.ts` does exactly three things:
 
-1. An explicit **bypass list** of routes served verbatim: `/_next/`, `/img/`, `/favicon.ico`,
+1. **Request tracking** for markdown and `llms*.txt` fetches, production only (below).
+2. An explicit **bypass list** of routes served verbatim: `/_next/`, `/img/`, `/favicon.ico`,
    `/sitemap.xml`, `/robots.txt`, `/llms*`, `/og/`, `/api/`.
-2. `.md`-suffix rewrites plus `Accept: text/markdown` content negotiation to the markdown route.
+3. `.md`-suffix rewrites plus `Accept: text/markdown` content negotiation to the markdown route.
 
 **A new top-level route belongs in that bypass list**, or markdown negotiation will try to rewrite
 it.
 
 Re-adding localization means restoring `defineI18n`, the `i18n` argument to `loader()`, a `[lang]`
 segment, and `createI18nMiddleware`.
+
+### Request tracking
+
+`proxy.ts` also records who fetches the markdown, continuing the `llms_file_fetched` PostHog event
+upstream's `middleware.ts` produced. The point is to answer "which pages are AI assistants and
+crawlers actually reading", which server logs alone do not.
+
+**It runs before the bypass list**, because `/llms.txt`, `/llms-full.txt` and the `/llms.mdx/`
+mirrors are all in that list and are exactly the fetches worth counting.
+
+Four request shapes are tracked, and the classification lives in `lib/llms-tracking.ts`:
+
+| Request                                     | Tracked as        | `file_type` |
+| ------------------------------------------- | ----------------- | ----------- |
+| `/llms.txt`, `/llms-full.txt`               | as-is             | `index`     |
+| `/docs/<slug>.md`                           | as-is             | `page`      |
+| `/llms.mdx/docs/<slug>/content.md`          | `/docs/<slug>.md` | `page`      |
+| `/docs/<slug>` with `Accept: text/markdown` | `/docs/<slug>.md` | `page`      |
+
+All three markdown shapes normalise to the one canonical `.md` path, so a page's fetches are one
+number rather than three. **Each request is counted once:** a Next rewrite does not re-enter the
+proxy, so `/docs/x.md` fires one event, not a second one for the mirror it rewrites to. A `.md` on
+a legacy URL is not tracked either, because it is answered with a 307 and the destination request
+is tracked instead.
+
+Two upstream rules are dropped: the `/sdk/` exclusion (there is no `/sdk` route here) and tracking
+of `.md` outside the docs tree.
+
+**Production only.** Nothing is sent unless `VERCEL_ENV === 'production'`, so local development and
+preview deployments stay out of the numbers and need no key. The key is `NEXT_PUBLIC_POSTHOG_KEY`,
+the same publishable `phc_` token `lib/posthog.ts` uses, posted to the same `us.i.posthog.com` host.
+
+**Tracking can never break a response.** The capture is handed to `event.waitUntil()` so the
+response is not held for it, and every failure path is caught and logged. A missing key logs once
+per request and drops the event. A **rejected** event is logged too, which needs its own line of
+code: `fetch` rejects only on a network failure, so a 401 from a revoked project token resolves
+normally, and without a `response.ok` check it would read exactly like no traffic at all.
+
+**Schedule it with the `NextFetchEvent` Next passes as the proxy's second argument, never with
+`waitUntil` from `@vercel/functions`.** That helper resolves the request context through
+`globalThis[Symbol.for('@vercel/request-context')]`; when the symbol is absent its `getContext()`
+returns `{}`, the call becomes `undefined?.(promise)`, and the promise is dropped with no error, no
+log and no type error. **Next 16 does not install that symbol** (it installs
+`@next/request-context`), so the capture would be at the mercy of whether the invocation happened to
+outlive the response. Upstream's middleware used the framework's event for the same reason.
+
+Nothing catches that locally, which is what makes it worth a paragraph: the promise chain starts
+executing the moment it is constructed, so in `next dev` the fetch completes either way and an
+end-to-end check passes while production loses events. `waitUntil` only extends the runtime's
+lifetime past the response. Two tests in `scripts/lib/llms-tracking.test.mjs` assert the wiring
+directly, because no runtime check can.
+
+**The `distinct_id` is pseudonymous, not anonymous.** `buildTrackingPayload` hashes the client IP
+with a UTC daily salt and sends only the hash; the raw address is never in the payload. Rotating the
+salt daily prevents linking a reader across days, while one client's requests within a day still
+collapse into a single PostHog person rather than one per hit. **It does not prevent re-identification:**
+the salt is a public date string, so the whole IPv4 space can be hashed against it in seconds and a
+stored id matched back to an address. Treat the id as personal data. Making it genuinely one-way
+needs a secret salt and a decision about the unset case, which is deliberately left as follow-up
+rather than half-built here.
+
+A request with no `x-forwarded-for` gets a random id instead of the hash of the empty string, which
+is a constant and would pile every such request onto one shared person that reads as a single
+extraordinarily busy client. **That branch, and only that branch, also sets
+`$process_person_profile: false`,** because a unique id per request would otherwise mint a person
+profile per request and none of them could ever be related to anything. On the hashed path the
+profile is the point: it is what makes "how many distinct crawlers fetched this page today"
+answerable, at the cost of one profile per client per day, and it is upstream's behaviour.
+
+**Tracking applies exactly the condition the negotiation rewrite applies, and no more.** That
+rewrite is `/docs{/*path}`, which matches dotted slugs, so requiring a dot-free path in
+`lib/llms-tracking.ts` made a slug like `/docs/v1.2/guide` serve markdown and record nothing. The
+proxy cannot check that a page exists, since it cannot import `lib/source`, so this can track a
+request that 404s, exactly as the `.md` branch already does for `/docs/nope.md`. That is the right
+way round: an overcount shows up in PostHog as a `file` value nobody recognises, an undercount
+shows up as silence.
+
+**The `$current_url` origin comes from `getSiteUrl()`,** not from `request.nextUrl.origin`. A
+production deployment answers on its `*.vercel.app` alias as well as on the custom domain, so the
+request origin would record two `$current_url` values for one page and split the series. It also
+keeps the site-URL rule in the one module that owns it (see [Page metadata](#page-metadata)).
+
+`lib/llms-tracking.ts` is **deliberately import-free**, including of `lib/shared.ts`, so that
+`scripts/lib/llms-tracking.test.mjs` can import it directly under `node --test` using Node 22's
+native type stripping. That is what lets `pnpm test` exercise the exact module `proxy.ts` runs
+instead of a copy that would drift from it. The price is two local copies of the route constants;
+`proxy.ts` pins them with two `satisfies` statements, so moving `docsRoute` or `docsContentRoute`
+without mirroring it fails `types:check`.
 
 ### `/sitemap.xml` and `/robots.txt`
 
@@ -648,19 +737,24 @@ to work around with `--ignore-engines`.
 
 ## Analytics
 
-Three independent paths send events to the same PostHog project. They share nothing but the
+Four independent paths send events to the same PostHog project. They share nothing but the
 project token, so one being off does not affect the others.
 
-| Path                                | Where                                               | Runs on                                           |
-| ----------------------------------- | --------------------------------------------------- | ------------------------------------------------- |
-| Page feedback                       | `lib/posthog.ts`, a server action                   | everywhere, including local                       |
-| Web analytics (`$pageview`)         | `components/analytics/posthog-provider.tsx`, client | production only                                   |
-| Inkeep search and chat (`inkeep_*`) | the bridge in `lib/inkeep.ts`, client               | production only, piggybacking on the client above |
+| Path                                   | Where                                               | Runs on                                           |
+| -------------------------------------- | --------------------------------------------------- | ------------------------------------------------- |
+| Page feedback                          | `lib/posthog.ts`, a server action                   | everywhere, including local                       |
+| Web analytics (`$pageview`)            | `components/analytics/posthog-provider.tsx`, client | production only                                   |
+| Inkeep search and chat (`inkeep_*`)    | the bridge in `lib/inkeep.ts`, client               | production only, piggybacking on the client above |
+| Markdown fetches (`llms_file_fetched`) | `proxy.ts` via `lib/llms-tracking.ts`, server       | production only                                   |
+
+The fourth path is documented in full under [Request tracking](#request-tracking); the rest of this
+section is about the three client and server-action paths.
 
 **The production gate.** `VERCEL_ENV` is a server-only variable, so a client component cannot read
 it. Vercel exposes the same value to the browser as `NEXT_PUBLIC_VERCEL_ENV`, which is what the
-provider checks. It is `production` on the production deployment, `preview` on every preview build,
-and unset locally.
+provider checks. Request tracking runs in the proxy and so reads the server-side `VERCEL_ENV`
+directly; the two gates are the same value reached from different sides. It is `production` on the
+production deployment, `preview` on every preview build, and unset locally.
 
 That check has to stay written as a literal `process.env.NEXT_PUBLIC_VERCEL_ENV` member expression.
 Next inlines those at build time, so on a non-production build the enabled flag folds to `false`
