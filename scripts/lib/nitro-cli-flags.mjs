@@ -158,7 +158,10 @@ export function extractFlags({
       // declared in the data file instead and checked here.
       if (qualifier === 'f' && name === 'Var') {
         const flag = flagName(args[1], prefix);
-        if (flag === null) continue;
+        if (flag === null) {
+          problems.push(`unreadable flag name ${args[1]} in ${dir}.${funcName}`);
+          continue;
+        }
         const override = customTypes[flag];
         if (!override) {
           problems.push(
@@ -177,11 +180,26 @@ export function extractFlags({
       }
 
       // A nested `…AddOptions(prefix+".sub", f, …)` call, or one that reuses the same prefix.
+      //
+      // Anything handed the FlagSet registers flags, so a call this walk cannot follow is a whole
+      // namespace missing from the page. Both ways of failing to follow one are reported rather
+      // than skipped: silently dropping them is what the hardcoded go-ethereum check in
+      // generate-cli-reference.mjs guards against for one known case, and there is no reason the
+      // general case should be quieter. Measured against Nitro v3.11.3, neither fires.
       if (!args.includes('f')) continue;
       const targetDir = qualifier ? imports.get(qualifier) : dir;
-      if (!targetDir || !dirs.get(targetDir)?.funcs.has(name)) continue;
+      if (!targetDir || !dirs.get(targetDir)?.funcs.has(name)) {
+        problems.push(
+          `registration call ${qualifier ? `${qualifier}.` : ''}${name} in ${dir}.${funcName} ` +
+            `("${prefix}") resolves to no indexed package; its flags would be dropped`,
+        );
+        continue;
+      }
       const sub = args[0] === 'f' ? prefix : flagName(args[0], prefix);
-      if (sub === null) continue;
+      if (sub === null) {
+        problems.push(`unreadable prefix ${args[0]} for ${name} in ${dir}.${funcName}`);
+        continue;
+      }
       walk(targetDir, name, sub, depth + 1, bindArgs(dirs, targetDir, name, args, dir, scope));
     }
   }

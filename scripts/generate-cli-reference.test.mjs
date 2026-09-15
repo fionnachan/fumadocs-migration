@@ -72,6 +72,22 @@ func ConfigAddOptions(prefix string, f *flag.FlagSet) {
 	f.Uint64(prefix+".unset", ConfigDefault.Missing, "a field the literal omits")
 }
 `,
+  'cmd/config/unfollowable.go': `package config
+
+import (
+	flag "github.com/spf13/pflag"
+
+	"example.com/fixture/server"
+	"example.com/outside/absent"
+)
+
+// Both calls hand over the FlagSet and so register flags, and neither can be followed: the first
+// names a package that is not in the tree, the second builds its prefix from a variable.
+func UnfollowableAddOptions(f *flag.FlagSet) {
+	absent.ConfigAddOptions("node.absent", f)
+	server.ConfigAddOptions(chosenPrefix, f)
+}
+`,
   'poster/poster.go': `package poster
 
 import flag "github.com/spf13/pflag"
@@ -233,6 +249,26 @@ describe('extractFlags', () => {
     });
     assert.equal(problems.length, 2);
     assert.match(problems[0], /has no entry in customFlagTypes/);
+  });
+
+  it('reports a registration call it cannot follow instead of dropping the namespace', () => {
+    const { flags, problems } = extractFlags({
+      dirs: indexed.dirs,
+      fileImports: indexed.fileImports,
+      entryPoint: { dir: 'cmd/config', func: 'UnfollowableAddOptions' },
+    });
+    assert.deepEqual(flags, []);
+    assert.equal(problems.length, 2);
+    assert.match(problems[0], /absent\.ConfigAddOptions .* resolves to no indexed package/);
+  });
+
+  it('reports a prefix it cannot read instead of dropping the namespace', () => {
+    const { problems } = extractFlags({
+      dirs: indexed.dirs,
+      fileImports: indexed.fileImports,
+      entryPoint: { dir: 'cmd/config', func: 'UnfollowableAddOptions' },
+    });
+    assert.match(problems[1], /unreadable prefix chosenPrefix for ConfigAddOptions/);
   });
 
   it('reports a missing entry point rather than returning nothing', () => {
