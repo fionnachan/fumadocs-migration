@@ -167,26 +167,151 @@ test('readLocalTerms falls back to the filename when a file has no `id` frontmat
 });
 
 test('resolveUpstreamRepo prefers --upstream over the env var and config', () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'migrate-glossary-repo-'));
+  const dir = mktempUpstreamRepo();
   try {
     const resolved = resolveUpstreamRepo(['--upstream', dir], {
       env: { UPSTREAM_DOCS_REPO: '/nowhere' },
     });
-    assert.equal(resolved, dir);
+    assert.equal(resolved.repo, dir);
+    assert.equal(resolved.docs, path.join(dir, 'docs'));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
 test('resolveUpstreamRepo falls back to the env var when no flag is passed', () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'migrate-glossary-repo-'));
+  const dir = mktempUpstreamRepo();
   try {
     const resolved = resolveUpstreamRepo([], { env: { UPSTREAM_DOCS_REPO: dir } });
-    assert.equal(resolved, dir);
+    assert.equal(resolved.repo, dir);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('resolveUpstreamRepo resolves --tree-a, the shared resolver flag, as the docs tree itself', () => {
+  const dir = mktempUpstreamRepo();
+  try {
+    const docs = path.join(dir, 'docs');
+    const resolved = resolveUpstreamRepo(['--tree-a', docs], { env: {} });
+    assert.equal(resolved.docs, docs);
+    assert.equal(resolved.repo, dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('resolveUpstreamRepo resolves config paths against the repo root, not the cwd', () => {
+  // The whole point of delegating to the shared resolver: `probePaths` must not move when the
+  // script is invoked from a subdirectory.
+  const config = { docsSubdir: 'docs', probePaths: ['../arbitrum-docs'] };
+  const seen = [];
+  const resolved = resolveUpstreamRepo([], {
+    env: {},
+    config,
+    root: '/repo/root',
+    cwd: '/repo/root/scripts/nested',
+    exists: (p) => {
+      seen.push(p);
+      return p === '/repo/arbitrum-docs/docs';
+    },
+  });
+  assert.equal(resolved.repo, '/repo/arbitrum-docs');
+  assert.ok(!seen.some((p) => p.includes('nested')), `cwd leaked into ${seen.join(', ')}`);
+});
+
+test('convertBody preserves an #anchor when rewriting a .mdx doc link', () => {
+  const dir = mktempDocsRoot();
+  try {
+    const out = convertBody(
+      'See [chain params](/arbitrum-essentials/reference/chain-params.mdx#chain-parameters).',
+      { varKeys: new Set(), docsRoot: dir, warn: () => {} },
+    );
+    assert.equal(
+      out,
+      'See [chain params](/docs/arbitrum-essentials/reference/chain-params#chain-parameters).',
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('convertBody rewrites a relative .mdx doc link, with and without an anchor', () => {
+  const dir = mktempDocsRoot();
+  try {
+    const out = convertBody(
+      'A [x](arbitrum-essentials/reference/chain-params.mdx#foo) and [y](arbitrum-essentials/reference/chain-params.mdx).',
+      { varKeys: new Set(), docsRoot: dir, warn: () => {} },
+    );
+    assert.equal(
+      out,
+      'A [x](/docs/arbitrum-essentials/reference/chain-params#foo) and [y](/docs/arbitrum-essentials/reference/chain-params).',
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('convertBody warns exactly once about a .mdx link it cannot resolve', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'migrate-glossary-docs-'));
+  const warnings = [];
+  try {
+    const out = convertBody('See [nowhere](for-devs/gone.mdx#frag).', {
+      varKeys: new Set(),
+      docsRoot: dir,
+      warn: (msg) => warnings.push(msg),
+      label: 'term.mdx',
+    });
+    assert.equal(out, 'See [nowhere](for-devs/gone.mdx#frag).');
+    // The not-found resolver warning, not also the catch-all sweep.
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /not found under content\/docs\/ in term\.mdx/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('normalizeForComparison treats upstream @@key@@ and a converted <Var> as equal', () => {
+  // The idempotency case: convertBody turns @@x@@ into <Var name="x" />, so stripping only one
+  // side would list the term as changed on every run and rewrite it forever.
+  assert.equal(
+    normalizeForComparison('Value is @@nitroVersionTag@@ today.'),
+    normalizeForComparison('Value is <Var name="nitroVersionTag" /> today.'),
+  );
+});
+
+test('normalizeForComparison is case-sensitive, so an upstream capitalization fix is drift', () => {
+  assert.notEqual(
+    normalizeForComparison('a Rollup chain'),
+    normalizeForComparison('a rollup chain'),
+  );
+});
+
+test('computeSets flags a term whose title changed even when the body is identical', () => {
+  const upstream = new Map([['raas', { title: 'RaaS', sortAs: 'RaaS', body: 'same' }]]);
+  const local = new Map([['raas', { title: 'raas', sortAs: 'RaaS', body: 'same' }]]);
+  assert.deepEqual(computeSets(upstream, local).changed, ['raas']);
+});
+
+test('computeSets flags a sortAs change but not an omitted sortAs that equals the title', () => {
+  // writeTermFile omits sortAs when it equals the title, while readUpstreamTerms defaults it to
+  // the title, so comparing the raw fields would flag every term without an explicit sort key.
+  const upstream = new Map([
+    ['a', { title: 'A', sortAs: 'A', body: 'same' }],
+    ['b', { title: 'B', sortAs: 'Zed', body: 'same' }],
+  ]);
+  const local = new Map([
+    ['a', { title: 'A', sortAs: undefined, body: 'same' }],
+    ['b', { title: 'B', sortAs: 'Bee', body: 'same' }],
+  ]);
+  assert.deepEqual(computeSets(upstream, local).changed, ['b']);
+});
+
+function mktempUpstreamRepo() {
+  const dir = mkdtempSync(path.join(tmpdir(), 'migrate-glossary-repo-'));
+  mkdirSync(path.join(dir, 'docs'), { recursive: true });
+  return dir;
+}
 
 function mktempDocsRoot() {
   const dir = mkdtempSync(path.join(tmpdir(), 'migrate-glossary-docs-'));
