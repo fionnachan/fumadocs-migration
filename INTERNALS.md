@@ -50,7 +50,7 @@ Four packages are installed here:
 | `fumadocs-core`     | 16.15.9 | Headless engine: the Loader API, page tree, search, TOC, MDX plugins            |
 | `fumadocs-mdx`      | 15.4.0  | The content source: compiles MDX into typed **collections**                     |
 | `fumadocs-ui`       | 16.15.9 | The default theme: `DocsPage`/`DocsBody` layouts, tabs, accordions, code blocks |
-| `fumadocs-twoslash` | 3.3.1   | Type-checked TypeScript code samples (` ```ts twoslash `)                       |
+| `fumadocs-twoslash` | 4.0.1   | Type-checked TypeScript code samples (` ```ts twoslash `)                       |
 
 `fumadocs-ui` is a theme, not a requirement — the headless core would work without it. We use it,
 and override its tokens rather than forking it.
