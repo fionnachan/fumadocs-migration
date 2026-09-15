@@ -1,5 +1,6 @@
 import type { MetadataRoute } from 'next';
 
+import { getSiteUrl } from '@/lib/shared';
 import { source } from '@/lib/source';
 
 /**
@@ -17,22 +18,23 @@ import { source } from '@/lib/source';
  * yet, and a draft page renders and appears in `llms.txt`, so filtering only here would make the
  * sitemap disagree with what the site actually serves. There are currently no draft pages.)
  *
- * Absolute URLs are required by the sitemap protocol. `NEXT_PUBLIC_SITE_URL` is the deployed
- * origin; the localhost fallback matches `metadataBase` in `app/layout.tsx`, so a local sitemap is
- * still well-formed and self-consistent.
+ * Absolute URLs are required by the sitemap protocol. The origin comes from `getSiteUrl()` in
+ * `lib/shared.ts`, the same helper behind `metadataBase` in `app/layout.tsx` and the docs page
+ * canonical, so all three always agree and a production build with no `NEXT_PUBLIC_SITE_URL`
+ * fails instead of shipping a sitemap full of localhost URLs.
  *
  * No `revalidate` export: a metadata route with no request-time input is already cached at build
  * time by default, so setting it would only restate the default.
  */
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
+const siteUrl = getSiteUrl();
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const pages = source.getPages().map((page) => {
-    // `lastModified` only exists once `lastModified: true` is set on the docs collection in
-    // `source.config.ts` (M-35 / FS-2668). Until then it is absent on every page, and the sitemap
-    // simply omits `<lastmod>`, which is valid. Read defensively so enabling it later needs no
-    // change here, and so this file does not depend on a flag it does not own.
-    const lastModified = (page.data as { lastModified?: Date | string }).lastModified;
+    // `lastModified` comes from the `lastModified` option on the docs collection in
+    // `source.config.ts`, which is gated behind a full-git-history probe (see INTERNALS, "Last
+    // modified dates"). In a shallow checkout it resolves to `undefined` for every page and the
+    // sitemap omits `<lastmod>` entirely, which is valid.
+    const { lastModified } = page.data;
 
     return {
       url: new URL(page.url, siteUrl).toString(),
