@@ -80,6 +80,34 @@ const varsSchema = z.strictObject({
   cargoStylusVersion: z.string(),
   stylusSdkVersion: z.string(),
   aepRevenueSharePercent: z.number(),
+
+  // --- Announcement banner (FS-2667) -------------------------------------
+  // Not `<Var>` substitutions: these are read by app/layout.tsx to render the
+  // site-wide banner, so `pnpm vars:check` lists them as configured but
+  // unreferenced in MDX. That warning is expected for this block.
+  //
+  // `announcementId` is the Fumadocs Banner id and doubles as the dismissal
+  // key: a viewer who closes the banner never sees that id again, so changing
+  // the message means changing the id too or the new text stays hidden from
+  // everyone who dismissed the old one.
+  //
+  // The pattern is not cosmetic. Banner writes the id into the element's `id`
+  // attribute and into a generated rule of the shape `.<key> #<id>{display:none}`.
+  // The class half is base32-encoded and always safe; the `#<id>` half is the
+  // raw value, so a space or a leading digit yields a selector that parses to
+  // nothing. Dismissal would then appear to work and the banner would come back
+  // on the next page load, with no error anywhere. Fail at module load instead.
+  announcementEnabled: z.boolean(),
+  announcementText: z.string(),
+  announcementLinkText: z.string(),
+  announcementLinkHref: z.string(),
+  announcementId: z
+    .string()
+    .regex(
+      /^[A-Za-z][A-Za-z0-9_-]*$/,
+      'announcementId must start with a letter and contain only letters, digits, hyphens and underscores, because it is used verbatim as an HTML id and as a CSS #id selector',
+    ),
+  // --- end announcement banner -------------------------------------------
 });
 
 export const vars = varsSchema.parse(varsJson);
