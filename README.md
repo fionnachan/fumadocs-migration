@@ -78,17 +78,17 @@ pnpm types:check   # the main verification gate
 pnpm check-links   # broken internal links
 ```
 
-CI runs eight blocking checks. `pnpm build` runs the same link check, so a broken link fails the
-Vercel deploy too. See [The gates](INTERNALS.md#the-gates) for the full list.
+CI runs thirteen blocking checks, including Prettier formatting and the MDX structural lint.
+`pnpm build` runs the same link check, so a broken link fails the Vercel deploy too. See
+[The gates](INTERNALS.md#the-gates) for the full list.
 
 A Husky pre-commit hook also runs automatically on `git commit`, scoped to staged files only
 ([`.lintstagedrc.mjs`](.lintstagedrc.mjs)):
 
 - Prettier formats every staged file it understands, except `meta.json` (generator output;
   formatting it here would fight `pnpm move-doc` on every run).
-- Staged `.mdx` under `content/` also gets `content:lint`, restricted to those files and to the
-  rules that are already clean repo-wide (see [The gates](INTERNALS.md#the-gates) for why the
-  rest stay non-blocking).
+- Staged `.mdx` under `content/` also gets `content:lint`, restricted to those files but running
+  every rule, the same set CI blocks on (see [The gates](INTERNALS.md#the-gates)).
 - A staged `.ts`/`.tsx` file triggers one full `pnpm types:check` (not per file). This regenerates
   `.source/`, runs `next typegen`, then type-checks the whole project, so it takes several seconds
   even for a one-line change. That is expected, not a hang.

@@ -323,7 +323,7 @@ the marker `{/* sync-with-var: latestNitroNodeImage */}`. Two weaker rules were 
 
 - Flagging every `offchainlabs/nitro-node:` literal that is not the current value. `content/` holds
   47 older tags pinned deliberately in historical examples, so the rule would open with 47 findings,
-  none of them defects, and push `content:lint` further from promotion into the blocking tier.
+  none of them defects, in a check that blocks every PR.
 - Rewriting every occurrence of the outgoing value with no marker. That looks safe, since the
   outgoing value can only ever be a copy of what was current, and it is not:
   `content/docs/run-a-node/arbos-releases/*.mdx` pin the minimum Nitro version for each ArbOS
@@ -879,9 +879,9 @@ pollute production data.
 ## The gates
 
 CI runs on push and PR to `main` (`.github/workflows/ci.yml`) in three jobs. **Only the first
-blocks.** A green PR does not mean the content is clean.
+blocks.**
 
-**`Gates` (blocking)** — eleven steps:
+**`Gates` (blocking)** — thirteen steps:
 
 | Step                       | Catches                                                                       |
 | -------------------------- | ----------------------------------------------------------------------------- |
@@ -892,24 +892,31 @@ blocks.** A green PR does not mean the content is clean.
 | `partials:check`           | Unresolved includes, routing leaks, stale catalog, `cwd` include in a partial |
 | `versioned-docs-check.mjs` | Archived-page registry drift                                                  |
 | `references:check`         | Glossary ids and `<Reference>` targets                                        |
-| `faq:check`                | A `faqsId` in `content/docs` with no matching, well-formed data file          |
+| `faq:check`                | A `faqsId` with no matching entry in the FAQ data                             |
 | `images:presence`          | A markdown image with a remote src, which renders as a 500                    |
 | `check-links`              | Broken internal doc links                                                     |
 | `contracts:check`          | The generated contract-address partial matches `@arbitrum/sdk`                |
+| `format:check`             | Prettier style drift                                                          |
+| `content:lint`             | MDX structural defects, rules A1 through A6                                   |
 
 `check-links` exists because Fumadocs has no equivalent of Docusaurus's `onBrokenLinks: 'throw'`.
 `pnpm build` chains it ahead of `next build`, so a broken link also fails the Vercel deploy.
 
-**`Content debt` (non-blocking)** — `format:check`, `content:lint` and `precompiles:check`, each
-marked `continue-on-error`. The first two still fail on pre-existing debt, and the job comment
-records the counts. **Promote one of those two into `Gates` once its count reaches zero** — that
-promotion is the point of the split. This tier is a backlog, not a policy.
+`format:check` and `content:lint` are the two newest entries, promoted on 2026-09-15. Until then
+they sat in a third, non-blocking `Content debt` tier, which existed to hold a check whose count
+was not yet zero: `format:check` opened at 49 unformatted files and `content:lint` at 181
+findings, and blocking on either would have rejected every PR over defects the migration
+inherited rather than introduced. Both reached zero, so the tier had done its job and was retired.
+No promote-when-zero rule is left to apply, and a failure in either step now means the PR under
+review introduced it.
 
-`precompiles:check` is in this tier for a different reason, and reaching zero is not what would
-promote it: it is already green. It fetches about thirty Solidity sources from
-`raw.githubusercontent` on every run, so a GitHub blip turns it red for reasons unrelated to the
-change under review, the same argument that keeps `Build` non-blocking. Losing the network
-dependency is what would promote it.
+**`Network checks` (non-blocking)** — `precompiles:check`, marked `continue-on-error`. Reaching
+zero is not what would promote this one: it is already green. It fetches about thirty Solidity
+sources from `raw.githubusercontent` on every run, so a GitHub blip turns it red for reasons
+unrelated to the change under review, the same argument that keeps `Build` non-blocking. Its
+sibling `contracts:check` reads a registry that ships inside `@arbitrum/sdk` at an exact pin, so
+it is offline and blocks. Losing the network dependency is what would promote
+`precompiles:check`.
 
 **`Build` (non-blocking)** runs `pnpm build`. It catches MDX compile errors that `types:check` cannot
 see. It was made non-blocking because the MDX image pipeline fetched remote images at build time, so
@@ -1036,14 +1043,15 @@ one:
 - Prettier runs on every staged file type it understands, except `meta.json`. `meta.json` is
   generator output (`stringifyMeta` in `scripts/lib/doc-links.mjs`), written one array entry per
   line on purpose; Prettier collapses a short array onto one line, so the two would fight each
-  other on every `pnpm move-doc` run. `format:check` already tracks the resulting debt in
-  `Content debt`, so excluding it here does not hide anything new.
-- Staged `content/**/*.mdx` files get `content:lint`, restricted to the staged files, but only for
-  the rules that are already at zero findings across the whole tree (`A1`, `A3`, `A4`). `A2` and
-  `A5` still have pre-existing findings and stay non-blocking in CI for exactly that reason: making
-  the hook enforce a rule CI itself does not enforce yet would reject a commit over a defect the
-  contributor did not introduce, with `--no-verify` as the only way out. Widen the rule list here
-  in the same commit that clears a rule's CI count to zero and promotes it out of `Content debt`.
+  other on every `pnpm move-doc` run. `.prettierignore` excludes `**/meta.json` repo-wide for the
+  same reason, so `format:check` does not report them either and nothing is hidden here.
+- Staged `content/**/*.mdx` files get `content:lint`, restricted to the staged files but running
+  the full rule set. It was limited to `A1,A3,A4` while `A2` and `A5` still had pre-existing
+  findings, because a hook enforcing a rule CI itself did not enforce would reject a commit over a
+  defect the contributor did not introduce, with `--no-verify` as the only way out. Both reached
+  zero on 2026-09-15 and `content:lint` became blocking in CI, so the filter came off and the hook
+  and the gate now agree. If a rule added later lands with pre-existing findings, name the clean
+  rules explicitly again until it reaches zero.
 - Prettier and content-lint run as one sequential array entry for `content/**/*.mdx`, not as two
   separate glob entries. lint-staged runs separate glob entries concurrently by default, and an
   `.mdx` file under `content/` would otherwise match both the general Prettier glob and the

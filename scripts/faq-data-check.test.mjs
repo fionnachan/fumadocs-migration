@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import {
-  extractFaqsIdUnion,
-  extractFaqsIdUsages,
-  validateFaqEntries,
-} from './lib/faq-data.mjs';
+import { extractFaqsIdUnion, extractFaqsIdUsages, validateFaqEntries } from './lib/faq-data.mjs';
 
 test('extractFaqsIdUsages finds a double-quoted faqsId with its line number', () => {
   const source = 'line one\n<FAQStructuredDataJsonLd faqsId="bridging" />\n';
@@ -46,7 +42,7 @@ test('extractFaqsIdUsages finds multiple usages across a file', () => {
 
 test('extractFaqsIdUnion parses the FaqsId string-literal union', () => {
   const source = [
-    "export type FaqsId =",
+    'export type FaqsId =',
     "  'bridging' | 'building' | 'building-orbit' | 'building-stylus' | 'get-started' | 'node-running';",
     '',
     'export interface FAQStructuredDataProps {',
