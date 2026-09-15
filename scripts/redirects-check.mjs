@@ -3,13 +3,14 @@
  *
  * Usage:
  *   pnpm redirects:check                       # needs `pnpm dev` running
- *   pnpm redirects:check --base-url <origin>   # check a preview or production deploy
- *   pnpm redirects:check --base-url <origin> --bypass-header <secret>
- *     # same, against a Vercel deployment with Deployment Protection enabled. The secret is sent
- *     # as the `x-vercel-protection-bypass` header (Vercel's "Protection Bypass for Automation"),
- *     # so the fetch below reaches the app instead of Vercel's SSO/login page. Falls back to the
- *     # VERCEL_AUTOMATION_BYPASS_SECRET env var when the flag isn't passed, so CI doesn't need to
- *     # thread it through as a literal argument. Omit both when protection is off.
+ *   pnpm redirects:check --base-url <origin>   # check any origin already serving the site
+ *
+ * In CI this runs inside the `Build` job in `.github/workflows/ci.yml`, against `next start` on
+ * localhost rather than against a deployed preview. That is a deliberate security choice, not a
+ * convenience: checking a Vercel preview means holding VERCEL_AUTOMATION_BYPASS_SECRET in CI, and
+ * that secret bypasses Deployment Protection on every deployment in the project (production
+ * included) and is injected into every build Vercel runs. A localhost server needs no secret, so a
+ * pull request from a fork is checked exactly like any other. See INTERNALS.md#redirects.
  *
  * `redirects.config.mjs` is built by tooling that infers routable URLs by walking the content
  * tree — `.mdx` only, `index` means the directory, `_`-prefixed files are partials, everything
@@ -27,7 +28,7 @@
  * External (http/https) destinations are reported as SKIPPED and not verified.
  */
 import { redirects } from '../redirects.config.mjs';
-import { parseArgs, protectionHint } from './lib/redirects-check.mjs';
+import { parseArgs } from './lib/redirects-check.mjs';
 
 const DEFAULT_BASE_URL = 'http://localhost:3000';
 
@@ -40,12 +41,11 @@ const bareUrl = (value) => value.split('#')[0].split('?')[0].replace(/\/+$/, '')
  * Every routable doc URL, taken from the site's own source-derived index rather than re-derived
  * from the filesystem. `/llms.txt` renders markdown links, so the URLs are the `](...)` targets.
  */
-async function fetchRoutableUrls(baseUrl, bypassHeader) {
+async function fetchRoutableUrls(baseUrl) {
   const url = `${baseUrl}/llms.txt`;
-  const headers = bypassHeader ? { 'x-vercel-protection-bypass': bypassHeader } : {};
   let response;
   try {
-    response = await fetch(url, { headers });
+    response = await fetch(url);
   } catch (cause) {
     throw new Error(
       `redirects-check: cannot reach ${url}. Start the site with \`pnpm dev\`, or pass ` +
@@ -53,9 +53,7 @@ async function fetchRoutableUrls(baseUrl, bypassHeader) {
     );
   }
   if (!response.ok) {
-    throw new Error(
-      `redirects-check: ${url} returned ${response.status}${protectionHint(response.status)}`,
-    );
+    throw new Error(`redirects-check: ${url} returned ${response.status}`);
   }
   const body = await response.text();
   const urls = new Set([...body.matchAll(/\]\((\/[^)]*)\)/g)].map((m) => bareUrl(m[1])));
@@ -68,10 +66,8 @@ async function fetchRoutableUrls(baseUrl, bypassHeader) {
 }
 
 async function main() {
-  const { baseUrl, bypassHeader } = parseArgs(process.argv.slice(2), {
-    defaultBaseUrl: DEFAULT_BASE_URL,
-  });
-  const routable = await fetchRoutableUrls(baseUrl, bypassHeader);
+  const { baseUrl } = parseArgs(process.argv.slice(2), { defaultBaseUrl: DEFAULT_BASE_URL });
+  const routable = await fetchRoutableUrls(baseUrl);
 
   const dead = [];
   const shadowed = [];

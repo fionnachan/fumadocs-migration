@@ -408,20 +408,27 @@ upstream page's frontmatter title against the local candidates, rather than leav
 
 `pnpm redirects:check` validates every destination against `/llms.txt` — the router's own page
 list — and fails on a dead destination or a source that shadows a live page. It needs the site
-running, so point it at a Vercel preview with `--base-url` to check a PR.
+running, so run it with `pnpm dev` up, or point it at any other origin with `--base-url`.
 
-**`.github/workflows/redirects-check.yml` runs this automatically against a PR's Vercel preview**,
-triggered on `deployment_status` once Vercel reports a `Preview` deployment `success` for that
-commit (confirmed against this repo's own deployment history: Vercel's GitHub App sets
-`environment: "Preview"` and `creator.login: "vercel[bot]"`). A `deployment_status`-triggered run
-does not attach to the PR's checks list the way a `pull_request` run does, so the job posts its
-own commit status with context `redirects-check` via the GitHub API — visible on the PR, and
-promotable to a required check once trusted, same as any other step in [The gates](#the-gates). If
-the Vercel project has Deployment Protection enabled, set the `VERCEL_AUTOMATION_BYPASS_SECRET`
-repository secret (from the Vercel project's Settings → Deployment Protection → Protection Bypass
-for Automation); `redirects-check.mjs` sends it as the `x-vercel-protection-bypass` header, or
-falls back to a `--bypass-header <secret>` CLI flag for a manual run. The workflow passes the same
-way with the secret absent, as long as protection is actually off.
+**CI runs it in the `Build` job**, as a step after `pnpm build`: it starts `pnpm start`, polls
+`/llms.txt` until the server answers, runs the check, and kills the server on the way out. The
+build is already happening in that job, so the whole step costs about three seconds. It is
+non-blocking only because that job is; promoting `Build` into `Gates` promotes this with it.
+
+**It deliberately does not check a Vercel preview, and should not be changed back.** The obvious
+design — a `deployment_status` workflow pointed at the PR's preview URL — was built on
+`fs-2675` and then abandoned on security grounds once this repository went public.
+`deployment_status` runs from the default branch with full secrets access, so checking out the PR's
+commit and running its copy of `redirects-check.mjs` executes contributor code next to whatever
+secret the step holds. The secret it needs is the worse half: `VERCEL_AUTOMATION_BYPASS_SECRET`
+bypasses Deployment Protection on **every** deployment in the project, production included, and
+Vercel injects it into every build it runs, so simply creating it hands it to any fork preview a
+maintainer authorizes, with no GitHub Actions involved at all. A server on localhost needs no
+credential, so a pull request from a fork is checked exactly like a branch PR. Full write-up in
+`security-review-fs-2675-redirects-check-ci.md`.
+
+The site does not have to be a _deployed_ site for the router to be the authority on what is
+routable. That is the whole trick.
 
 ## Routing and `proxy.ts`
 
@@ -715,13 +722,11 @@ the slowest job here.
 `images:check` reaches out to third-party hosts, so its result depends on somebody else's uptime;
 its offline sibling `images:presence` does run in CI. `drift` is worth running by hand for a local
 check but is no longer manual-only: the `drift` job below runs it weekly. `redirects:check` is no
-longer hand-only for a PR either — `.github/workflows/redirects-check.yml` runs it against that
-PR's Vercel preview once Vercel reports the preview deployment successful, and posts the result as
-a `redirects-check` commit status (see [Redirects](#redirects)). It is still not part of the
-blocking `Gates` job above: a `deployment_status` run depends on Vercel's own deploy finishing, so
-it cannot run in the same job as the rest of `Gates`, which is triggered directly by `push`/
-`pull_request` and does not wait on anything external. It is still available by hand with
-`--base-url`, against a local `pnpm dev` or any other URL.
+longer hand-only for a PR either — it runs as the last step of the `Build` job, against `pnpm start`
+on localhost (see [Redirects](#redirects)). It is not in the blocking `Gates` job because it needs a
+running site, and the only cheap way to get one is to reuse the build that `Build` already does;
+promoting `Build` promotes it too. It is still available by hand with `--base-url`, against a local
+`pnpm dev` or any other URL.
 
 `upstream-refresh.yml` runs Mondays at 08:00 UTC and on `workflow_dispatch`, in two independent
 jobs:

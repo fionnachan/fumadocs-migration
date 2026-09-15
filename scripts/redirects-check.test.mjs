@@ -1,56 +1,36 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { parseArgs, protectionHint } from './lib/redirects-check.mjs';
+import { parseArgs } from './lib/redirects-check.mjs';
 
-const defaults = { defaultBaseUrl: 'http://localhost:3000', env: {} };
+const defaults = { defaultBaseUrl: 'http://localhost:3000' };
 
-test('parseArgs falls back to the default base URL and an empty bypass header', () => {
-  const result = parseArgs([], defaults);
-  assert.equal(result.baseUrl, 'http://localhost:3000');
-  assert.equal(result.bypassHeader, '');
+test('parseArgs falls back to the default base URL', () => {
+  assert.equal(parseArgs([], defaults).baseUrl, 'http://localhost:3000');
 });
 
 test('parseArgs reads --base-url and strips a trailing slash', () => {
-  const result = parseArgs(['--base-url', 'https://preview.example.com/'], defaults);
-  assert.equal(result.baseUrl, 'https://preview.example.com');
-});
-
-test('parseArgs: --bypass-header beats the environment variable', () => {
-  const result = parseArgs(['--bypass-header', 'flag-secret'], {
-    ...defaults,
-    env: { VERCEL_AUTOMATION_BYPASS_SECRET: 'env-secret' },
-  });
-  assert.equal(result.bypassHeader, 'flag-secret');
-});
-
-test('parseArgs: the environment variable applies when the flag is absent', () => {
-  const result = parseArgs([], {
-    ...defaults,
-    env: { VERCEL_AUTOMATION_BYPASS_SECRET: 'env-secret' },
-  });
-  assert.equal(result.bypassHeader, 'env-secret');
+  const result = parseArgs(['--base-url', 'http://localhost:3399/'], defaults);
+  assert.equal(result.baseUrl, 'http://localhost:3399');
 });
 
 test('parseArgs rejects --base-url with no value instead of throwing on .replace later', () => {
   assert.throws(() => parseArgs(['--base-url'], defaults), /--base-url requires a value/);
 });
 
-test('parseArgs rejects a trailing --bypass-header instead of silently dropping the header', () => {
-  assert.throws(() => parseArgs(['--bypass-header'], defaults), /--bypass-header requires a value/);
-});
-
-test('parseArgs rejects --bypass-header immediately followed by another flag', () => {
+test('parseArgs rejects --base-url immediately followed by another flag', () => {
   assert.throws(
-    () => parseArgs(['--bypass-header', '--base-url', 'https://preview.example.com'], defaults),
-    /--bypass-header requires a value/,
+    () => parseArgs(['--base-url', '--verbose'], defaults),
+    /--base-url requires a value/,
   );
 });
 
-test('protectionHint names the flag and env var for 401 and 403, and is empty otherwise', () => {
-  assert.match(protectionHint(401), /--bypass-header/);
-  assert.match(protectionHint(401), /VERCEL_AUTOMATION_BYPASS_SECRET/);
-  assert.match(protectionHint(403), /--bypass-header/);
-  assert.equal(protectionHint(404), '');
-  assert.equal(protectionHint(500), '');
+// The check deliberately carries no Vercel Deployment Protection bypass. Holding that secret in
+// CI would hand every build, and every fork preview Vercel is authorized to build, a credential
+// that bypasses protection on every deployment in the project including production. Instead CI
+// runs `next start` on localhost, which needs no credential at all. If a `--bypass-header` flag
+// or a VERCEL_AUTOMATION_BYPASS_SECRET fallback ever reappears here, that reasoning went with it.
+test('parseArgs accepts no bypass option and returns only a base URL', () => {
+  const result = parseArgs(['--bypass-header', 'nope'], defaults);
+  assert.deepEqual(result, { baseUrl: 'http://localhost:3000' });
 });
