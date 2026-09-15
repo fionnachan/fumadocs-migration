@@ -20,15 +20,28 @@ export const SECTION_MAP = {
  *
  * Pairing is otherwise done on the normalized slug, which cannot match a page whose filename changed
  * during the migration. Without these entries the renamed pages below are reported ABSENT (looks like
- * a missing page) instead of GUTTED (a present page that lost content) — the wrong verdict for the
+ * a missing page) instead of GUTTED (a present page that lost content), the wrong verdict for the
  * wrong reason. Add an entry here whenever a port renames a file.
+ *
+ * A value is normally the Tree B path. It may instead be `{ to, merge: true }`, which says this
+ * upstream page was deliberately folded into a Tree B page that another upstream page also maps to.
+ * `pairTrees` refuses to let two upstream pages claim one Tree B file unless both say `merge`, so
+ * the flag is what separates an intended merge from an accidental collision.
  */
 export const RENAME_MAP = {
   'for-devs/contribute.mdx': 'contribute.mdx',
+  // The port renamed the gentle intro to stf.mdx and expanded it (ratio 1.74, so no content loss).
+  // Without this the page reported ABSENT while local stf.mdx was left to be claimed by upstream's
+  // unrelated extend-the-protocol/stf.mdx how-to, which made it look GUTTED at 0.20.
+  'how-arbitrum-works/deep-dives/01-stf-gentle-intro.mdx': 'how-arbitrum-works/deep-dives/stf.mdx',
   'for-devs/oracles/oracles-content-map.mdx': 'oracles/index.mdx',
   'get-started/overview.mdx': 'get-started/index.mdx',
-  'launch-arbitrum-chain/chain-config/batch-poster/config-batch-poster.mdx':
-    'launch-arbitrum-chain/configuration/sequencer/batch-posting-assertion-control.mdx',
+  // Deliberate merge: upstream splits batch-poster and assertion config across two pages and the
+  // port combined them, so both upstream paths legitimately point at one local file.
+  'launch-arbitrum-chain/chain-config/batch-poster/config-batch-poster.mdx': {
+    to: 'launch-arbitrum-chain/configuration/sequencer/batch-posting-assertion-control.mdx',
+    merge: true,
+  },
   'launch-arbitrum-chain/chain-config/batch-poster/enable-4844-blobs.mdx':
     'launch-arbitrum-chain/configuration/data-availability/enable-post-4844-blobs.mdx',
   'launch-arbitrum-chain/chain-config/batch-poster/fee-tuning.mdx':
@@ -43,6 +56,12 @@ export const RENAME_MAP = {
     'launch-arbitrum-chain/configuration/costs/use-a-custom-gas-token-anytrust.mdx',
   'launch-arbitrum-chain/chain-config/costs/custom-gas-token-rollup.mdx':
     'launch-arbitrum-chain/configuration/costs/use-a-custom-gas-token-rollup.mdx',
+  // Same page, renamed in the port: identical title ("Configure and optimize gas") and body. Without
+  // this it fell through to the bare-slug fallback and paired against the unrelated Stylus
+  // best-practices/gas-optimization.mdx, whose line count happened to clear the 70% ratio, so the
+  // mispairing never surfaced as a finding at all.
+  'launch-arbitrum-chain/chain-config/costs/gas-optimization.mdx':
+    'launch-arbitrum-chain/configuration/costs/gas-optimization-tools.mdx',
   'launch-arbitrum-chain/chain-config/costs/dynamic-pricing.mdx':
     'launch-arbitrum-chain/configuration/costs/dynamic-pricing-for-arbitrum-chains.mdx',
   'launch-arbitrum-chain/chain-config/data-availability/dac-get-started.mdx':
@@ -55,9 +74,11 @@ export const RENAME_MAP = {
     'launch-arbitrum-chain/configuration/sequencer/config-sequencer-timing-adjustments.mdx',
   'launch-arbitrum-chain/chain-config/sequencer/timeboost.mdx':
     'launch-arbitrum-chain/configuration/sequencer/timeboost-for-arbitrum-chains.mdx',
-  // Upstream split batch-poster and assertion config across two pages; the port merged them.
-  'launch-arbitrum-chain/chain-config/validation/assertion-control.mdx':
-    'launch-arbitrum-chain/configuration/sequencer/batch-posting-assertion-control.mdx',
+  // The other half of the merge above.
+  'launch-arbitrum-chain/chain-config/validation/assertion-control.mdx': {
+    to: 'launch-arbitrum-chain/configuration/sequencer/batch-posting-assertion-control.mdx',
+    merge: true,
+  },
   'launch-arbitrum-chain/chain-config/validation/bold.mdx':
     'launch-arbitrum-chain/configuration/sequencer/bold-adoption-for-arbitrum-chains.mdx',
   'launch-arbitrum-chain/chain-config/validation/bond-and-validator.mdx':
@@ -70,6 +91,21 @@ export const RENAME_MAP = {
     'launch-arbitrum-chain/deploy/deploying-an-arbitrum-chain.mdx',
   'launch-arbitrum-chain/deploy/token-bridge.mdx':
     'launch-arbitrum-chain/deploy/deploying-token-bridge.mdx',
+  // Upstream moved this out of extend-the-protocol in 1f9d652ef ("Moving da-api-integration-guide
+  // to integrations/da-api-guide"); it was ported here before the move, under the older name. Body
+  // similarity 0.994, so it is a rename, not a gap.
+  'launch-arbitrum-chain/extend-the-protocol/da-api-guide.mdx':
+    'launch-arbitrum-chain/integrations/da-api-integration-guide.mdx',
+  // The rest of upstream's extend-the-protocol/ was ported into configuration/core/ under
+  // `customize-` names; titles are identical in all three cases. `arbos` and `stf` are the how-to
+  // pages that share a basename with the how-arbitrum-works concept pages, which is exactly what
+  // the old bare-slug fallback mispaired them against.
+  'launch-arbitrum-chain/extend-the-protocol/precompiles.mdx':
+    'launch-arbitrum-chain/configuration/core/customize-precompile.mdx',
+  'launch-arbitrum-chain/extend-the-protocol/arbos.mdx':
+    'launch-arbitrum-chain/configuration/core/customize-arbos.mdx',
+  'launch-arbitrum-chain/extend-the-protocol/stf.mdx':
+    'launch-arbitrum-chain/configuration/core/customize-stf.mdx',
   'launch-arbitrum-chain/integrations/bridged-usdc.mdx':
     'launch-arbitrum-chain/integrations/bridged-usdc-standard.mdx',
   'launch-arbitrum-chain/integrations/infrastructure-providers.mdx':
@@ -97,6 +133,9 @@ export const RENAME_MAP = {
     'launch-arbitrum-chain/quickstart/run-testnet-infrastructure-first-rollup.mdx',
   'launch-arbitrum-chain/quickstart/sdk-introduction.mdx':
     'launch-arbitrum-chain/overview/arbitrum-chain-sdk-introduction.mdx',
+  // "Run a batch poster" in both trees, renamed on port. Distinct from the how-arbitrum-works
+  // concept page also called batchposter, which is what the bare-slug fallback used to grab.
+  'launch-arbitrum-chain/run-a-node/batch-poster.mdx': 'run-a-node/run-batch-poster.mdx',
   'launch-arbitrum-chain/run-a-node/high-availability-sequencer.mdx':
     'run-a-node/high-availability-sequencer-docs.mdx',
   'launch-arbitrum-chain/run-a-node/split-validator-node.mdx':
@@ -104,6 +143,22 @@ export const RENAME_MAP = {
   'learn-more/faq.mdx': 'get-started/faq.mdx',
   'node-running/faq.mdx': 'run-a-node/faq.mdx',
 };
+
+/** The Tree B path a RENAME_MAP value points at, for either supported shape. */
+function renameTarget(value) {
+  return typeof value === 'string' ? value : value.to;
+}
+
+/**
+ * Whether this Tree A path is allowed to share its Tree B counterpart with another Tree A path.
+ *
+ * Only a RENAME_MAP entry marked `merge: true` may, which is how a deliberate two-into-one port is
+ * told apart from two pages accidentally colliding on the same target.
+ */
+export function isMergeRename(relA) {
+  const value = RENAME_MAP[relA];
+  return typeof value === 'object' && value.merge === true;
+}
 
 /** Reduce a path to a comparable slug: basename, no extension, no ordering prefix, alphanumeric only. */
 export function normalizeSlug(filePath) {
@@ -118,7 +173,7 @@ export function normalizeSlug(filePath) {
 
 /** Rewrite a Tree A relative path onto Tree B's layout. Explicit renames win over section prefixes. */
 export function mapSectionPath(relPath) {
-  if (Object.hasOwn(RENAME_MAP, relPath)) return RENAME_MAP[relPath];
+  if (Object.hasOwn(RENAME_MAP, relPath)) return renameTarget(RENAME_MAP[relPath]);
 
   const keys = Object.keys(SECTION_MAP).sort((a, b) => b.length - a.length);
   for (const from of keys) {
@@ -157,17 +212,80 @@ export function buildTreeIndex(relPaths) {
 }
 
 /**
- * Resolve a Tree A relative path to its Tree B counterpart, or `null` if none is found.
- *
- * Maps the Tree A path onto Tree B's layout first (section renames + whole-file renames), then
- * matches on directory + slug. Falls back to an unambiguous bare-slug match so a page that moved to
- * an unmapped directory can still pair, without letting a bare-slug collision mispair anything.
+ * Key a Tree A path the way `buildTreeIndex` keys Tree B: onto Tree B's layout, then directory and
+ * normalized slug.
  */
-export function resolveTreeBMatch(index, relA) {
+function lookupKeys(relA) {
   const mapped = mapSectionPath(relA);
   const dir = mapped.split('/').slice(0, -1).join('/');
-  const slug = normalizeSlug(mapped);
-  return index.byDirSlug.get(`${dir}\0${slug}`) ?? index.bareSlug.get(slug) ?? null;
+  return { dirSlug: `${dir}\0${normalizeSlug(mapped)}`, slug: normalizeSlug(mapped) };
+}
+
+/**
+ * Pair every Tree A path against Tree B at once, one Tree B file to at most one Tree A file.
+ *
+ * Deciding one path in isolation is not enough when **upstream** holds two different pages that
+ * share a basename, which is why no single-path resolver is exported any more. Upstream has both a
+ * concept page and a how-to page named
+ * `arbos.mdx` (likewise `batchposter`/`batch-poster` and `stf`); only the concept pages were ported.
+ * Resolved one at a time, the concept page paired correctly by directory while the how-to page fell
+ * through to the bare-slug fallback and grabbed the *same* local file. The report then called three
+ * ported pages GUTTED — `batchposter` at 0.12, `stf` at 0.20, `arbos` at 0.48 — for the sole reason
+ * that it was measuring a how-to against a concept page, and hid three genuinely unported how-tos
+ * behind those bogus ratios. Two wrong answers from one mispairing.
+ *
+ * So pairing happens in two passes over the whole tree:
+ *   1. directory-qualified matches, which are certain, and which claim their Tree B file
+ *   2. the bare-slug fallback for whatever is left, never onto a file pass 1 already claimed
+ *
+ * A cross-section move still pairs, because nothing else claimed its target. A second upstream page
+ * with the same basename now correctly reports ABSENT instead of stealing the first one's match.
+ *
+ * **One Tree B file, one Tree A page, in both passes.** The claim rule is not a tie-breaker for the
+ * fallback alone: two upstream pages can land on the same Tree B file through the directory match
+ * too, once a rename points them there. The single exception is a deliberate two-into-one port,
+ * which both sides declare with `merge: true` in RENAME_MAP. Without that flag the collision is
+ * treated as accidental and the later page reports ABSENT, which is the honest answer: the drift
+ * tool cannot tell on its own whether a second page's content survived inside the first one's.
+ *
+ * Both passes run in sorted order, so which page wins a contested file never depends on readdir.
+ *
+ * @param {{byDirSlug: Map<string,string>, bareSlug: Map<string,string>}} index From `buildTreeIndex`.
+ * @param {string[]} relAPaths Tree A relative paths.
+ * @returns {Map<string, string|null>} Tree A path to its Tree B counterpart, or null.
+ */
+export function pairTrees(index, relAPaths) {
+  const paired = new Map();
+  const claimed = new Set();
+  const pending = [];
+  const sorted = [...relAPaths].sort((x, y) => x.localeCompare(y));
+
+  for (const relA of sorted) {
+    const { dirSlug, slug } = lookupKeys(relA);
+    const exact = index.byDirSlug.get(dirSlug);
+    if (!exact) {
+      pending.push({ relA, slug });
+      continue;
+    }
+    if (claimed.has(exact) && !isMergeRename(relA)) {
+      paired.set(relA, null);
+      continue;
+    }
+    paired.set(relA, exact);
+    claimed.add(exact);
+  }
+
+  for (const { relA, slug } of pending) {
+    const candidate = index.bareSlug.get(slug);
+    if (candidate && (!claimed.has(candidate) || isMergeRename(relA))) {
+      paired.set(relA, candidate);
+      claimed.add(candidate);
+    } else {
+      paired.set(relA, null);
+    }
+  }
+
+  return paired;
 }
 
 /** Count body lines, excluding a leading YAML frontmatter block. */
