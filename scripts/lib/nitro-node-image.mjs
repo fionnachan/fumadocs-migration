@@ -40,7 +40,15 @@ export function rewriteImage(source, from, to) {
 }
 
 /**
- * Rewrite the outgoing image tag across the content tree.
+ * `content/_versions/` is a frozen archive: each page there is a snapshot of how the docs read at
+ * one point in time, which is the entire reason it is a separate non-routed collection. Bumping an
+ * image tag inside a snapshot would rewrite history, so the walk skips it. Partials are live
+ * content and are rewritten like any page.
+ */
+const ARCHIVE_DIR = '_versions';
+
+/**
+ * Rewrite the outgoing image tag across the content tree, skipping the frozen archive.
  *
  * Returns one entry per file changed, `{ rel, count }`, repo-relative and POSIX-separated so the
  * caller's log reads the same on every platform. Pass `write: false` to report without touching
@@ -50,7 +58,10 @@ export function syncImageInContent(repoRoot, from, to, { dir = 'content', write 
   const changed = [];
   if (!from || from === to) return changed;
 
-  for (const abs of walk(path.join(repoRoot, dir), isMdx)) {
+  const root = path.join(repoRoot, dir);
+  const archive = path.join(root, ARCHIVE_DIR) + path.sep;
+  for (const abs of walk(root, isMdx)) {
+    if (abs.startsWith(archive)) continue;
     const source = readFileSync(abs, 'utf8');
     const { text, count } = rewriteImage(source, from, to);
     if (count === 0) continue;

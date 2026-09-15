@@ -51,6 +51,24 @@ test('syncImageInContent rewrites mdx across the tree and reports what changed',
   assert.equal(readFileSync(miss, 'utf8'), 'image: offchainlabs/nitro-node:v3.9.9-6b0af88\n');
 });
 
+test('syncImageInContent leaves the frozen _versions archive alone', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'nitro-image-'));
+  mkdirSync(path.join(root, 'content', '_versions', 'v1'), { recursive: true });
+  mkdirSync(path.join(root, 'content', 'partials'), { recursive: true });
+
+  const archived = path.join(root, 'content', '_versions', 'v1', 'old.mdx');
+  const partial = path.join(root, 'content', 'partials', '_live.mdx');
+  const frozen = `docker run ${OLD} keygen\n`;
+  writeFileSync(archived, frozen);
+  writeFileSync(partial, frozen);
+
+  const changed = syncImageInContent(root, OLD, NEW);
+
+  assert.deepEqual(changed, [{ rel: 'content/partials/_live.mdx', count: 1 }]);
+  assert.equal(readFileSync(archived, 'utf8'), frozen);
+  assert.ok(readFileSync(partial, 'utf8').includes(NEW));
+});
+
 test('syncImageInContent with write:false reports without touching disk', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'nitro-image-'));
   mkdirSync(path.join(root, 'content'), { recursive: true });
