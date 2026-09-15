@@ -58,8 +58,27 @@ jobs:
       - name: Internal links
         run: pnpm check-links
 
+      # Blocking, unlike its sibling `precompiles:check`, because this generator is offline and
+      # deterministic: it reads the network registry that ships inside `@arbitrum/sdk`, and that
+      # pin is exact (`4.1.0`). So this step cannot go red on its own. It goes red on a human act,
+      # and each one deserves to block:
+      #   1. Someone edited the generated partial by hand, against the do-not-edit marker inside
+      #      it. Before this step existed, that passed CI, merged, and was then silently reverted
+      #      by the next weekly upstream-refresh run under the automation's authorship.
+      #   2. A PR bumped `@arbitrum/sdk` to a release that moves a published address. An address
+      #      is what a reader pastes into a transaction, so it must never change unreviewed.
+      #   3. A PR bumped one of the other pins the output depends on. Prettier is what aligns the
+      #      table columns (the generator emits loose pipes), so a `prettier` or
+      #      `@offchainlabs/prettier-config` release that reshapes MDX tables moves every row.
+      # None of these reddens an unrelated PR: CI installs from each branch's own lockfile, so only
+      # the bumping PR sees the new pin. The fix is the same in all three cases, one command in that
+      # PR: `pnpm contracts:generate`, then commit the regenerated partial.
+      - name: Generated contract addresses are current
+        run: pnpm contracts:check
+
   content-debt:
-    # These two gates fail on pre-existing debt, so they report without blocking.
+    # Non-blocking checks. The first two fail on pre-existing debt; the third needs the network.
+    # Each step says below why it reports rather than blocks, and what would promote it.
     # Counts verified against main on 2026-08-31:
     #   format:check      49 files unformatted  → fix with `pnpm format`
     #   content:lint      13 findings across 7 files (breakdown below)
@@ -102,6 +121,16 @@ jobs:
 
       - name: MDX structural lint
         run: pnpm content:lint
+        continue-on-error: true
+
+      # Green today, and non-blocking for a reason the two steps above do not share: this one
+      # fetches ~30 Solidity sources from raw.githubusercontent at every run, so a GitHub blip
+      # turns it red for reasons unrelated to the change under review. Same argument as `Build`.
+      # Its sibling `contracts:check` is offline, which is why that one blocks and this one
+      # cannot. Reaching zero is therefore not what would promote this step; losing the network
+      # dependency would be.
+      - name: Generated precompile tables are current
+        run: pnpm precompiles:check
         continue-on-error: true
 
   build:

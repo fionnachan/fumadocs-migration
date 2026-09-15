@@ -1,14 +1,22 @@
 /**
- * Tests for the contract-address partial renderer.
+ * Tests for the contract-address partial renderer, and for the two pieces of the runner that
+ * decide what `--check` reports: the stale-file comparison and the printed line diff.
  *
  * Fixture networks stand in for `@arbitrum/sdk` so the assertions stay pinned to the markdown
  * shape rather than to whatever addresses the SDK ships today: a bumped SDK should show up as a
- * diff in the generated partial, never as a red test.
+ * diff in the generated partial, never as a red test. For the same reason nothing here imports
+ * the runner itself, which would drag the SDK and a repo-root cwd into the suite; the runner is
+ * a dozen lines of wiring over the halves tested below.
  */
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { after, describe, it } from 'node:test';
 
 import { buildContent, cell, table } from './lib/contract-addresses.mjs';
+import { StaleFileError, writeOrCheck } from './lib/generated-partial.mjs';
+import { diffSummary, lineDiff } from './lib/line-diff.mjs';
 
 /** One chain, so a rendered table has exactly one address column. */
 const CHAINS = [{ key: 'demo', label: 'Demo Chain', childId: 42161, parentId: 1 }];
@@ -148,5 +156,100 @@ describe('buildContent', () => {
 
   it('links canonical factory contracts at this site’s /docs-prefixed URL', () => {
     assert.match(content, /\(\/docs\/launch-arbitrum-chain\/deploy\/canonical-factory-contracts\)/);
+  });
+});
+
+describe('lineDiff', () => {
+  it('reports nothing for identical text', () => {
+    assert.deepEqual(lineDiff('a\nb\nc', 'a\nb\nc'), { changed: 0, lines: [] });
+  });
+
+  it('reports only the inserted line, not every line after it', () => {
+    // The regression this function exists for: a positional comparison reported the insertion
+    // plus every following line as changed, which on the real 112-line partial meant 53 lines
+    // for a two-line edit.
+    const before = ['a', 'b', 'c', 'd', 'e'].join('\n');
+    const after_ = ['a', 'b', 'NEW', 'c', 'd', 'e'].join('\n');
+    assert.deepEqual(lineDiff(before, after_), { changed: 1, lines: ['  + NEW'] });
+  });
+
+  it('reports only the deleted line', () => {
+    const before = ['a', 'b', 'c', 'd'].join('\n');
+    const after_ = ['a', 'c', 'd'].join('\n');
+    assert.deepEqual(lineDiff(before, after_), { changed: 1, lines: ['  - b'] });
+  });
+
+  it('reports a substitution as a removal paired with an addition', () => {
+    const before = ['a', '0xold', 'c'].join('\n');
+    const after_ = ['a', '0xnew', 'c'].join('\n');
+    assert.deepEqual(lineDiff(before, after_), {
+      changed: 2,
+      lines: ['  - 0xold', '  + 0xnew'],
+    });
+  });
+
+  it('handles an empty side, which is what a missing file looks like', () => {
+    assert.deepEqual(lineDiff('', 'a\nb'), { changed: 3, lines: ['  - ', '  + a', '  + b'] });
+  });
+
+  it('separates an address change from the formatting churn around it', () => {
+    // The stated purpose of the printed summary: a reviewer of the weekly refresh PR has to be
+    // able to see which line is the address and which is the table widening around it.
+    const before = ['| Rollup | 0xaaa |', '| Inbox  | 0xbbb |'].join('\n');
+    const after_ = ['| Rollup   | 0xaaa |', '| Inbox    | 0xccc |'].join('\n');
+    const { changed } = lineDiff(before, after_);
+    assert.equal(changed, 4);
+  });
+});
+
+describe('diffSummary', () => {
+  it('heads the block with the changed-line count and the marker legend', () => {
+    const summary = diffSummary('a\nb', 'a\nB');
+    assert.equal(
+      summary,
+      ['2 line(s) differ (- committed, + generated):', '  - b', '  + B'].join('\n'),
+    );
+  });
+});
+
+describe('writeOrCheck', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'contract-addresses-'));
+  const file = path.join(dir, 'partial.mdx');
+  const overrides = { parser: 'mdx', printWidth: 9999, proseWrap: 'preserve', plugins: [] };
+
+  after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it('writes the formatted content when not in check mode', async () => {
+    const wrote = await writeOrCheck(file, 'Generated body.\n', { check: false, overrides });
+    assert.equal(wrote, true);
+    assert.equal(fs.readFileSync(file, 'utf-8'), 'Generated body.\n');
+  });
+
+  it('passes check mode when the file is current', async () => {
+    assert.equal(await writeOrCheck(file, 'Generated body.\n', { check: true, overrides }), false);
+  });
+
+  it('throws StaleFileError in check mode when the file was hand-edited', async () => {
+    fs.writeFileSync(file, 'Hand-edited body.\n');
+    await assert.rejects(
+      () => writeOrCheck(file, 'Generated body.\n', { check: true, overrides }),
+      StaleFileError,
+    );
+  });
+
+  it('carries the formatted text on the error, so the caller need not format again', async () => {
+    fs.writeFileSync(file, 'Hand-edited body.\n');
+    const error = await writeOrCheck(file, 'Generated body.\n', { check: true, overrides }).catch(
+      (e) => e,
+    );
+    assert.equal(error.formatted, 'Generated body.\n');
+    assert.equal(
+      diffSummary(fs.readFileSync(file, 'utf-8'), error.formatted),
+      [
+        '2 line(s) differ (- committed, + generated):',
+        '  - Hand-edited body.',
+        '  + Generated body.',
+      ].join('\n'),
+    );
   });
 });

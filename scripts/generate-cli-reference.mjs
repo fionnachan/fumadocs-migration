@@ -25,7 +25,6 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import prettier from 'prettier';
 
 import {
   customFlagTypes,
@@ -38,6 +37,7 @@ import {
 import { renderGeneratedRegion, splicePage } from './lib/cli-reference-page.mjs';
 import { StaleFileError, isCheckMode, runScript, writeOrCheck } from './lib/generated-partial.mjs';
 import { indexGoTree } from './lib/go-source.mjs';
+import { diffSummary } from './lib/line-diff.mjs';
 import { extractFlags } from './lib/nitro-cli-flags.mjs';
 
 const OUTPUT_PATH = path.join('content', 'docs', 'run-a-node', 'nitro', 'cli-flags-reference.mdx');
@@ -123,27 +123,6 @@ function materializeNitro({ tag, nitroPath, workDir }) {
   return treeDir;
 }
 
-async function diffSummary(filePath, content) {
-  const config = await prettier.resolveConfig(filePath);
-  const expected = await prettier.format(content, { ...config, filepath: filePath, ...MDX_FORMAT });
-  const current = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf-8') : '';
-
-  const currentLines = current.split('\n');
-  const expectedLines = expected.split('\n');
-  let changed = 0;
-  const sample = [];
-  for (let i = 0; i < Math.max(currentLines.length, expectedLines.length); i++) {
-    if (currentLines[i] === expectedLines[i]) continue;
-    changed++;
-    if (sample.length >= 40) continue;
-    if (currentLines[i] !== undefined) sample.push(`  - ${currentLines[i]}`);
-    if (expectedLines[i] !== undefined) sample.push(`  + ${expectedLines[i]}`);
-  }
-  return [`${changed} line(s) differ (- committed, + generated); first 20 shown:`, ...sample].join(
-    '\n',
-  );
-}
-
 async function main() {
   const { check, nitroPath } = parseArgs(process.argv.slice(2));
   const vars = JSON.parse(fs.readFileSync(VARS_PATH, 'utf-8'));
@@ -203,7 +182,13 @@ async function main() {
   try {
     await writeOrCheck(OUTPUT_PATH, content, { check, overrides: MDX_FORMAT });
   } catch (error) {
-    if (error instanceof StaleFileError) console.error(await diffSummary(OUTPUT_PATH, content));
+    // "The page is stale" does not say whether a flag or a default moved or only whitespace did,
+    // which is what a reviewer of the weekly upstream-refresh PR needs to know. `writeOrCheck`
+    // hands back the text it formatted, so this prints the diff without formatting it again.
+    if (error instanceof StaleFileError) {
+      const current = fs.existsSync(OUTPUT_PATH) ? fs.readFileSync(OUTPUT_PATH, 'utf-8') : '';
+      console.error(diffSummary(current, error.formatted));
+    }
     throw error;
   }
 

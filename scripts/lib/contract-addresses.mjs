@@ -79,7 +79,14 @@ export function buildContent({ chains, networks, data }) {
     ...chains.map((c) => cell(values[c.key], chainId(c))),
   ];
 
-  /** Classic outboxes are an `{ address: version }` map; stack them, newest version first. */
+  /**
+   * Classic outboxes are an `{ address: version }` map; stack them, newest version first.
+   *
+   * Two outboxes can share a version, and the sort leaves those in the SDK's own key order.
+   * That tie-break is what makes the rendered block byte-stable across runs, and it is
+   * guaranteed rather than incidental: `Array.prototype.sort` has been required to be stable
+   * since ES2019.
+   */
   const classicOutboxRow = () => [
     'Classic Outbox\\*\\*\\*',
     ...chains.map((c) => {
