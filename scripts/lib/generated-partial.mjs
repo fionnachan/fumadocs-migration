@@ -12,12 +12,19 @@ import prettier from 'prettier';
 
 /** Thrown by {@link writeOrCheck} in check mode when the on-disk file is stale. */
 export class StaleFileError extends Error {
-  constructor(filePath) {
+  /**
+   * @param {string} filePath
+   * @param {string} [formatted] the Prettier-formatted text the generator would have written.
+   *   Carried on the error so a caller that wants to print a diff does not have to format the
+   *   same content a second time to get it.
+   */
+  constructor(filePath, formatted) {
     super(
       `${path.relative(process.cwd(), filePath)} is out of date. ` +
         `Run the generator without --check and commit the result.`,
     );
     this.name = 'StaleFileError';
+    this.formatted = formatted;
   }
 }
 
@@ -44,7 +51,7 @@ export async function writeOrCheck(filePath, content, { check, overrides = {} })
   const current = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf-8') : '';
 
   if (check) {
-    if (current !== formatted) throw new StaleFileError(filePath);
+    if (current !== formatted) throw new StaleFileError(filePath, formatted);
     return false;
   }
 

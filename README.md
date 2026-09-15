@@ -5,7 +5,9 @@ Arbitrum documentation portal — a Next.js 16 / Fumadocs migration of
 Serves English MDX docs; deployed on Vercel.
 
 This file covers **how to work on the docs.** For how the codebase works and why, see
-[INTERNALS.md](INTERNALS.md).
+[INTERNALS.md](INTERNALS.md). Contributing a page or a PR? Start with
+[CONTRIBUTE.md](CONTRIBUTE.md) instead — it covers the frontmatter contract, partials, variables,
+moving pages, and the gates to run before you push.
 
 New to Fumadocs, or coming from the Docusaurus site? Start with
 [What Fumadocs is](INTERNALS.md#what-fumadocs-is) and
@@ -33,6 +35,18 @@ NEXT_PUBLIC_INKEEP_API_KEY=<inkeep-search-key>
 
 Config lives in `lib/inkeep.ts`; the widgets mount in `components/inkeep/` and are wired into
 `RootProvider` in `app/layout.tsx`.
+
+Analytics use [PostHog](https://posthog.com). Set the project token the same way:
+
+```bash
+NEXT_PUBLIC_POSTHOG_KEY=phc_<posthog-project-token>
+```
+
+Page feedback needs it locally; web analytics does not fire locally or on a preview deployment no
+matter what you set, because `components/analytics/posthog-provider.tsx` also requires
+`NEXT_PUBLIC_VERCEL_ENV` to be `production` and only Vercel sets that. On Vercel, set
+`NEXT_PUBLIC_POSTHOG_KEY` for both Preview and Production. See
+[Analytics](INTERNALS.md#analytics).
 
 ## Before you push
 
@@ -150,6 +164,39 @@ in [`content/vars.ts`](content/vars.ts). Miss either side and the gate fails. ([
 files](INTERNALS.md#global-variables).)
 
 Never hardcode a version or chain parameter into a page.
+
+### Announcement banner
+
+The bar above the navbar is configured from the same file, so turning it on, rewording it, or
+retiring it is a content edit. Five keys control it:
+
+| Key                    | Meaning                                                      |
+| ---------------------- | ------------------------------------------------------------ |
+| `announcementEnabled`  | `false` renders nothing at all                               |
+| `announcementText`     | The message, shown before the link                           |
+| `announcementLinkText` | The link label                                               |
+| `announcementLinkHref` | Where the link goes                                          |
+| `announcementId`       | Dismissal key. **Change it whenever you change the message** |
+
+`announcementId` also lands in the page as an HTML `id` and inside a CSS selector, so it has to
+start with a letter and use only letters, digits, hyphens and underscores. Anything else fails at
+module load with a message naming the key.
+
+**Keep the message short: `announcementText` plus `announcementLinkText` under roughly 140
+characters combined.** The bar has a fixed height (3rem, and 4rem below 640px) because the layout
+feeds that number into the sticky offsets of every page, so it cannot grow to fit a longer message.
+It will not clip a message at the length above, but there is no gate on this and nothing will warn
+you. After changing the text, look at the top of a docs page in a browser window narrowed to about
+400px wide and confirm nothing is cut off.
+
+**Dismissal is permanent per viewer, not per session.** A reader who closes the banner has
+`announcementId` written to their browser's `localStorage`, which survives closing the tab and
+every later visit, so they never see that id again on that browser. Reuse an id for a new message
+and everyone who dismissed the old one misses the new one. Give each message its own id.
+
+`announcementLinkHref` is checked by `pnpm vars:check`: it has to be an `https` URL, or a
+root-absolute internal path that resolves to a real page or a file under `public/`. Nothing else
+would catch a typo there, because `pnpm check-links` only reads MDX.
 
 ## Move a page
 
