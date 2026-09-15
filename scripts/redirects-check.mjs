@@ -3,7 +3,10 @@
  *
  * Usage:
  *   pnpm redirects:check                       # needs `pnpm dev` running
- *   pnpm redirects:check --base-url <origin>   # check a preview or production deploy
+ *   pnpm redirects:check --base-url <origin>   # check any origin already serving the site
+ *
+ * CI runs this in the `Build` job against `next start` on localhost. Pointing it at a Vercel
+ * preview instead would need a protection-bypass secret in CI; see INTERNALS.md#redirects.
  *
  * `redirects.config.mjs` is built by tooling that infers routable URLs by walking the content
  * tree — `.mdx` only, `index` means the directory, `_`-prefixed files are partials, everything
@@ -21,13 +24,9 @@
  * External (http/https) destinations are reported as SKIPPED and not verified.
  */
 import { redirects } from '../redirects.config.mjs';
+import { parseArgs } from './lib/redirects-check.mjs';
 
 const DEFAULT_BASE_URL = 'http://localhost:3000';
-
-function parseArgs(argv) {
-  const i = argv.indexOf('--base-url');
-  return { baseUrl: (i === -1 ? DEFAULT_BASE_URL : argv[i + 1]).replace(/\/+$/, '') };
-}
 
 const isExternal = (value) => /^https?:\/\//.test(value);
 
@@ -63,7 +62,7 @@ async function fetchRoutableUrls(baseUrl) {
 }
 
 async function main() {
-  const { baseUrl } = parseArgs(process.argv.slice(2));
+  const { baseUrl } = parseArgs(process.argv.slice(2), { defaultBaseUrl: DEFAULT_BASE_URL });
   const routable = await fetchRoutableUrls(baseUrl);
 
   const dead = [];

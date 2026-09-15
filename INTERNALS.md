@@ -491,7 +491,28 @@ rather than leaving it parked.
 
 `pnpm redirects:check` validates every destination against `/llms.txt` — the router's own page
 list — and fails on a dead destination or a source that shadows a live page. It needs the site
-running, so point it at a Vercel preview with `--base-url` to check a PR.
+running, so run it with `pnpm dev` up, or point it at any other origin with `--base-url`.
+
+**CI runs it in the `Build` job**, as a step after `pnpm build`: it starts `next start`, polls
+`/llms.txt` until the server answers, runs the check, and kills the server on the way out. The
+build is already happening in that job, so the whole step costs about three seconds. It is
+non-blocking only because that job is; promoting `Build` into `Gates` promotes this with it.
+
+`next start` directly, not `pnpm start`: backgrounding the pnpm script makes `$!` the wrapper's
+PID, so the cleanup trap kills the wrapper and leaves the Next server orphaned on port 3000.
+
+**It deliberately does not check a Vercel preview, and should not be changed back.** The obvious
+design, a `deployment_status` workflow pointed at the PR's preview URL, was built on `fs-2675` and
+abandoned once this repository went public. `deployment_status` runs from the default branch with
+full secrets access, so checking out the PR's commit and running its copy of `redirects-check.mjs`
+executes contributor code beside whatever secret the step holds. The secret is the worse half:
+`VERCEL_AUTOMATION_BYPASS_SECRET` bypasses Deployment Protection on **every** deployment in the
+project, production included, and Vercel injects it into every build, so creating it at all hands it
+to any fork preview a maintainer authorizes. A localhost server needs no credential, so a fork PR is
+checked exactly like a branch PR.
+
+The site does not have to be a _deployed_ site for the router to be the authority on what is
+routable. That is the whole trick.
 
 ## Routing and `proxy.ts`
 
@@ -905,11 +926,15 @@ is gone: the build no longer touches the network for images (see
 this job into `Gates` is now possible and wants its own change, not least because a full build is
 the slowest job here.
 
-**Run by hand only:** `cli:check`, `redirects:legacy`, `redirects:check`, and the network
-mode of `images:check`. `redirects:check` cannot run in CI as-is because it reads `/llms.txt` off a
-running site. `images:check` reaches out to third-party hosts, so its result depends on somebody
-else's uptime. Its offline sibling `images:presence` does run in CI. `drift` is the one to run by
-hand for a local check but no longer manual-only: the `drift` job below runs it weekly.
+**Run by hand only:** `cli:check`, `redirects:legacy`, and the network mode of `images:check`.
+`images:check` reaches out to third-party hosts, so its result depends on somebody else's uptime;
+its offline sibling `images:presence` does run in CI. `drift` is worth running by hand for a local
+check but is no longer manual-only: the `drift` job below runs it weekly. `redirects:check` is no
+longer hand-only for a PR either — it runs as the last step of the `Build` job, against `next start`
+on localhost (see [Redirects](#redirects)). It is not in the blocking `Gates` job because it needs a
+running site, and the only cheap way to get one is to reuse the build that `Build` already does;
+promoting `Build` promotes it too. It is still available by hand with `--base-url`, against a local
+`pnpm dev` or any other URL.
 
 `upstream-refresh.yml` runs Mondays at 08:00 UTC and on `workflow_dispatch`, in two independent
 jobs:
