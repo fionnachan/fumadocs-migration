@@ -14,6 +14,8 @@ canonical for humans, and the one to edit first.**
 - [The pipeline](#the-pipeline)
 - [`source` is a choke point](#source-is-a-choke-point)
 - [The frontmatter contract](#the-frontmatter-contract)
+- [Last modified dates](#last-modified-dates)
+- [Page metadata](#page-metadata)
 - [Partials](#partials)
 - [Global variables](#global-variables)
 - [Redirects](#redirects)
@@ -79,7 +81,9 @@ route with no wiring; there is no per-page React file.
 **The action row** under the title holds `MarkdownCopyButton`, `ViewOptionsPopover`,
 `RequestUpdateLink` (`components/RequestUpdateLink.tsx`, the port of the Docusaurus `HeaderBadges`
 "Request an update" badge: a server-rendered link to a prefilled GitHub issue, built from
-`gitConfig`, `page.url`, and `NEXT_PUBLIC_SITE_URL`), and, on versioned pages only, `VersionSwitcher`.
+`gitConfig`, `page.url`, and `NEXT_PUBLIC_SITE_URL`), and, on versioned pages only,
+`VersionSwitcher`. The [last updated](#last-modified-dates) line sits above it, between the
+description and the row.
 
 **Slugs are the file path minus the extension**, with a trailing `index` dropped —
 `content/docs/stylus/quickstart.mdx` serves at `/docs/stylus/quickstart`, given `baseUrl: '/docs'`.
@@ -155,6 +159,97 @@ cost a 24 MB chunk on every docs page. No gate catches this — see
 
 A missing or invalid field fails `types:check` and `build`. This is the most common reason a build
 breaks after adding content.
+
+## Last modified dates
+
+Each docs page prints "Last updated on <date>" under its description, the equivalent of upstream
+Docusaurus' `showLastUpdateTime`. The date is not frontmatter and writers never set it: the
+`lastModified` option on the `docs` and `docsVersions` collections makes `fumadocs-mdx` read it
+from git, and `page.data.lastModified` (a `Date`) reaches the page component through the same
+`source` object as everything else. An archived version shows the archive file's own date, not the
+live page's.
+
+**No date is resolved unless the checkout has complete git history**, decided by the
+`hasFullGitHistory()` probe at the top of `source.config.ts`. This is not belt and braces. In a
+shallow clone the oldest commit is grafted in as a parentless root, so git diffs it against the
+empty tree and reports it as adding every file under it. Measured on this repo at `--depth=10`:
+430 of about 450 pages came back stamped with a single boundary commit that in full history
+touched no content at all. A wrong date on every page is worse than no date, so the probe yields
+no dates instead. Nothing renders, no error appears, and nothing fails.
+
+**The option is never set to `false`, and that detail is load-bearing.** `lastModified` is part of
+the collection's _type_ contract, not only its behaviour: fumadocs-mdx adds the
+`lastModified?: Date` field to the generated `DocData` only when the option is truthy. Setting it
+to `false` in a shallow checkout deletes the field from the type, and the docs page then fails
+`types:check` with TS2339. That makes the gate pass or fail according to how the repository
+happened to be cloned, which is exactly what happened on the first attempt at this change: green
+locally, red in CI, because `actions/checkout` clones shallow. The probe therefore chooses between
+two _truthy_ values. With full history it passes `true`, which uses fumadocs-mdx's batched
+`git log`. Without it, it passes a resolver that returns `undefined` for every file, which keeps
+the field typed while yielding no dates.
+
+The choice is made in `source.config.ts` at build time rather than at render time because pages
+render on demand in a serverless runtime that has neither git nor the repository.
+
+**What a reviewer must configure.** Vercel clones at `--depth=10` by default, so the dates are
+absent on previews and in production until someone sets `VERCEL_DEEP_CLONE=true` in the Vercel
+project's environment variables. Nothing else is needed: a deep clone makes the probe pass on its
+own. The same applies to any CI job that wants the dates, since `actions/checkout` defaults to
+`fetch-depth: 1`. No gate depends on the dates, so `ci.yml` is deliberately left alone.
+
+The rendered date is formatted in UTC so that the output does not depend on which machine rendered
+the page. A commit made late in the evening in a western timezone therefore reads as the next day.
+The machine-readable `dateTime` attribute on the `<time>` element always carries the exact instant.
+
+## Page metadata
+
+`generateMetadata` in `app/docs/[[...slug]]/page.tsx` emits the per-page title and description, an
+Open Graph image from the `og/` route, a canonical URL, and the Twitter card tags
+(`summary_large_image`, site `@arbitrum`). The canonical deliberately uses `page.url`, which
+carries no query string, so an archived `?v=` view canonicalizes to the live page rather than
+splitting it in two.
+
+**Every absolute URL a page publishes as metadata traces back to `getSiteUrl()` in
+`lib/shared.ts`, and that helper throws rather than guessing.** It returns `NEXT_PUBLIC_SITE_URL`, falls back to `http://localhost:3000`
+outside production, throws when `VERCEL_ENV` or `NEXT_PUBLIC_VERCEL_ENV` is `production` and the
+variable is unset, and throws when a configured value does not parse as an absolute URL. The throw exists because `NEXT_PUBLIC_*` values are inlined at build time:
+a production build with the variable missing would bake `http://localhost:3000` into the canonical
+and social image URL of every page in the deployed output. Those pages then tell crawlers the
+canonical copy lives on localhost, which is worse than emitting no canonical at all, and nothing
+about the running site reveals it. Failing the build is the last cheap moment to catch it.
+
+**The rule lives in `lib/site-url.mjs`, in plain JavaScript, and both `lib/shared.ts` and
+`next.config.mjs` import it.** That split is not stylistic. `pnpm build` runs with
+`--experimental-build-mode=compile` and `generateStaticParams` returns `[]` (see the
+[known trade-off](#known-trade-off-no-static-prerendering)), so no page or layout module is evaluated at build time and
+`getSiteUrl()`'s throw never fires there. `next.config.mjs` is the earliest thing the build does
+evaluate, which makes it the real gate, and it cannot import TypeScript. The rule used to be
+written out by hand in both files, which meant the copy with the tests was the backstop and the
+copy without them was the gate, one edit away from silently diverging. One module imported by both
+removes the question. A malformed value is caught in the same place and for the same reason: an
+origin pasted without a scheme (`docs.arbitrum.io`) satisfies a presence check, then throws inside
+`new URL()` at the root layout's module scope on the first request after promotion and 500s every
+route, which is the unset failure again but worse, because the unset case at least fails the build.
+
+`app/layout.tsx` calls `getSiteUrl()` at module scope for `metadataBase`, which keeps the failure a
+module-load one rather than a per-request one for anything reached outside a build. The docs page calls it again to build the
+canonical absolutely rather than leaning on `metadataBase` resolution, so the one value that a
+wrong canonical depends on is read through the one helper that refuses to invent it. The helper imports
+nothing but the rule module, and must stay that way: it is what lets `app/sitemap.ts` and
+`app/robots.ts` use it without pulling `lib/source` toward a client bundle. `scripts/lib/site-url.test.mjs` covers it, calling the `.mjs` rule directly and
+then checking both wrappers: `getSiteUrl()` in a subprocess with `--experimental-strip-types`,
+because `node --test` cannot import TypeScript, and `next.config.mjs` by importing it under a
+controlled environment, which is the case that pins the build failure itself.
+
+**`RequestUpdateLink` is the one deliberate exception, and it should stay one.** It reads
+`NEXT_PUBLIC_SITE_URL` directly (`components/RequestUpdateLink.tsx`) and falls back to the
+site-relative path rather than to the helper's localhost. Its URL is not metadata: it goes into the
+body of a GitHub issue that a person reads, and `/docs/stylus/quickstart` tells that person which
+page the report is about, while `http://localhost:3000/docs/stylus/quickstart` is noise from
+whoever happened to file it from a dev server. In production the two are identical, because the
+build fails when the variable is unset. Do not "fix" this into a `getSiteUrl()` call.
+
+`app/(home)/page.tsx` sets no canonical of its own and is the one remaining page without one.
 
 ## Partials
 
@@ -339,12 +434,12 @@ Both are Next **metadata routes** (`app/sitemap.ts`, `app/robots.ts`), file conv
 route handlers, so there is no `route.ts` and no hand-written XML. Neither sets `revalidate`: a
 metadata route with no request-time input is already cached at build time by default.
 
-**Both read the deployed origin from `NEXT_PUBLIC_SITE_URL`**, falling back to
-`http://localhost:3000` exactly as `metadataBase` in `app/layout.tsx` does, so a local build is
-self-consistent rather than broken. That variable is inlined at build time, so **if it is unset in
-the Vercel build environment, production serves a sitemap and a robots.txt pointing at localhost**,
-and nothing here fails loudly. FS-2668 adds a `getSiteUrl()` helper to `lib/shared.ts` that throws
-in production when the variable is unset; both routes should adopt it once that lands.
+**Both read the deployed origin through `getSiteUrl()`** (see [Page metadata](#page-metadata)),
+the same helper behind `metadataBase` in `app/layout.tsx` and the docs page canonical, so the four
+can never disagree. `NEXT_PUBLIC_SITE_URL` is inlined at build time, so an unset value would
+otherwise ship a production sitemap and robots.txt pointing at localhost with nothing failing
+loudly; the helper throws on that condition instead. Outside production it falls back to
+`http://localhost:3000`, so a local build stays self-consistent rather than broken.
 
 **The sitemap derives every entry from `source.getPages()`**, the same choke point every other
 content consumer reads. Adding a page to `content/docs/` puts it in the sitemap with no further
@@ -357,10 +452,10 @@ nothing to exclude:** partials live in `content/partials/`, archived versions in
 so `source.getPages()` cannot return them. Verified 2026-09-11: the sitemap's URL set is exactly the
 339 unique doc URLs in `/llms.txt`, plus `/`.
 
-`lastModified` is emitted per page only when `page.data.lastModified` exists, which requires
-`lastModified: true` on the docs collection in `source.config.ts` (not enabled yet; that is M-35 /
-FS-2668). Until then `<lastmod>` is simply absent, which is valid. `app/sitemap.ts` reads the field
-defensively so enabling the flag needs no change there.
+`lastModified` is emitted per page only when `page.data.lastModified` exists. It comes from the
+`lastModified` option on the docs collection, which is itself gated behind a full-git-history probe
+(see [Last modified dates](#last-modified-dates)). In a shallow checkout every page resolves to
+`undefined` and `<lastmod>` is simply absent, which is valid.
 
 `app/robots.ts` ports upstream `static/robots.txt` and differs from it in two deliberate ways:
 

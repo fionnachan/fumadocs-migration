@@ -12,11 +12,16 @@ import { Footer } from '@/components/footer';
 import { InkeepChatButton } from '@/components/inkeep/inkeep-chat-button';
 import InkeepSearchDialog from '@/components/inkeep/inkeep-search';
 import { vars } from '@/content/vars';
+import { getSiteUrl } from '@/lib/shared';
 
 import './global.css';
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'),
+  // Resolved through `getSiteUrl()` rather than read inline, so a production build with no
+  // NEXT_PUBLIC_SITE_URL fails here instead of silently baking localhost into every canonical and
+  // social image URL. This call is at module scope on purpose: that is what makes it a build
+  // failure rather than a per-request one. See lib/shared.ts.
+  metadataBase: new URL(getSiteUrl()),
   // Icons live in public/ (not app/, which would recreate the app/favicon.ico
   // route that broke the Vercel build). Declared explicitly so Next emits the
   // <link> tags.
