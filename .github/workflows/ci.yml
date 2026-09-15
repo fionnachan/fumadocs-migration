@@ -52,6 +52,11 @@ jobs:
       - name: Glossary references resolve
         run: pnpm references:check
 
+      # A markdown image with a remote src renders as a 500: next/image needs a width and
+      # source.config.ts no longer measures remote images. Offline, so it is safe to block on.
+      - name: No remote markdown images
+        run: pnpm images:presence
+
       # Fumadocs has no `onBrokenLinks: 'throw'`, and `pnpm build` does not check links,
       # so this step is the only thing standing between a broken link and main.
       # Caveat: check-links does not validate anchors — a live page with a dead #anchor passes.
@@ -134,9 +139,17 @@ jobs:
         continue-on-error: true
 
   build:
-    # Non-blocking: the MDX image pipeline fetches remote images at build time, so a
-    # dead third-party URL turns this red for reasons unrelated to the change under
-    # review. It still catches MDX compile errors that types:check cannot see.
+    # Still non-blocking, but the original reason no longer holds. This job was left
+    # advisory because the MDX image pipeline fetched remote images at build time, so a
+    # dead third-party URL turned it red for reasons unrelated to the change under
+    # review. FS-2681 set `remarkImageOptions: { external: false }` in source.config.ts,
+    # and the build no longer touches the network for images.
+    #
+    # Promoting this job into `gates` is therefore possible now. It is deliberately left
+    # out of that change: a full build is the slowest job here, so flipping it wants its
+    # own PR and a look at the added PR latency.
+    #
+    # It catches MDX compile errors that types:check cannot see.
     name: Build (non-blocking)
     runs-on: ubuntu-latest
     continue-on-error: true
