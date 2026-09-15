@@ -65,6 +65,21 @@ const varsSchema = z.strictObject({
   sepoliaBaesStakeEth: z.number(),
   sepoliaGasFloorGwei: z.string(),
   sepoliaBlockGasLimit: z.string(),
+  l1SlotTimeSeconds: z.number(),
+  l2BlockTimeMs: z.number(),
+  maxCodeSizeBytes: z.string(),
+  gasTargetSpeedLimit: z.string(),
+  maxDataSizeL2: z.number(),
+  maxDataSizeL3: z.number(),
+  dasMaxStoreChunkBytes: z.number(),
+  timeboostRoundSeconds: z.number(),
+  timeboostAuctionClosingSeconds: z.number(),
+  timeboostNonExpressDelayMs: z.number(),
+  stylusRustToolchain: z.string(),
+  stylusRustToolchainFull: z.string(),
+  cargoStylusVersion: z.string(),
+  stylusSdkVersion: z.string(),
+  aepRevenueSharePercent: z.number(),
 
   // --- Announcement banner (FS-2667) -------------------------------------
   // Not `<Var>` substitutions: these are read by app/layout.tsx to render the

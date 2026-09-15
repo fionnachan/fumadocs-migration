@@ -504,6 +504,23 @@ page using one is not broken, just incomplete.
 
 Adding a component here makes it available in all MDX with no import.
 
+**Heavy widgets load lazily.** Every docs page imports `components/mdx.tsx`, so a static import
+there puts the component's library in every page's client bundle. A widget with a large dependency
+therefore sits behind a `'use client'` wrapper that `next/dynamic`s the implementation:
+`components/mdx/VendingMachine/index.tsx` is the pattern. Server rendering stays on, so the markup
+is still in the HTML and only the JavaScript is deferred.
+
+**VendingMachine.** The quickstart's "free cupcakes" demo (`components/mdx/VendingMachine/`), ported
+from the Docusaurus component of the same name. `type` is a closed union: `web2` keeps balances in
+tab memory, while `web3-localhost` and `web3-arb-sepolia` talk to a `VendingMachine.sol` the reader
+deploys themselves, through the injected EIP-1193 wallet using viem. Reads go through a public
+client and writes through a wallet client, with no chain or contract address hardcoded. Anything
+outside the union falls back to the web2 widget, because MDX call sites are not type-checked and a
+misspelling must not put a reader on a web2 page in front of a wallet prompt. The ABI is transcribed
+into `abi.ts` as a TypeScript `as const` (the compiled artifact's bytecode was never used) so viem
+can infer argument and return types. With no wallet installed the widget renders a notice instead of
+throwing.
+
 **Image zoom.** `<ImageZoom>` resolves to the wrapper in `components/mdx/ImageZoom/`: plain `<img>`
 child, supports `caption`, needs no dimensions, no Next image optimization. To use Fumadocs' native
 component instead — for `_next/image` optimization — import it per file, which shadows the wrapper
@@ -680,17 +697,44 @@ is gone: the build no longer touches the network for images (see
 this job into `Gates` is now possible and wants its own change, not least because a full build is
 the slowest job here.
 
-**Run by hand only:** `drift`, `redirects:legacy`, `redirects:check`, and the network mode of
-`images:check`. `redirects:check` cannot run in CI as-is because it reads `/llms.txt` off a running
-site. `images:check` reaches out to third-party hosts, so its result depends on somebody else's
-uptime. Its offline sibling `images:presence` does run in CI.
+**Run by hand only:** `cli:check`, `redirects:legacy`, `redirects:check`, and the network
+mode of `images:check`. `redirects:check` cannot run in CI as-is because it reads `/llms.txt` off a
+running site. `images:check` reaches out to third-party hosts, so its result depends on somebody
+else's uptime. Its offline sibling `images:presence` does run in CI. `drift` is the one to run by
+hand for a local check but no longer manual-only: the `drift` job below runs it weekly.
 
-`upstream-refresh.yml` runs Mondays at 08:00 UTC and on `workflow_dispatch`: `nitro:check-release`,
-then `precompiles:generate`, then `contracts:generate`, opening `automated/upstream-refresh` as a PR
-if anything changed. It never writes to `main` and no-ops when the tree is clean.
+`upstream-refresh.yml` runs Mondays at 08:00 UTC and on `workflow_dispatch`, in two independent
+jobs:
 
-The two generators' `--check` modes sit in different CI tiers, because they are not the same kind
-of check.
+- **`refresh`** runs `nitro:check-release`, then `precompiles:generate`, `contracts:generate` and
+  `cli:generate`, opening `automated/upstream-refresh` as a PR if anything changed. It never writes
+  to `main` and no-ops when the tree is clean.
+- **`drift`** clones the still-live `arbitrum-docs`, runs `upstream-drift.mjs` against it, and keeps
+  a single issue titled "Upstream drift" in sync with the report: created or its body replaced while
+  anything is absent or gutted, commented and closed once the report comes back empty. It holds
+  `issues: write` and nothing else. **It is deleted at cutover (plan M-52)**, when there is no longer
+  an upstream to drift from.
+
+The two jobs have no `needs` between them on purpose, so a failing generator never hides a drift
+report and a missing upstream clone never blocks the refresh PR.
+
+`upstream-drift.mjs` exits 1 both when it finds drift and when it refuses to run at all (missing
+tree, or a clone stale enough to under-report), so the job cannot read the exit code alone. It
+requires the `N absent, M gutted` summary to appear somewhere on stdout; anything else fails the job
+instead of closing the issue on a report that never happened. **Match that line anywhere, and keep
+its suffix optional.** The script prints a `comparing against <path>` line ahead of it, so a guard
+pinned to line one never matches, and it appends `, N stale allowlist` exactly when an exemption has
+expired, so a guard anchored at `gutted$` rejects the one case the report most needs to deliver.
+Two details of the clone are equally load-bearing and easy to get wrong:
+
+- It is cloned `--filter=blob:none`, **not** `--depth 1`. The report splits absent pages into DRIFT
+  (added upstream after the port window) and MISS (should already have been ported) using
+  `git log --diff-filter=A`, which a depth-1 clone cannot answer, so everything would come back MISS.
+- `git clone` never writes `.git/FETCH_HEAD`, and `lib/git-freshness.mjs` treats a clone that has
+  never fetched as an untrustworthy baseline. The job runs an explicit `git fetch` afterwards.
+
+The three generators' `--check` modes sit in three different places, because they are not the same
+kind of check.
 
 `contracts:check` blocks. Its input does not move on its own: the generator reads the network
 registry that ships inside `@arbitrum/sdk`, and that pin is exact, so the step can only go red on
@@ -709,11 +753,52 @@ partial renders stays green.
 `precompiles:check` does not block, for the network reason given above rather than for any
 statement about its input.
 
-When `contracts:check` fails it prints a line-level diff, so a reviewer can see whether an address
-moved or only the formatting did. That diff is a real one, computed over a longest common
+`cli:check` runs nowhere automatically, and blocking on it would be a category error: its input is
+a moving upstream, the Nitro tag pinned in `content/vars.json` and whatever that tag's Go source
+says, so a red gate would mean "someone published a Nitro release", not "this PR is wrong". The
+weekly refresh PR is where that gets noticed instead.
+
+When `contracts:check` or `cli:check` fails it prints a line-level diff, so a reviewer can see
+whether a value moved or only the formatting did. That diff is a real one, computed over a longest common
 subsequence in `scripts/lib/line-diff.mjs`: comparing the two files by line index instead reported
 every line after an insertion as changed, which on this 112-line partial meant 53 lines for a
 two-line edit and defeated the point of printing it.
+
+### Generated pages
+
+Three things in `content/` are written by a generator and must never be hand-edited: the precompile
+tables, the contract-address partial (both under `content/partials/`, see
+[Partials](#partials)), and `content/docs/run-a-node/nitro/cli-flags-reference.mdx`.
+
+The CLI flags page is the only generated file under `content/docs/`, so it is also the only one with
+frontmatter a writer owns. `pnpm cli:generate` replaces only the region between
+`{/* GENERATED:START */}` and `{/* GENERATED:END */}`; the frontmatter and any prose outside those
+markers survive untouched.
+
+**It reads Nitro's Go source, not `nitro --help`.** The flag list is really the output of
+`--help`, but producing it means building Nitro, which means a Go toolchain and the Rust arbitrator
+artifacts in a workflow that otherwise installs nothing but Node. So the generator parses the
+`…ConfigAddOptions` functions instead, composing each dotted name from the prefix its caller passes
+and following every default back to the `var …Default = T{…}` literal it points at. Two consequences
+worth knowing:
+
+- **go-ethereum is not optional.** Nitro registers the whole `execution.rpc.*` namespace by calling
+  into the submodule's `arbitrum` package, so the generator materialises that submodule at its
+  pinned commit and fails loudly if it is missing, rather than dropping 19 flags silently.
+- **Anything it cannot evaluate fails the run.** Five flags default to `util.GoMaxProcs()`, decided
+  at process start, and three are registered with `f.Var` and a custom `pflag.Value`. Those are
+  declared in `scripts/data/nitro-cli-reference.data.mjs`; a new one with no entry stops the
+  generator instead of publishing a blank cell. **The check runs in both directions**: an entry in
+  either list that matches no flag Nitro still registers also stops the run, so a curated
+  exemption cannot rot into a no-op the way it could when both lists were plain lookups.
+
+`--nitro-path <dir>` (or `NITRO_REPO_PATH` in the environment, which the flag overrides) reads an
+existing Nitro clone. It still extracts the tree at the pinned tag, so a local run and a CI run see
+the same source no matter what the checkout has checked out. `--verbose` additionally names every
+flag the exclusion rules dropped, grouped by the rule that dropped it; without it the run prints
+only the per-rule counts. One rule matches on the flag's **description**, so a Nitro release that
+reworks a docstring can drop a flag off the page, and the counts are what make that visible in the
+weekly refresh PR's log.
 
 ## The local pre-commit hook
 
