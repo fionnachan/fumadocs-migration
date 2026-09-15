@@ -198,7 +198,7 @@ The sequencer coordinator is the key component for high availability. These para
 | `node.seq-coordinator.redis-url` | Redis URL for coordination   | Your Redis URL       |
 | `node.seq-coordinator.my-url`    | URL for this sequencer       | Unique per sequencer |
 
-For the full set of coordinator flags and their defaults, see the sequencer configuration reference.
+For the full set of coordinator flags and their defaults, see the [sequencer configuration reference](/docs/run-a-node/nitro/cli-flags-reference#node).
 
 #### Redis priority registration
 
@@ -219,7 +219,7 @@ Two consequences follow from step 2:
 - **Order is priority.** The first entry that is healthy and synced wins. Put your preferred sequencer first.
 - **`my-url` must match its list entry exactly.** The comparison is a string match. A trailing slash, a different port form, or an IP address instead of a hostname all cause a silent mismatch.
 
-<VanillaAdmonition type="caution" title="Never register the batch poster">
+<VanillaAdmonition type="warning" title="Never register the batch poster">
 
 The batch poster runs with `node.seq-coordinator.enable=true` so it can follow coordination state, but it must stay out of `coordinator.priorities`. If it reaches the top of the list, it is selected as the active sequencer while having no sequencer to run, and the chain stops producing blocks. Nitro logs `myurl main sequencer, but no sequencer exists`.
 
@@ -249,7 +249,7 @@ Two log messages tell you the priority list is the problem:
 
 For a full diagnostic path, see the sequencer troubleshooting guide.
 
-<VanillaAdmonition type="caution" title="Redis persistence">
+<VanillaAdmonition type="warning" title="Redis persistence">
 
 The priority list lives only in Redis. If you replace the Redis instance or lose its data, the key is gone and no sequencer becomes active until you repopulate it. Include `coordinator.priorities` in your backup and disaster recovery plan, and re-register after any Redis migration.
 
