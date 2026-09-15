@@ -208,22 +208,45 @@ Open Graph image from the `og/` route, a canonical URL, and the Twitter card tag
 carries no query string, so an archived `?v=` view canonicalizes to the live page rather than
 splitting it in two.
 
-**Every absolute URL traces back to `getSiteUrl()` in `lib/shared.ts`, and that helper throws
-rather than guessing.** It returns `NEXT_PUBLIC_SITE_URL`, falls back to `http://localhost:3000`
-outside production, and throws when `VERCEL_ENV` or `NEXT_PUBLIC_VERCEL_ENV` is `production` and
-the variable is unset. The throw exists because `NEXT_PUBLIC_*` values are inlined at build time:
+**Every absolute URL a page publishes as metadata traces back to `getSiteUrl()` in
+`lib/shared.ts`, and that helper throws rather than guessing.** It returns `NEXT_PUBLIC_SITE_URL`, falls back to `http://localhost:3000`
+outside production, throws when `VERCEL_ENV` or `NEXT_PUBLIC_VERCEL_ENV` is `production` and the
+variable is unset, and throws when a configured value does not parse as an absolute URL. The throw exists because `NEXT_PUBLIC_*` values are inlined at build time:
 a production build with the variable missing would bake `http://localhost:3000` into the canonical
 and social image URL of every page in the deployed output. Those pages then tell crawlers the
 canonical copy lives on localhost, which is worse than emitting no canonical at all, and nothing
 about the running site reveals it. Failing the build is the last cheap moment to catch it.
 
-`app/layout.tsx` calls it at module scope for `metadataBase`, which is what makes a missing
-variable a build failure rather than a per-request one. The docs page calls it again to build the
+**The rule lives in `lib/site-url.mjs`, in plain JavaScript, and both `lib/shared.ts` and
+`next.config.mjs` import it.** That split is not stylistic. `pnpm build` runs with
+`--experimental-build-mode=compile` and `generateStaticParams` returns `[]` (see the
+[known trade-off](#known-trade-off-no-static-prerendering)), so no page or layout module is evaluated at build time and
+`getSiteUrl()`'s throw never fires there. `next.config.mjs` is the earliest thing the build does
+evaluate, which makes it the real gate, and it cannot import TypeScript. The rule used to be
+written out by hand in both files, which meant the copy with the tests was the backstop and the
+copy without them was the gate, one edit away from silently diverging. One module imported by both
+removes the question. A malformed value is caught in the same place and for the same reason: an
+origin pasted without a scheme (`docs.arbitrum.io`) satisfies a presence check, then throws inside
+`new URL()` at the root layout's module scope on the first request after promotion and 500s every
+route, which is the unset failure again but worse, because the unset case at least fails the build.
+
+`app/layout.tsx` calls `getSiteUrl()` at module scope for `metadataBase`, which keeps the failure a
+module-load one rather than a per-request one for anything reached outside a build. The docs page calls it again to build the
 canonical absolutely rather than leaning on `metadataBase` resolution, so the one value that a
-wrong canonical depends on is read through the one helper that refuses to invent it. The helper
-deliberately imports nothing, which is what lets `app/sitemap.ts` and `app/robots.ts` use it too
-without pulling `lib/source` toward a client bundle. `scripts/lib/site-url.test.mjs` covers it, running each case
-in a subprocess with `--experimental-strip-types` because `node --test` cannot import TypeScript.
+wrong canonical depends on is read through the one helper that refuses to invent it. The helper imports
+nothing but the rule module, and must stay that way: it is what lets `app/sitemap.ts` and
+`app/robots.ts` use it without pulling `lib/source` toward a client bundle. `scripts/lib/site-url.test.mjs` covers it, calling the `.mjs` rule directly and
+then checking both wrappers: `getSiteUrl()` in a subprocess with `--experimental-strip-types`,
+because `node --test` cannot import TypeScript, and `next.config.mjs` by importing it under a
+controlled environment, which is the case that pins the build failure itself.
+
+**`RequestUpdateLink` is the one deliberate exception, and it should stay one.** It reads
+`NEXT_PUBLIC_SITE_URL` directly (`components/RequestUpdateLink.tsx`) and falls back to the
+site-relative path rather than to the helper's localhost. Its URL is not metadata: it goes into the
+body of a GitHub issue that a person reads, and `/docs/stylus/quickstart` tells that person which
+page the report is about, while `http://localhost:3000/docs/stylus/quickstart` is noise from
+whoever happened to file it from a dev server. In production the two are identical, because the
+build fails when the variable is unset. Do not "fix" this into a `getSiteUrl()` call.
 
 `app/(home)/page.tsx` sets no canonical of its own and is the one remaining page without one.
 
