@@ -39,7 +39,7 @@ function fixtureRepo() {
     path.join(root, '.prettierrc.json'),
     '{"singleQuote": true, "trailingComma": "all"}',
   );
-  const docsDir = path.join(root, 'content', 'docs', 'en', 'example');
+  const docsDir = path.join(root, 'content', 'docs', 'example');
   mkdirSync(docsDir, { recursive: true });
   writeFileSync(path.join(docsDir, 'old-name.mdx'), PAGE_FRONTMATTER);
   writeFileSync(
@@ -51,8 +51,8 @@ function fixtureRepo() {
   mkdirSync(libDir, { recursive: true });
   const treeCompareSource =
     `export const RENAME_MAP = {\n` +
-    `  'upstream/old-name.mdx': 'en/example/old-name.mdx',\n` +
-    `  'upstream/unrelated.mdx': 'en/example/unrelated.mdx',\n` +
+    `  'upstream/old-name.mdx': 'example/old-name.mdx',\n` +
+    `  'upstream/unrelated.mdx': 'example/unrelated.mdx',\n` +
     `};\n`;
   writeFileSync(path.join(libDir, 'tree-compare.mjs'), treeCompareSource);
 
@@ -66,13 +66,13 @@ function fixtureRepo() {
       {
         path: 'upstream/old-name.mdx',
         reviewedUpstreamSha: 'deadbeef',
-        local: 'en/example/old-name.mdx',
+        local: 'example/old-name.mdx',
         reason: 'fixture',
       },
       {
         path: 'upstream/unrelated.mdx',
         reviewedUpstreamSha: 'deadbeef',
-        local: 'en/example/unrelated.mdx',
+        local: 'example/unrelated.mdx',
         reason: 'fixture, must stay untouched',
       },
     ],
@@ -86,8 +86,8 @@ function fixtureRepo() {
     root,
     treeComparePath: path.join(libDir, 'tree-compare.mjs'),
     upstreamConfigPath: path.join(dataDir, 'upstream.config.json'),
-    fromRel: 'content/docs/en/example/old-name.mdx',
-    toRel: 'content/docs/en/example/new-name.mdx',
+    fromRel: 'content/docs/example/old-name.mdx',
+    toRel: 'content/docs/example/new-name.mdx',
   };
 }
 
@@ -108,23 +108,23 @@ test('move-doc retargets the RENAME_MAP value and guttedAllowlist local path for
   const treeCompareNext = readFileSync(treeComparePath, 'utf8');
   assert.match(
     treeCompareNext,
-    /'upstream\/old-name\.mdx': 'en\/example\/new-name\.mdx',/,
+    /'upstream\/old-name\.mdx': 'example\/new-name\.mdx',/,
     'RENAME_MAP value should point at the new local path',
   );
   assert.doesNotMatch(
     treeCompareNext,
-    /'en\/example\/old-name\.mdx'/,
+    /'example\/old-name\.mdx'/,
     'the old local path should not remain anywhere in RENAME_MAP',
   );
   assert.match(
     treeCompareNext,
-    /'upstream\/unrelated\.mdx': 'en\/example\/unrelated\.mdx',/,
+    /'upstream\/unrelated\.mdx': 'example\/unrelated\.mdx',/,
     'the unrelated RENAME_MAP entry must be untouched',
   );
 
   // guttedAllowlist: same story, via the JSON config.
   const configNext = JSON.parse(readFileSync(upstreamConfigPath, 'utf8'));
-  assert.equal(configNext.guttedAllowlist[0].local, 'en/example/new-name.mdx');
+  assert.equal(configNext.guttedAllowlist[0].local, 'example/new-name.mdx');
   assert.equal(
     configNext.guttedAllowlist[0].reviewedUpstreamSha,
     'deadbeef',
@@ -133,7 +133,7 @@ test('move-doc retargets the RENAME_MAP value and guttedAllowlist local path for
   assert.deepEqual(configNext.guttedAllowlist[1], {
     path: 'upstream/unrelated.mdx',
     reviewedUpstreamSha: 'deadbeef',
-    local: 'en/example/unrelated.mdx',
+    local: 'example/unrelated.mdx',
     reason: 'fixture, must stay untouched',
   });
   assert.deepEqual(configNext.absentAllowlist, [], 'absentAllowlist has no local field to touch');
@@ -141,12 +141,12 @@ test('move-doc retargets the RENAME_MAP value and guttedAllowlist local path for
   // Only the intended fields changed — diff the two files against their originals field-by-field
   // rather than trusting the assertions above alone.
   const beforeData = JSON.parse(beforeConfig);
-  beforeData.guttedAllowlist[0].local = 'en/example/new-name.mdx';
+  beforeData.guttedAllowlist[0].local = 'example/new-name.mdx';
   assert.deepEqual(configNext, beforeData, 'no other field in upstream.config.json changed');
 
   const expectedTreeCompare = beforeTreeCompare.replace(
-    "'upstream/old-name.mdx': 'en/example/old-name.mdx',",
-    "'upstream/old-name.mdx': 'en/example/new-name.mdx',",
+    "'upstream/old-name.mdx': 'example/old-name.mdx',",
+    "'upstream/old-name.mdx': 'example/new-name.mdx',",
   );
   assert.equal(treeCompareNext, expectedTreeCompare, 'no other line in tree-compare.mjs changed');
 
@@ -179,12 +179,12 @@ test('move-doc is a no-op on the drift maps for a page neither map names', (t) =
   const { root } = fixtureRepo();
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
-  const docsDir = path.join(root, 'content', 'docs', 'en', 'example');
+  const docsDir = path.join(root, 'content', 'docs', 'example');
   writeFileSync(path.join(docsDir, 'plain.mdx'), PAGE_FRONTMATTER.replace('Old name', 'Plain'));
 
   const output = execFileSync(
     'node',
-    [MOVE_DOC, 'content/docs/en/example/plain.mdx', 'content/docs/en/example/plain-2.mdx'],
+    [MOVE_DOC, 'content/docs/example/plain.mdx', 'content/docs/example/plain-2.mdx'],
     { cwd: root, encoding: 'utf8' },
   );
 

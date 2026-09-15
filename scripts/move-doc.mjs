@@ -16,6 +16,12 @@
  *      `scripts/lib/drift-maps.mjs`) — otherwise a move silently orphans a drift exemption, which
  *      `pnpm test` only catches in whatever unrelated PR happens to run next.
  *
+ * Step 5 runs last because it is the only step that can legitimately refuse: it verifies its own
+ * rewrite and formats through Prettier before writing, and aborting there must not cost the redirect.
+ * It does *not* touch `MANUAL_DESTINATIONS` in `scripts/lib/legacy-redirects.mjs`, a third
+ * hand-written map of local paths (as site URLs); moving a page named there still needs a manual
+ * edit. Tracked as FS-2697.
+ *
  * `--dry-run` prints every change without touching the filesystem. Paths are repo-relative files under
  * `content/docs/` (not site URLs). After a real run, verify with `pnpm restructure` or `pnpm check-links`.
  */
@@ -324,13 +330,14 @@ async function main() {
     }
     const metaNotes = updateMeta(fromAbs, toAbs, true);
     for (const n of metaNotes) console.log(`  ${n}`);
-    for (const n of await updateDriftMaps(repoRoot, docsRelFrom, docsRelTo, true))
-      console.log(`  ${n}`);
     if (fromMeta.url !== toMeta.url) {
       console.log(
         `  redirect: { source: '${fromMeta.url}', destination: '${toMeta.url}', permanent: true }`,
       );
     }
+    // Reported last, mirroring the order a real run applies the steps in.
+    for (const n of await updateDriftMaps(repoRoot, docsRelFrom, docsRelTo, true))
+      console.log(`  ${n}`);
     console.log('\n[dry-run] no files were changed.');
     return;
   }
@@ -353,8 +360,6 @@ async function main() {
     console.warn('  note: moved without git (untracked source or no work tree) — move is unstaged');
 
   for (const n of updateMeta(fromAbs, toAbs, false)) console.log(`  ${n}`);
-  for (const n of await updateDriftMaps(repoRoot, docsRelFrom, docsRelTo, false))
-    console.log(`  ${n}`);
 
   // Redirect for the moved URL.
   const redirectsPath = path.join(repoRoot, 'redirects.config.mjs');
@@ -363,6 +368,13 @@ async function main() {
       `  redirects.config.mjs: ${appendRedirect(redirectsPath, fromMeta.url, toMeta.url, false)} ${fromMeta.url} -> ${toMeta.url}`,
     );
   }
+
+  // Last on purpose. This step reads two files, verifies its own rewrite against the parsed
+  // RENAME_MAP, and runs both results through Prettier, any of which can throw; running it after the
+  // redirect is appended means a failure here costs only this step, and it writes both maps or
+  // neither. Everything before it has already landed, so the fix is to retarget the maps by hand.
+  for (const n of await updateDriftMaps(repoRoot, docsRelFrom, docsRelTo, false))
+    console.log(`  ${n}`);
 
   console.log('\nDone. Verify with `pnpm check-links` (or `pnpm restructure` runs it for you).');
 }

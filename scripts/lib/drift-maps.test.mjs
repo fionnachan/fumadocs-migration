@@ -3,10 +3,12 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import { pathToFileURL } from 'node:url';
 
 import {
   TREE_COMPARE_PATH,
   UPSTREAM_CONFIG_PATH,
+  assertRenameMapRewrite,
   rewriteRenameMapSource,
   rewriteUpstreamConfig,
   updateDriftMaps,
@@ -200,4 +202,139 @@ test('updateDriftMaps reports nothing when neither file is present', async (t) =
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const notes = await updateDriftMaps(root, 'local/moved.mdx', 'local/moved-new.mdx', false);
   assert.deepEqual(notes, []);
+});
+
+// --- the rewrite stays inside RENAME_MAP -----------------------------------------------------------
+
+// `tree-compare.mjs` declares SECTION_MAP above RENAME_MAP, and its *values* are bare section
+// prefixes: 'stylus', 'oracles', 'run-a-node'. A whole-file regex for a top-level page (with or
+// without its extension) rewrites those too, silently remapping an entire upstream section while the
+// CLI reports it as a RENAME_MAP change. No such top-level page exists today, which is exactly why
+// this needs a test: the bug would land the day someone adds `content/docs/stylus.mdx`.
+const SECTION_AND_RENAME_FIXTURE =
+  `export const SECTION_MAP = {\n` +
+  `  'for-devs/oracles': 'oracles',\n` +
+  `  'run-arbitrum-node': 'run-a-node',\n` +
+  `  'stylus-by-example': 'stylus',\n` +
+  `};\n` +
+  `\n` +
+  `export const RENAME_MAP = {\n` +
+  `  'up/keep.mdx': 'keep.mdx',\n` +
+  `};\n`;
+
+for (const page of ['stylus.mdx', 'oracles.mdx', 'run-a-node.mdx']) {
+  test(`never rewrites a SECTION_MAP value when moving top-level ${page}`, () => {
+    const { source: next, changed } = rewriteRenameMapSource(
+      SECTION_AND_RENAME_FIXTURE,
+      page,
+      `moved/${page}`,
+    );
+    assert.equal(changed, 0, `${page} must not match anything outside RENAME_MAP`);
+    assert.equal(next, SECTION_AND_RENAME_FIXTURE, 'source must be byte-identical');
+  });
+}
+
+test('never rewrites a SECTION_MAP value in the real tree-compare.mjs', () => {
+  const real = readFileSync(path.join(import.meta.dirname, '..', '..', TREE_COMPARE_PATH), 'utf8');
+  for (const page of ['stylus.mdx', 'oracles.mdx', 'run-a-node.mdx', 'third-party-docs.mdx']) {
+    const { source: next, changed } = rewriteRenameMapSource(real, page, `moved/${page}`);
+    assert.equal(changed, 0, `moving ${page} must not touch the real file`);
+    assert.equal(next, real);
+  }
+});
+
+test('rewrites a RENAME_MAP value that a SECTION_MAP value also spells, without touching SECTION_MAP', () => {
+  // The value 'stylus' appears in SECTION_MAP; 'stylus.mdx' is a legitimate RENAME_MAP target.
+  const source =
+    `export const SECTION_MAP = {\n  'stylus-by-example': 'stylus',\n};\n\n` +
+    `export const RENAME_MAP = {\n  'up/stylus.mdx': 'stylus.mdx',\n};\n`;
+  const { source: next, changed } = rewriteRenameMapSource(
+    source,
+    'stylus.mdx',
+    'stylus/index.mdx',
+  );
+  assert.equal(changed, 1);
+  assert.match(next, /'stylus-by-example': 'stylus',/, 'SECTION_MAP untouched');
+  assert.match(next, /'up\/stylus\.mdx': 'stylus\/index\.mdx',/);
+});
+
+// --- a missed textual match is loud, not silent ----------------------------------------------------
+
+test('assertRenameMapRewrite passes on the real tree-compare.mjs for a target it names', async () => {
+  const real = path.join(import.meta.dirname, '..', '..', TREE_COMPARE_PATH);
+  const { RENAME_MAP } = await import(pathToFileURL(real).href);
+  const [, sample] = Object.entries(RENAME_MAP)
+    .map(([k, v]) => [k, typeof v === 'string' ? v : v.to])
+    .find(([, v]) => typeof v === 'string');
+  const { changed } = rewriteRenameMapSource(readFileSync(real, 'utf8'), sample, 'x/y.mdx');
+  const warnings = await assertRenameMapRewrite(real, sample, 'x/y.mdx', changed);
+  assert.deepEqual(warnings, [], 'no collision expected against a fresh path');
+});
+
+test('updateDriftMaps throws when a double-quoted RENAME_MAP makes the textual rewrite miss', async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), 'drift-maps-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const treeCompareAbs = path.join(root, TREE_COMPARE_PATH);
+  mkdirSync(path.dirname(treeCompareAbs), { recursive: true });
+  // Reformatted to double quotes: still a valid module naming the moved page, but invisible to the
+  // single-quote regex. Before the cross-check this reported "no entry" and left the stale path.
+  writeFileSync(
+    treeCompareAbs,
+    `export const RENAME_MAP = {\n  "up/moved.mdx": "local/moved.mdx",\n};\n`,
+  );
+
+  await assert.rejects(
+    () => updateDriftMaps(root, 'local/moved.mdx', 'local/moved-new.mdx', false),
+    (err) => {
+      assert.match(err.message, /changed 0 value\(s\) but the parsed map names it 1 time\(s\)/);
+      assert.match(err.message, /local\/moved\.mdx/, 'names the offending path');
+      return true;
+    },
+  );
+});
+
+// --- nothing is written unless every rewrite succeeded ---------------------------------------------
+
+test('updateDriftMaps writes neither map when the RENAME_MAP cross-check fails', async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), 'drift-maps-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const treeCompareAbs = path.join(root, TREE_COMPARE_PATH);
+  const upstreamConfigAbs = path.join(root, UPSTREAM_CONFIG_PATH);
+  mkdirSync(path.dirname(treeCompareAbs), { recursive: true });
+  mkdirSync(path.dirname(upstreamConfigAbs), { recursive: true });
+
+  const treeCompareBefore = `export const RENAME_MAP = {\n  "up/moved.mdx": "local/moved.mdx",\n};\n`;
+  const configBefore = configFixture().replace('moved.mdx', 'local/moved.mdx');
+  writeFileSync(treeCompareAbs, treeCompareBefore);
+  writeFileSync(upstreamConfigAbs, configBefore);
+
+  await assert.rejects(() =>
+    updateDriftMaps(root, 'local/moved.mdx', 'local/moved-new.mdx', false),
+  );
+  // The config rewrite would have succeeded on its own; the point is that it is not written either.
+  assert.equal(readFileSync(treeCompareAbs, 'utf8'), treeCompareBefore);
+  assert.equal(readFileSync(upstreamConfigAbs, 'utf8'), configBefore);
+});
+
+// --- a move onto an existing RENAME_MAP target warns -----------------------------------------------
+
+test('updateDriftMaps warns when the destination is already another entry RENAME_MAP target', async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), 'drift-maps-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const treeCompareAbs = path.join(root, TREE_COMPARE_PATH);
+  mkdirSync(path.dirname(treeCompareAbs), { recursive: true });
+  writeFileSync(
+    path.join(root, '.prettierrc.json'),
+    '{"singleQuote": true, "trailingComma": "all"}',
+  );
+  writeFileSync(
+    treeCompareAbs,
+    `export const RENAME_MAP = {\n  'up/a.mdx': 'local/a.mdx',\n  'up/b.mdx': 'local/b.mdx',\n};\n`,
+  );
+
+  const notes = await updateDriftMaps(root, 'local/a.mdx', 'local/b.mdx', false);
+  assert.equal(notes.length, 2, JSON.stringify(notes));
+  assert.match(notes[1], /WARNING/);
+  assert.match(notes[1], /'up\/b\.mdx'/, 'names the entry already claiming the destination');
+  assert.match(notes[1], /merge: true/);
 });
