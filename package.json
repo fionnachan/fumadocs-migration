@@ -26,11 +26,15 @@
     "nitro:check-release": "node scripts/check-nitro-release.mjs",
     "precompiles:generate": "node scripts/generate-precompile-tables.mjs",
     "precompiles:check": "node scripts/generate-precompile-tables.mjs --check",
+    "contracts:generate": "node scripts/generate-contract-addresses.mjs",
+    "contracts:check": "node scripts/generate-contract-addresses.mjs --check",
     "references:check": "node scripts/references-check.mjs",
     "redirects:legacy": "node scripts/generate-legacy-redirects.mjs",
     "redirects:check": "node scripts/redirects-check.mjs",
     "vars:check": "node scripts/vars-check.mjs",
     "content:lint": "node scripts/content-lint.mjs",
+    "images:check": "node scripts/remote-images-check.mjs",
+    "images:presence": "node scripts/remote-images-check.mjs --presence",
     "test": "node --test \"scripts/**/*.test.mjs\"",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -59,6 +63,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@arbitrum/sdk": "4.1.0",
     "@offchainlabs/prettier-config": "0.3.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@trivago/prettier-plugin-sort-imports": "5.2.2",

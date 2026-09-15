@@ -1,5 +1,7 @@
 import type { MetadataRoute } from 'next';
 
+import { getSiteUrl } from '@/lib/shared';
+
 /**
  * `/robots.txt` ports upstream `static/robots.txt` from arbitrum-docs.
  *
@@ -22,10 +24,14 @@ import type { MetadataRoute } from 'next';
  * The signal is permissive for reading and restrictive for training: the docs may be indexed for
  * search and used as input to AI assistants, but not used as training data.
  *
+ * The sitemap URL is absolute and its origin comes from `getSiteUrl()` in `lib/shared.ts`, the
+ * same helper `app/sitemap.ts` and `metadataBase` use, so a production build with no
+ * `NEXT_PUBLIC_SITE_URL` fails rather than pointing crawlers at localhost.
+ *
  * No `revalidate` export: a metadata route with no request-time input is already cached at build
  * time by default, so setting it would only restate the default.
  */
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
+const siteUrl = getSiteUrl();
 
 export default function robots(): MetadataRoute.Robots {
   return {
