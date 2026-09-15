@@ -1,3 +1,4 @@
+import * as Twoslash from 'fumadocs-twoslash/ui';
 import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
 import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 import defaultMdxComponents from 'fumadocs-ui/mdx';
@@ -68,6 +69,13 @@ function withPdfModal(Base: NonNullable<MDXComponents['a']>) {
 export function getMDXComponents(components?: MDXComponents) {
   const merged = {
     ...defaultMdxComponents,
+    // `transformerTwoslash` (wired in source.config.ts) compiles a ```ts twoslash block into markup
+    // that references `Popup` / `PopupTrigger` / `PopupContent` by name. Those names have to be in
+    // this map or the page throws "Expected component `Popup` to be defined" at render time. That is
+    // a 500, not a build failure, because the frontmatter schema is all `types:check` sees. The
+    // spread has been missing since twoslash was first wired up; it went unnoticed only because no
+    // page uses a twoslash block yet.
+    ...Twoslash,
     Accordion,
     Accordions,
     AddressExplorerLink,
