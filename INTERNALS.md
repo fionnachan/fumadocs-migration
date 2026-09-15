@@ -1169,13 +1169,20 @@ access poisons that shell, and every docs page then serves it as a 500 with dige
 `DYNAMIC_SERVER_USAGE`. Compile mode hid that by never prerendering anything. Do not remove the
 declaration while the page reads searchParams.
 
+**`force-dynamic` and the empty `generateStaticParams` come out together, not one at a time.** They
+are one workaround with two halves, exactly as `--experimental-build-mode=compile` and the empty
+return were before FS-2689 removed those together. Once FS-2698 stops the route reading
+`searchParams`, `force-dynamic` would suppress prerendering on its own, and the empty return would be
+the only thing standing between the build and 347 static pages. Splitting them leaves the route
+dynamic for a reason no longer written down anywhere.
+
 Earlier revisions of this section described the behaviour as "ISR-on-first-request" with pages
 "cached at the edge, then served statically on subsequent hits". That was never true once `?v=`
 landed: the response carries `private, no-cache, no-store, max-age=0, must-revalidate`, before and
 after this change alike.
 
-To actually prerender docs pages, `?v=` has to stop coming from `searchParams`, which is a change to
-the versioning URL contract in
+To actually prerender docs pages, `?v=` has to stop coming from `searchParams`. That is **FS-2698**,
+a change to the versioning URL contract in
 [`2026-07-17-partial-versioning-design.md`](.claude/docs/superpowers/specs/2026-07-17-partial-versioning-design.md)
 rather than a change to the route file. It would also fix the empty-bodied 404 under `/docs/*`
 (FS-2688), because a statically routable docs route can carry `dynamicParams = false`, which turns an

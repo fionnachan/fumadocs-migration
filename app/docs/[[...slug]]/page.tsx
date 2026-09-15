@@ -140,8 +140,14 @@ export default async function Page({
 // response already carries `private, no-cache, no-store` either way.
 //
 // To actually prerender these pages, `?v=` has to stop coming from
-// searchParams. That is a change to the versioning URL contract, not to this
-// file; see the FS-2688/FS-2689 findings and the design ticket that followed.
+// searchParams. That is a change to the versioning URL contract rather than to
+// this file, and it is FS-2698.
+//
+// **These two exports come out together when FS-2698 lands.** Once the route no
+// longer reads searchParams, `force-dynamic` becomes a lie that would suppress
+// prerendering on its own, and the empty return becomes the only thing standing
+// between the build and 347 static pages. Removing one without the other leaves
+// the route dynamic for a reason nobody will be able to find.
 export const dynamic = 'force-dynamic';
 
 export async function generateStaticParams() {
