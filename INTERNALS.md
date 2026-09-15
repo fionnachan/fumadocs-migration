@@ -219,11 +219,15 @@ canonical copy lives on localhost, which is worse than emitting no canonical at 
 about the running site reveals it. Failing the build is the last cheap moment to catch it.
 
 **The rule lives in `lib/site-url.mjs`, in plain JavaScript, and both `lib/shared.ts` and
-`next.config.mjs` import it.** That split is not stylistic. `pnpm build` runs with
-`--experimental-build-mode=compile` and `generateStaticParams` returns `[]` (see the
-[known trade-off](#known-trade-off-no-static-prerendering)), so no page or layout module is evaluated at build time and
-`getSiteUrl()`'s throw never fires there. `next.config.mjs` is the earliest thing the build does
-evaluate, which makes it the real gate, and it cannot import TypeScript. The rule used to be
+`next.config.mjs` import it.** That split is not stylistic. `next.config.mjs` is the earliest thing
+the build evaluates, which makes it the gate that always fires, and it cannot import TypeScript. It
+is no longer the _only_ thing that fires: before FS-2689 dropped
+`--experimental-build-mode=compile`, no page or layout module was evaluated at build time at all, so
+`getSiteUrl()`'s throw in `lib/shared.ts` never ran during a build and `next.config.mjs` was the sole
+enforcement point. Now that 703 routes prerender (see the
+[known trade-off](#known-trade-off-no-static-prerendering)), the root layout's module scope does run
+at build and would throw too. Keep both: the docs route itself still never prerenders, so the
+config-level check is what covers a build that touches no prerendered route. The rule used to be
 written out by hand in both files, which meant the copy with the tests was the backstop and the
 copy without them was the gate, one edit away from silently diverging. One module imported by both
 removes the question. A malformed value is caught in the same place and for the same reason: an
@@ -1172,11 +1176,101 @@ component looks broken.
 
 ## Known trade-off: no static prerendering
 
-`app/docs/[[...slug]]/page.tsx` has `generateStaticParams` return `[]`, deliberately disabling
-static prerendering in favour of ISR-on-first-request. This works around a Next 16.2.6 prerender
-crash, and is why `build` uses `--experimental-build-mode=compile`.
+Docs pages are rendered on every request and nothing about them is prerendered. **The reason is
+`?v=`**, not a framework bug: `app/docs/[[...slug]]/page.tsx` `await`s `searchParams` to pick the
+archived version, and a page that reads searchParams is dynamic by definition. So
+`generateStaticParams` has nothing to prerender whatever it returns, and it returns `[]` rather than
+enumerating 347 params for zero output.
 
-The inline comment documents the restore path. Do not "fix" it without addressing that.
+Measured on Next 16.3.4 (2026-09-15) with a full `next build`, changing only whether the page takes
+`searchParams`:
+
+| Page signature                                    | Docs pages prerendered |
+| ------------------------------------------------- | ---------------------- |
+| `source.generateParams()`, `searchParams` present | 0                      |
+| `source.generateParams()`, `searchParams` removed | 347                    |
+
+**This used to be attributed to a Next 16.2.6 prerender crash, and that attribution was wrong by the
+time it was read.** The crash does not reproduce on 16.3.4, so FS-2689 dropped
+`--experimental-build-mode=compile` from `build`. Dropping it restored prerendering for everything
+that _can_ prerender: 703 routes, being 348 `/og/docs/**` images, 348 `/llms.mdx/docs/**` paths, and
+the seven static routes. The og images are the material win, since each one is a satori render that
+previously happened on first request.
+
+**That win is bought with build time, and it is a real regression.** Measured on one machine
+(2026-09-15, Node 22.23.1, Next 16.3.4), `pnpm build` from a deleted `.next`, two runs each, a third
+contended run discarded:
+
+| Build                             | Wall clock     |
+| --------------------------------- | -------------- |
+| Before FS-2689 (compile mode)     | 24.7 s, 25.2 s |
+| After FS-2689 (full `next build`) | 35.6 s, 35.7 s |
+
+About +11 s, roughly +43%, for 348 satori renders and 348 markdown files that used to be produced on
+first request instead. Do not read the old "no regression" note in the FS-2689 PR body: that number
+was taken without controlling for cache warmth and points the wrong way. `.next` grows with it, from
+606 MB to 644 MB, all of it the new static output.
+
+Note also that the route table prints `● /docs/[[...slug]]` under "(SSG) prerendered as static HTML"
+even though the route prerenders nothing. That marker reflects the presence of
+`generateStaticParams`, not its output. Count `.next/prerender-manifest.json`, or
+`find .next/server/app/docs -name '*.html'`, rather than reading the table. The same output shape is
+what produced the "339 docs pages prerendered" misreading this section exists to undo.
+
+**The prerendered routes are now edge-cacheable, and the docs pages are not.** A prerendered route
+serves `cache-control: s-maxage=31536000` with `x-nextjs-cache: HIT`, where compile mode sent no
+`Cache-Control` at all. That covers `/llms.txt`, `/llms-full.txt` and every `/llms.mdx/docs/**`
+path, which is the second real win here. Docs pages are unaffected and still carry
+`private, no-cache, no-store, max-age=0, must-revalidate`.
+
+That year-long `s-maxage` is why markdown negotiation now carries `Vary: Accept`. `proxy.ts` rewrites
+an `Accept: text/markdown` request for a docs URL onto that page's `/llms.mdx/**/content.md` path, so
+one URL can answer either with HTML or with a markdown body a shared cache will hold for a year.
+Under `next start` the cache keys on the rewritten path and the bare URL without the header still
+returns HTML, so nothing leaked locally either way; the header is what keeps that true on a cache
+that keys on the original URL instead. **Vercel's edge keying for a proxy rewrite is a different code
+path and has not been confirmed on a preview.** Confirm it by fetching one docs URL with and without
+the header against a preview deployment and checking that the bare one is still HTML.
+
+**`export const dynamic = 'force-dynamic'` on the route is load-bearing.** Without it, a full build
+with no static params makes Next prerender a fallback shell for the dynamic route; the searchParams
+access poisons that shell, and every docs page then serves it as a 500 with digest
+`DYNAMIC_SERVER_USAGE`. Compile mode hid that by never prerendering anything. Do not remove the
+declaration while the page reads searchParams.
+
+**It is also legacy, and only applies while Cache Components is off.** Next 16.0.0 removed
+`dynamic`, `dynamicParams`, `revalidate` and `fetchCache` from the route segment config when
+`cacheComponents` is enabled, and the migration guide lists `dynamic = 'force-dynamic'` as "not
+needed. All pages are dynamic by default." `next.config.mjs` does not set `cacheComponents`, so the
+export is live today. Enabling it is a migration rather than a flag flip, and this route has to be
+rebuilt and re-checked as part of it: the declaration stops applying, and an unsuspended
+`searchParams` read is an error under that model rather than the silent shell poisoning it is here.
+`connection()` from `next/server`, which the Next docs offer as the forward-looking replacement for
+`unstable_noStore`, is **not** a substitute and was measured rather than assumed. Swapping the
+declaration for `await connection()` in both the page and `generateMetadata` and rebuilding turns
+every docs page into a 500 with twelve `DYNAMIC_SERVER_USAGE` entries in the server log, and takes
+`/docs/does-not-exist` from 404 to 500 as well. The reason is structural: `connection()` is a
+render-time bailout, exactly what the `searchParams` read already is, so it cannot stop Next
+generating the fallback shell in the first place. Only the route-level declaration does.
+
+**`force-dynamic` and the empty `generateStaticParams` come out together, not one at a time.** They
+are one workaround with two halves, exactly as `--experimental-build-mode=compile` and the empty
+return were before FS-2689 removed those together. Once FS-2698 stops the route reading
+`searchParams`, `force-dynamic` would suppress prerendering on its own, and the empty return would be
+the only thing standing between the build and 347 static pages. Splitting them leaves the route
+dynamic for a reason no longer written down anywhere.
+
+Earlier revisions of this section described the behaviour as "ISR-on-first-request" with pages
+"cached at the edge, then served statically on subsequent hits". That was never true once `?v=`
+landed: the response carries `private, no-cache, no-store, max-age=0, must-revalidate`, before and
+after this change alike.
+
+To actually prerender docs pages, `?v=` has to stop coming from `searchParams`. That is **FS-2698**,
+a change to the versioning URL contract in
+[`2026-07-17-partial-versioning-design.md`](.claude/docs/superpowers/specs/2026-07-17-partial-versioning-design.md)
+rather than a change to the route file. It would also fix the empty-bodied 404 under `/docs/*`
+(FS-2688), because a statically routable docs route can carry `dynamicParams = false`, which turns an
+unknown slug into an unmatched URL that serves `app/not-found.tsx` in full.
 
 ## Design specs
 

@@ -137,10 +137,13 @@ test('getSiteUrl binds the rule to process.env', { skip: stripTypes }, () => {
 /**
  * The case that matters most, and the one nothing covered before the rule was extracted.
  *
- * `next.config.mjs` is the only copy that runs during a build, because
- * `--experimental-build-mode=compile` plus an empty `generateStaticParams` means no page or layout
- * module is ever evaluated. If this stops throwing, a misconfigured production deploy ships and
- * fails on its first request instead of failing the build.
+ * `next.config.mjs` is the copy that always runs during a build, because it is the first thing the
+ * build evaluates. Until FS-2689 it was the only copy that ran at all: `--experimental-build-mode=compile`
+ * plus an empty `generateStaticParams` meant no page or layout module was ever evaluated. That flag
+ * is gone, so `app/layout.tsx` now runs at build too, but the docs route stays dynamic and a build
+ * whose prerendered routes do not reach `getSiteUrl()` still relies on this check alone. If it
+ * stops throwing, a misconfigured production deploy ships and fails on its first request instead of
+ * failing the build.
  */
 test('next.config.mjs fails the build on a missing or malformed site URL', () => {
   const script = `await import(${JSON.stringify(path.join(repoRoot, 'next.config.mjs'))});`;
