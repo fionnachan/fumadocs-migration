@@ -102,8 +102,8 @@ preview the changes, and confirm afterward with `pnpm check-links`.
 ## Gates to run before you push
 
 ```bash
-pnpm types:check      # regenerates .source/, generates Next types, tsc --noEmit — the main gate
-pnpm test              # tooling script test suites
+pnpm types:check       # regenerates .source/, generates Next types, tsc --noEmit — the main gate
+pnpm test              # node --test over the tooling scripts in scripts/
 pnpm vars:check        # every <Var name> resolves
 pnpm nav:check         # meta.json navigation integrity
 pnpm partials:check    # includes resolve, no routing leak, catalog fresh
@@ -120,9 +120,9 @@ in light and dark mode if you touched styling.
 
 Two more checks report in CI without blocking merges yet — `pnpm format:check` and
 `pnpm content:lint` — because both still fail on pre-existing debt elsewhere in the repo. Run
-`pnpm format` and `pnpm content:lint` on the files you touched anyway; don't add to the backlog
-even though CI won't stop you. If you have the [pre-commit hook](README.md#before-you-push)
-installed, most of this runs automatically on `git commit` for the files you staged.
+`pnpm format` on the files you touched and `pnpm content:lint` over the tree anyway, and read past
+the pre-existing findings to check you didn't add one; don't grow the backlog even though CI won't
+stop you.
 
 ## Document type conventions
 

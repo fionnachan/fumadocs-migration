@@ -6,12 +6,17 @@
 > repository. It is tied to a specific commercial tool; parts of it are rewritten automatically by
 > `next dev`.
 >
-> The canonical docs are [README.md](README.md) (how to work on the docs) and
-> [INTERNALS.md](INTERNALS.md) (how the codebase works, and why). Humans should read those.
+> The canonical docs are [README.md](README.md) (how to work on the docs),
+> [INTERNALS.md](INTERNALS.md) (how the codebase works, and why), and
+> [CONTRIBUTE.md](CONTRIBUTE.md) (how an outside contributor gets from zero to an open PR). Humans
+> should read those.
 >
 > **Duplication here is expected and fine** — agents need the context in-session, so anything
 > canonical that an agent needs belongs in this file too. When the same material lives in both
-> places, **edit INTERNALS.md first**, then mirror what agents need back here.
+> places, **edit INTERNALS.md first**, then mirror what agents need back here. Note that the
+> frontmatter contract, the partial include rules, the variable workflow, `move-doc`, and the gate
+> list now live in **three** places — here, INTERNALS.md, and CONTRIBUTE.md. Change one and check
+> the other two.
 
 Arbitrum documentation portal — a Next.js 16 / Fumadocs migration of [`OffchainLabs/arbitrum-docs`](https://github.com/OffchainLabs/arbitrum-docs) off Docusaurus. Serves English MDX docs (single locale; i18n was removed 2026-08-18). Phase 0 MVP: single-committer. CI landed 2026-08-17 (`.github/workflows/`); the repo is linked to the Vercel project `fumadocs-test`.
 
