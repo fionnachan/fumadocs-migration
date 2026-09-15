@@ -148,7 +148,7 @@ test('leaves upstream.config.json text byte-identical when nothing matches', () 
 
 // --- updateDriftMaps (file I/O) -------------------------------------------------------------------
 
-test('updateDriftMaps writes both files and reports notes, only when something changed', (t) => {
+test('updateDriftMaps writes both files and reports notes, only when something changed', async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), 'drift-maps-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
@@ -156,6 +156,13 @@ test('updateDriftMaps writes both files and reports notes, only when something c
   const upstreamConfigAbs = path.join(root, UPSTREAM_CONFIG_PATH);
   mkdirSync(path.dirname(treeCompareAbs), { recursive: true });
   mkdirSync(path.dirname(upstreamConfigAbs), { recursive: true });
+  // `writeFormatted` resolves Prettier config from the file's own location; give the fixture its
+  // own, matching the real repo's style, so the write-through-Prettier step is exercised the way it
+  // actually runs rather than falling back to Prettier's double-quote default.
+  writeFileSync(
+    path.join(root, '.prettierrc.json'),
+    '{"singleQuote": true, "trailingComma": "all"}',
+  );
 
   writeFileSync(
     treeCompareAbs,
@@ -163,7 +170,7 @@ test('updateDriftMaps writes both files and reports notes, only when something c
   );
   writeFileSync(upstreamConfigAbs, configFixture().replace('moved.mdx', 'local/moved.mdx'));
 
-  const notes = updateDriftMaps(root, 'local/moved.mdx', 'local/moved-new.mdx', false);
+  const notes = await updateDriftMaps(root, 'local/moved.mdx', 'local/moved-new.mdx', false);
   assert.equal(notes.length, 2, `expected two notes, got: ${JSON.stringify(notes)}`);
 
   const treeCompareNext = readFileSync(treeCompareAbs, 'utf8');
@@ -174,7 +181,7 @@ test('updateDriftMaps writes both files and reports notes, only when something c
   assert.equal(configNext.guttedAllowlist[0].local, 'local/moved-new.mdx');
 });
 
-test('updateDriftMaps in dry-run mode reports notes but writes nothing', (t) => {
+test('updateDriftMaps in dry-run mode reports notes but writes nothing', async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), 'drift-maps-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
@@ -183,14 +190,14 @@ test('updateDriftMaps in dry-run mode reports notes but writes nothing', (t) => 
   const original = `export const RENAME_MAP = {\n  'up/moved.mdx': 'local/moved.mdx',\n};\n`;
   writeFileSync(treeCompareAbs, original);
 
-  const notes = updateDriftMaps(root, 'local/moved.mdx', 'local/moved-new.mdx', true);
+  const notes = await updateDriftMaps(root, 'local/moved.mdx', 'local/moved-new.mdx', true);
   assert.equal(notes.length, 1);
   assert.equal(readFileSync(treeCompareAbs, 'utf8'), original, 'dry-run must not write');
 });
 
-test('updateDriftMaps reports nothing when neither file is present', (t) => {
+test('updateDriftMaps reports nothing when neither file is present', async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), 'drift-maps-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const notes = updateDriftMaps(root, 'local/moved.mdx', 'local/moved-new.mdx', false);
+  const notes = await updateDriftMaps(root, 'local/moved.mdx', 'local/moved-new.mdx', false);
   assert.deepEqual(notes, []);
 });

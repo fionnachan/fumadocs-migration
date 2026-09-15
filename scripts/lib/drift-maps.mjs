@@ -16,6 +16,7 @@
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { format, resolveConfig } from 'prettier';
 
 export const TREE_COMPARE_PATH = path.join('scripts', 'lib', 'tree-compare.mjs');
 export const UPSTREAM_CONFIG_PATH = path.join('scripts', 'data', 'upstream.config.json');
@@ -84,6 +85,18 @@ export function rewriteUpstreamConfig(text, oldRel, newRel) {
 }
 
 /**
+ * Write through Prettier so a retarget never carries collateral reformatting: `rewriteUpstreamConfig`
+ * re-serializes the whole file with a plain 2-space `JSON.stringify`, which does not know that
+ * Prettier collapses a short array like `probePaths` onto one line, so writing its output directly
+ * would turn one field's worth of intent into a diff that also re-wraps unrelated arrays. Same
+ * `writeFormatted` shape as `scripts/generate-legacy-redirects.mjs` uses for its generated output.
+ */
+async function writeFormatted(filePath, contents) {
+  const config = await resolveConfig(filePath);
+  writeFileSync(filePath, await format(contents, { ...config, filepath: filePath }));
+}
+
+/**
  * Apply both rewrites in the repo at `repoRoot`, in place, unless `dryRun`. Returns human-readable
  * notes for the CLI to print — empty when neither file references the moved path. Mirrors the shape
  * of `updateMeta` in `move-doc.mjs`: notes describe the same change whether or not `dryRun` is set, so
@@ -93,9 +106,9 @@ export function rewriteUpstreamConfig(text, oldRel, newRel) {
  * @param {string} oldRel Old path, relative to `content/docs`, posix-separated.
  * @param {string} newRel New path, relative to `content/docs`, posix-separated.
  * @param {boolean} dryRun
- * @returns {string[]}
+ * @returns {Promise<string[]>}
  */
-export function updateDriftMaps(repoRoot, oldRel, newRel, dryRun) {
+export async function updateDriftMaps(repoRoot, oldRel, newRel, dryRun) {
   const notes = [];
   const treeComparePath = path.join(repoRoot, TREE_COMPARE_PATH);
   const upstreamConfigPath = path.join(repoRoot, UPSTREAM_CONFIG_PATH);
@@ -104,7 +117,7 @@ export function updateDriftMaps(repoRoot, oldRel, newRel, dryRun) {
     const source = readFileSync(treeComparePath, 'utf8');
     const { source: next, changed } = rewriteRenameMapSource(source, oldRel, newRel);
     if (changed) {
-      if (!dryRun) writeFileSync(treeComparePath, next);
+      if (!dryRun) await writeFormatted(treeComparePath, next);
       notes.push(
         `${TREE_COMPARE_PATH}: retargeted ${changed} RENAME_MAP value(s) '${oldRel}' -> '${newRel}'`,
       );
@@ -115,7 +128,7 @@ export function updateDriftMaps(repoRoot, oldRel, newRel, dryRun) {
     const text = readFileSync(upstreamConfigPath, 'utf8');
     const { text: next, changed } = rewriteUpstreamConfig(text, oldRel, newRel);
     if (changed) {
-      if (!dryRun) writeFileSync(upstreamConfigPath, next);
+      if (!dryRun) await writeFormatted(upstreamConfigPath, next);
       notes.push(
         `${UPSTREAM_CONFIG_PATH}: retargeted ${changed} guttedAllowlist 'local' path(s) '${oldRel}' -> '${newRel}'`,
       );

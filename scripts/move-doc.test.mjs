@@ -32,6 +32,13 @@ const PAGE_FRONTMATTER = [
  * targets the page under test, and a guttedAllowlist that also names it. */
 function fixtureRepo() {
   const root = mkdtempSync(path.join(tmpdir(), 'move-doc-e2e-'));
+  // move-doc.mjs writes tree-compare.mjs/upstream.config.json back through Prettier, which resolves
+  // config from the file's own location. Give the fixture its own, matching the real repo's style, so
+  // the assertions below exercise the actual write path instead of Prettier's double-quote default.
+  writeFileSync(
+    path.join(root, '.prettierrc.json'),
+    '{"singleQuote": true, "trailingComma": "all"}',
+  );
   const docsDir = path.join(root, 'content', 'docs', 'en', 'example');
   mkdirSync(docsDir, { recursive: true });
   writeFileSync(path.join(docsDir, 'old-name.mdx'), PAGE_FRONTMATTER);

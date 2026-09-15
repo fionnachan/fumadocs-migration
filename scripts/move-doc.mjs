@@ -259,7 +259,7 @@ function ambiguousPartialLinks(records) {
   });
 }
 
-function main() {
+async function main() {
   const { from, to, dryRun } = parseArgs(process.argv.slice(2));
   const repoRoot = process.cwd();
   const docsRoot = path.join(repoRoot, CONTENT_DIR);
@@ -324,7 +324,8 @@ function main() {
     }
     const metaNotes = updateMeta(fromAbs, toAbs, true);
     for (const n of metaNotes) console.log(`  ${n}`);
-    for (const n of updateDriftMaps(repoRoot, docsRelFrom, docsRelTo, true)) console.log(`  ${n}`);
+    for (const n of await updateDriftMaps(repoRoot, docsRelFrom, docsRelTo, true))
+      console.log(`  ${n}`);
     if (fromMeta.url !== toMeta.url) {
       console.log(
         `  redirect: { source: '${fromMeta.url}', destination: '${toMeta.url}', permanent: true }`,
@@ -352,7 +353,8 @@ function main() {
     console.warn('  note: moved without git (untracked source or no work tree) — move is unstaged');
 
   for (const n of updateMeta(fromAbs, toAbs, false)) console.log(`  ${n}`);
-  for (const n of updateDriftMaps(repoRoot, docsRelFrom, docsRelTo, false)) console.log(`  ${n}`);
+  for (const n of await updateDriftMaps(repoRoot, docsRelFrom, docsRelTo, false))
+    console.log(`  ${n}`);
 
   // Redirect for the moved URL.
   const redirectsPath = path.join(repoRoot, 'redirects.config.mjs');
@@ -370,4 +372,4 @@ function exitErr(msg) {
   process.exit(1);
 }
 
-main();
+await main();
