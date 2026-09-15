@@ -35,11 +35,11 @@ export function FlowChart(props: SVGProps<SVGSVGElement>) {
         </linearGradient>
         <style id="style1">
           {
-            '.cls-1,.cls-2,.cls-4{fill:none}.cls-5{fill:#e30663}.cls-7{fill:#12aaff}.cls-8,.cls-9{fill:#e5e5e5}.cls-2,.cls-4{stroke-miterlimit:10}.cls-2{stroke-width:.86px;stroke:#fff}.cls-4{stroke-width:1.09px}.cls-10{fill:#fff}.cls-11,.cls-9{opacity:.1}.cls-4{stroke:#e5e5e5}.cls-13{fill:#213147}'
+            '#svg415 .cls-1,#svg415 .cls-2,#svg415 .cls-4{fill:none}#svg415 .cls-5{fill:#e30663}#svg415 .cls-7{fill:#12aaff}#svg415 .cls-8,#svg415 .cls-9{fill:#e5e5e5}#svg415 .cls-2,#svg415 .cls-4{stroke-miterlimit:10}#svg415 .cls-2{stroke-width:.86px;stroke:#fff}#svg415 .cls-4{stroke-width:1.09px}#svg415 .cls-10{fill:#fff}#svg415 .cls-11,#svg415 .cls-9{opacity:.1}#svg415 .cls-4{stroke:#e5e5e5}#svg415 .cls-13{fill:#213147}'
           }
         </style>
       </defs>
-      <g id="bkgd">
+      <g id="bkgd" aria-hidden="true">
         <g id="g140">
           <path
             id="rect3"
@@ -979,7 +979,7 @@ export function FlowChart(props: SVGProps<SVGSVGElement>) {
           </g>
         </g>
       </g>
-      <g id="Layer_1" data-name="Layer 1">
+      <g id="Layer_1" data-name="Layer 1" aria-hidden="true">
         <g id="g167">
           <path
             id="path154"
@@ -2321,13 +2321,17 @@ export function FlowChart(props: SVGProps<SVGSVGElement>) {
             d="M256.03 618.93v-63.6c0-6.61 5.36-11.97 11.97-11.97h138.61c6.61 0 11.97-5.36 11.97-11.97V294.43c0-6.61 5.36-11.97 11.97-11.97h54.36"
             className="cls-4"
           />
-          <AuctionStepMarker step={1} />
-          <AuctionStepMarker step={2} interactive />
-          <AuctionStepMarker step={3} interactive />
-          <AuctionStepMarker step={4} interactive />
-          <AuctionStepMarker step={5} />
         </g>
       </g>
+      {/* Outside the artwork groups above, so `aria-hidden` on those does not swallow them and the
+          three dialog triggers stay in the accessibility tree. Safe to hoist: the markers position
+          themselves from absolute viewBox coordinates in `constants.ts`, and neither ancestor group
+          carries a transform. */}
+      <AuctionStepMarker step={1} />
+      <AuctionStepMarker step={2} interactive />
+      <AuctionStepMarker step={3} interactive />
+      <AuctionStepMarker step={4} interactive />
+      <AuctionStepMarker step={5} />
     </svg>
   );
 }

@@ -9,7 +9,15 @@ export interface AuctionStep {
   points: ReactNode[];
   /** The call or payload the step is about. */
   code: { lang: string; value: string };
-  /** Deeper explanation on the docs site, when upstream linked one. */
+  /**
+   * Deeper explanation, when upstream linked one. Upstream pointed at `docs.arbitrum.io`; this repo
+   * replaces that host and carries the same page, so these are site-relative.
+   *
+   * Nothing checks them automatically: `check-links` walks `content/docs/**` `.md(x)` only, and it
+   * does not validate anchors even there. Both targets were confirmed by hand against the headings
+   * in `content/docs/how-arbitrum-works/timeboost/how-to-use-timeboost.mdx`. Re-check them if that
+   * page's headings are reworded.
+   */
   readMore?: string;
 }
 
@@ -57,7 +65,7 @@ export const AUCTION_STEPS: Record<number, AuctionStep> = {
   signature: "0x..."
 }`,
     },
-    readMore: 'https://docs.arbitrum.io/run-arbitrum-node/how-to-use-timeboost#step-2-submit-bids',
+    readMore: '/docs/how-arbitrum-works/timeboost/how-to-use-timeboost#step-2-submit-bids',
   },
   3: {
     title: 'Step 3: Auctioneer response',
@@ -75,7 +83,7 @@ export const AUCTION_STEPS: Record<number, AuctionStep> = {
 }`,
     },
     readMore:
-      'https://docs.arbitrum.io/run-arbitrum-node/how-to-use-timeboost#step-3-find-out-the-winner-of-the-auction',
+      '/docs/how-arbitrum-works/timeboost/how-to-use-timeboost#step-3-find-out-the-winner-of-the-auction',
   },
   4: {
     title: (

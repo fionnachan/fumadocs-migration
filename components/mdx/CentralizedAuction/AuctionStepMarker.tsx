@@ -98,7 +98,14 @@ export function AuctionStepMarker({ step, interactive }: { step: number; interac
             </ol>
             <DynamicCodeBlock lang={content.code.lang} code={content.code.value} />
             {content.readMore ? (
-              <a href={content.readMore} target="_blank" rel="noreferrer noopener">
+              // A new tab is right for leaving the site and wrong for staying on it, so the target
+              // follows the link rather than being fixed.
+              <a
+                href={content.readMore}
+                {...(/^https?:\/\//.test(content.readMore)
+                  ? { target: '_blank', rel: 'noreferrer noopener' }
+                  : {})}
+              >
                 Read comprehensive explanation
               </a>
             ) : null}

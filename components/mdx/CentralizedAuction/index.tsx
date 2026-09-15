@@ -12,5 +12,10 @@ import dynamic from 'next/dynamic';
 const FlowChartImpl = dynamic(() => import('./FlowChart').then((mod) => mod.FlowChart));
 
 export function FlowChart() {
-  return <FlowChartImpl role="img" aria-label="Timeboost centralized auction flow" />;
+  // `group`, not `img`. `img` is a leaf role: the accessibility tree drops everything beneath it,
+  // which hid the three dialog triggers inside while `tabIndex` still let a keyboard reach them, so
+  // focus landed on something announced as nothing. As a group, the SVG reports its label and the
+  // buttons it contains. The artwork itself is `aria-hidden` in `FlowChart.tsx`, since the prose
+  // around the diagram already explains the flow it illustrates.
+  return <FlowChartImpl role="group" aria-label="Timeboost centralized auction flow" />;
 }
