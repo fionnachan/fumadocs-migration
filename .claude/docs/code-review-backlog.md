@@ -143,8 +143,6 @@ its render branch (`index.tsx:34-43`, `types.ts:9`) go either way.
 - **3 dead registry keys** in `components/mdx.tsx` — `AddressExplorerLink`, `FAQStructuredData`, and
   `Reference` are registered but no `.mdx` uses those names (the aliases `AEL`,
   `FAQStructuredDataJsonLd`, and `Term` carry all usage). `Reference` stays live via `Term.tsx`.
-- **`components/mdx/PendingWidget.tsx:5-7`** — docstring lists `MultiDimensionalContentWidget` and
-  `GenerateTroubleshootingReportWidget` as unported; both shipped as `components/mdx/Troubleshooting/`.
 - **`components/mdx/Var/index.tsx:7`** — JSDoc example uses `latestNitroVersion`, a key that does not
   exist in `vars.json`.
 

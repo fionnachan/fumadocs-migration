@@ -524,8 +524,8 @@ here. Implementations live in `components/mdx/`. Fumadocs' `Accordion`/`Accordio
 are re-exported.
 
 Some names are aliases of the same component: `AEL` → `AddressExplorerLink`, `ImageWithCaption` →
-`ImageZoom`. Unported Docusaurus widgets map to `PendingWidget`, which renders a placeholder — a
-page using one is not broken, just incomplete.
+`ImageZoom`. Every Docusaurus widget the content uses is now ported, so there is no placeholder
+component any more.
 
 Adding a component here makes it available in all MDX with no import.
 
@@ -559,6 +559,15 @@ a page section, so its labels nest under that section's heading rather than comp
 screen reader's heading list. Tree nodes are focusable, with Enter/Space to inspect and the arrow
 keys to expand or collapse, and wheel zoom needs a modifier key so scrolling past the diagram does
 not trap the page.
+
+**FlowChart.** The Timeboost centralized auction diagram (`components/mdx/CentralizedAuction/`),
+registered under the name the MDX already used. The artwork is a 2300-line inline SVG exported from
+a design tool and keeps its own palette, because recolouring an illustration per theme is not the
+same as theming a UI. On top of it sit five numbered markers; three of them open a step dialog, as
+upstream had it, built on the same Radix dialog as `PdfModal` with the code sample highlighted by
+Fumadocs' `DynamicCodeBlock`. The upstream `@react-spring/web` animations (a pulsing ring, a hover
+grow, a dialog fade) are CSS here, so the dependency was not carried over, and all three respect
+`prefers-reduced-motion`.
 
 **Image zoom.** `<ImageZoom>` resolves to the wrapper in `components/mdx/ImageZoom/`: plain `<img>`
 child, supports `caption`, needs no dimensions, no Next image optimization. To use Fumadocs' native
