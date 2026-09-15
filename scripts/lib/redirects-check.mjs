@@ -19,7 +19,15 @@ function readFlagValue(argv, flag) {
   return value;
 }
 
+/**
+ * `defaultBaseUrl` is what `--base-url` falls back to, so omitting both leaves nothing to return.
+ * That is a caller bug rather than a user one, and it is named here for the same reason the flag
+ * cases above are: without the guard it surfaces as `undefined.replace` several frames away.
+ */
 export function parseArgs(argv, { defaultBaseUrl } = {}) {
   const baseUrl = readFlagValue(argv, '--base-url') ?? defaultBaseUrl;
+  if (!baseUrl) {
+    throw new Error('redirects-check: no --base-url and no defaultBaseUrl to fall back on');
+  }
   return { baseUrl: baseUrl.replace(/\/+$/, '') };
 }

@@ -493,10 +493,13 @@ rather than leaving it parked.
 list — and fails on a dead destination or a source that shadows a live page. It needs the site
 running, so run it with `pnpm dev` up, or point it at any other origin with `--base-url`.
 
-**CI runs it in the `Build` job**, as a step after `pnpm build`: it starts `pnpm start`, polls
+**CI runs it in the `Build` job**, as a step after `pnpm build`: it starts `next start`, polls
 `/llms.txt` until the server answers, runs the check, and kills the server on the way out. The
 build is already happening in that job, so the whole step costs about three seconds. It is
 non-blocking only because that job is; promoting `Build` into `Gates` promotes this with it.
+
+`next start` directly, not `pnpm start`: backgrounding the pnpm script makes `$!` the wrapper's
+PID, so the cleanup trap kills the wrapper and leaves the Next server orphaned on port 3000.
 
 **It deliberately does not check a Vercel preview, and should not be changed back.** The obvious
 design, a `deployment_status` workflow pointed at the PR's preview URL, was built on `fs-2675` and
@@ -920,7 +923,7 @@ the slowest job here.
 `images:check` reaches out to third-party hosts, so its result depends on somebody else's uptime;
 its offline sibling `images:presence` does run in CI. `drift` is worth running by hand for a local
 check but is no longer manual-only: the `drift` job below runs it weekly. `redirects:check` is no
-longer hand-only for a PR either — it runs as the last step of the `Build` job, against `pnpm start`
+longer hand-only for a PR either — it runs as the last step of the `Build` job, against `next start`
 on localhost (see [Redirects](#redirects)). It is not in the blocking `Gates` job because it needs a
 running site, and the only cheap way to get one is to reuse the build that `Build` already does;
 promoting `Build` promotes it too. It is still available by hand with `--base-url`, against a local

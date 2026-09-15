@@ -9,6 +9,10 @@ test('parseArgs falls back to the default base URL', () => {
   assert.equal(parseArgs([], defaults).baseUrl, 'http://localhost:3000');
 });
 
+test('parseArgs names the caller bug when there is no flag and no default to fall back on', () => {
+  assert.throws(() => parseArgs([]), /no --base-url and no defaultBaseUrl/);
+});
+
 test('parseArgs reads --base-url and strips a trailing slash', () => {
   const result = parseArgs(['--base-url', 'http://localhost:3399/'], defaults);
   assert.equal(result.baseUrl, 'http://localhost:3399');
