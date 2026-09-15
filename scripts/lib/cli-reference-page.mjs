@@ -48,9 +48,26 @@ export function escapeCell(text) {
     .replace(/\}/g, '\\}');
 }
 
+/**
+ * Wrap a value in a code span, escaping only what a code span needs.
+ *
+ * `escapeCell` is for the prose columns and would be wrong here: inside a code span a backslash
+ * escape and an HTML entity are both literal text, so a default of `<?INVALID-URL?>` would reach
+ * the reader spelled `&lt;?INVALID-URL?&gt;`. A pipe is the exception and still needs its
+ * backslash, because GFM splits a table row on unescaped pipes before any inline parsing happens.
+ * The fence widens past any backtick run in the value, and a value that starts or ends with a
+ * backtick gets the padding space CommonMark strips back off.
+ */
+export function codeCell(text) {
+  const longest = (text.match(/`+/g) ?? []).reduce((n, run) => Math.max(n, run.length), 0);
+  const fence = '`'.repeat(longest + 1);
+  const pad = text.startsWith('`') || text.endsWith('`') ? ' ' : '';
+  return `${fence}${pad}${text.replace(/\|/g, '\\|')}${pad}${fence}`;
+}
+
 /** An empty default renders as a dash: pflag omits zero-value defaults, and so does the page. */
 function formatDefault(value) {
-  return value === '' ? '-' : `\`${escapeCell(value)}\``;
+  return value === '' ? '-' : codeCell(value);
 }
 
 /** Group flags by their first dotted segment, namespaces in alphabetical order. */
@@ -123,7 +140,7 @@ nitro --conf.file=/path/to/config.json
     lines.push('| ---- | ---- | ------- | ----------- |');
     for (const flag of group.flags) {
       lines.push(
-        `| \`${escapeCell(flag.flag)}\` | ${flag.type} | ${formatDefault(flag.default)} | ${escapeCell(flag.description)} |`,
+        `| ${codeCell(flag.flag)} | ${escapeCell(flag.type)} | ${formatDefault(flag.default)} | ${escapeCell(flag.description)} |`,
       );
     }
     lines.push('');

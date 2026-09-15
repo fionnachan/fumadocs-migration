@@ -12,6 +12,7 @@ import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
 import {
+  codeCell,
   escapeCell,
   groupByNamespace,
   renderGeneratedRegion,
@@ -249,6 +250,12 @@ describe('page rendering', () => {
     { flag: 'http.addr', type: 'string', default: '127.0.0.1', description: 'listening interface' },
     { flag: 'http.tls', type: 'bool', default: '', description: 'serve over TLS' },
     { flag: 'node.enable', type: 'bool', default: 'true', description: 'a|b <c> {d}' },
+    {
+      flag: 'node.levels',
+      type: 'CompressionLevelStepList',
+      default: '[{"backlog":0}] <?x?> a|b',
+      description: 'JSON array',
+    },
   ];
   const options = {
     namespaceLinks: { http: { label: 'Configuration system', href: '/docs/x' } },
@@ -259,12 +266,36 @@ describe('page rendering', () => {
   it('groups flags by their first dotted segment, alphabetically', () => {
     assert.deepEqual(
       groupByNamespace(flags).map((g) => `${g.namespace}:${g.flags.length}`),
-      ['http:2', 'node:1'],
+      ['http:2', 'node:2'],
     );
   });
 
   it('escapes the characters that would break a table row or the MDX parse', () => {
     assert.equal(escapeCell('a|b <c> {d}'), 'a\\|b &lt;c&gt; \\{d\\}');
+  });
+
+  it('escapes only the pipe inside a code span, where the rest would be literal text', () => {
+    assert.equal(codeCell('a|b <c> {d}'), '`a\\|b <c> {d}`');
+  });
+
+  it('widens the fence around a value that contains backticks', () => {
+    assert.equal(codeCell('a`b'), '``a`b``');
+    assert.equal(codeCell('`x`'), '`` `x` ``');
+  });
+
+  it('renders a default with braces and angle brackets as the reader must type it', () => {
+    const out = renderGeneratedRegion(flags, options);
+    assert.ok(out.includes('`[{"backlog":0}] <?x?> a\\|b`'));
+    assert.ok(!out.includes('&lt;?x?&gt;'));
+    assert.ok(!out.includes('\\{"backlog"'));
+  });
+
+  it('escapes the type column too, so a custom pflag type cannot break the row', () => {
+    const out = renderGeneratedRegion(
+      [{ flag: 'a.b', type: 'weird|type', default: '', description: 'd' }],
+      options,
+    );
+    assert.ok(out.includes('| `a.b` | weird\\|type | - | d |'));
   });
 
   it('renders an empty default as a dash', () => {
@@ -274,7 +305,7 @@ describe('page rendering', () => {
 
   it('reports the flag count and the Nitro tag it read', () => {
     const out = renderGeneratedRegion(flags, options);
-    assert.match(out, /\*\*Total flags:\*\* 3 across 2 namespaces, read from Nitro `v9\.9\.9`\./);
+    assert.match(out, /\*\*Total flags:\*\* 4 across 2 namespaces, read from Nitro `v9\.9\.9`\./);
   });
 
   it('falls back to the default guide link for an unlisted namespace', () => {
