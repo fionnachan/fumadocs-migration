@@ -1163,11 +1163,61 @@ that _can_ prerender: 703 routes, being 348 `/og/docs/**` images, 348 `/llms.mdx
 the seven static routes. The og images are the material win, since each one is a satori render that
 previously happened on first request.
 
+**That win is bought with build time, and it is a real regression.** Measured on one machine
+(2026-09-15, Node 22.23.1, Next 16.3.4), `pnpm build` from a deleted `.next`, two runs each, a third
+contended run discarded:
+
+| Build                             | Wall clock     |
+| --------------------------------- | -------------- |
+| Before FS-2689 (compile mode)     | 24.7 s, 25.2 s |
+| After FS-2689 (full `next build`) | 35.6 s, 35.7 s |
+
+About +11 s, roughly +43%, for 348 satori renders and 348 markdown files that used to be produced on
+first request instead. Do not read the old "no regression" note in the FS-2689 PR body: that number
+was taken without controlling for cache warmth and points the wrong way. `.next` grows with it, from
+606 MB to 644 MB, all of it the new static output.
+
+Note also that the route table prints `● /docs/[[...slug]]` under "(SSG) prerendered as static HTML"
+even though the route prerenders nothing. That marker reflects the presence of
+`generateStaticParams`, not its output. Count `.next/prerender-manifest.json`, or
+`find .next/server/app/docs -name '*.html'`, rather than reading the table. The same output shape is
+what produced the "339 docs pages prerendered" misreading this section exists to undo.
+
+**The prerendered routes are now edge-cacheable, and the docs pages are not.** A prerendered route
+serves `cache-control: s-maxage=31536000` with `x-nextjs-cache: HIT`, where compile mode sent no
+`Cache-Control` at all. That covers `/llms.txt`, `/llms-full.txt` and every `/llms.mdx/docs/**`
+path, which is the second real win here. Docs pages are unaffected and still carry
+`private, no-cache, no-store, max-age=0, must-revalidate`.
+
+That year-long `s-maxage` is why markdown negotiation now carries `Vary: Accept`. `proxy.ts` rewrites
+an `Accept: text/markdown` request for a docs URL onto that page's `/llms.mdx/**/content.md` path, so
+one URL can answer either with HTML or with a markdown body a shared cache will hold for a year.
+Under `next start` the cache keys on the rewritten path and the bare URL without the header still
+returns HTML, so nothing leaked locally either way; the header is what keeps that true on a cache
+that keys on the original URL instead. **Vercel's edge keying for a proxy rewrite is a different code
+path and has not been confirmed on a preview.** Confirm it by fetching one docs URL with and without
+the header against a preview deployment and checking that the bare one is still HTML.
+
 **`export const dynamic = 'force-dynamic'` on the route is load-bearing.** Without it, a full build
 with no static params makes Next prerender a fallback shell for the dynamic route; the searchParams
 access poisons that shell, and every docs page then serves it as a 500 with digest
 `DYNAMIC_SERVER_USAGE`. Compile mode hid that by never prerendering anything. Do not remove the
 declaration while the page reads searchParams.
+
+**It is also legacy, and only applies while Cache Components is off.** Next 16.0.0 removed
+`dynamic`, `dynamicParams`, `revalidate` and `fetchCache` from the route segment config when
+`cacheComponents` is enabled, and the migration guide lists `dynamic = 'force-dynamic'` as "not
+needed. All pages are dynamic by default." `next.config.mjs` does not set `cacheComponents`, so the
+export is live today. Enabling it is a migration rather than a flag flip, and this route has to be
+rebuilt and re-checked as part of it: the declaration stops applying, and an unsuspended
+`searchParams` read is an error under that model rather than the silent shell poisoning it is here.
+`connection()` from `next/server`, which the Next docs offer as the forward-looking replacement for
+`unstable_noStore`, is **not** a substitute and was measured rather than assumed. Swapping the
+declaration for `await connection()` in both the page and `generateMetadata` and rebuilding turns
+every docs page into a 500 with twelve `DYNAMIC_SERVER_USAGE` entries in the server log, and takes
+`/docs/does-not-exist` from 404 to 500 as well. The reason is structural: `connection()` is a
+render-time bailout, exactly what the `searchParams` read already is, so it cannot stop Next
+generating the fallback shell in the first place. Only the route-level declaration does.
 
 **`force-dynamic` and the empty `generateStaticParams` come out together, not one at a time.** They
 are one workaround with two halves, exactly as `--experimental-build-mode=compile` and the empty

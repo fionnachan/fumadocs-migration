@@ -148,6 +148,18 @@ export default async function Page({
 // prerendering on its own, and the empty return becomes the only thing standing
 // between the build and 347 static pages. Removing one without the other leaves
 // the route dynamic for a reason nobody will be able to find.
+//
+// **This declaration only applies while Cache Components is off.** Next 16.0.0
+// removed `dynamic`, `dynamicParams`, `revalidate` and `fetchCache` from the
+// route segment config when `cacheComponents` is enabled
+// (node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/
+// 02-route-segment-config/index.md, "Version History"), and the migration guide
+// lists `dynamic = 'force-dynamic'` under "Not needed. All pages are dynamic by
+// default." `next.config.mjs` does not set `cacheComponents`, so the export is
+// live today. Turning it on is a migration of its own, not a flag flip: the
+// export stops applying, and an unsuspended `searchParams` read is an error
+// under that model rather than a silent fallback-shell poisoning. Re-verify
+// this route's build output and status codes as part of that work.
 export const dynamic = 'force-dynamic';
 
 export async function generateStaticParams() {
