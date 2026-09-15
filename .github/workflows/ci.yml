@@ -84,30 +84,30 @@ jobs:
       - name: Generated contract addresses are current
         run: pnpm contracts:check
 
-  content-debt:
-    # Non-blocking checks. The first two fail on pre-existing debt; the third needs the network.
-    # Each step says below why it reports rather than blocks, and what would promote it.
-    # Counts verified against main on 2026-08-31:
-    #   format:check      49 files unformatted  → fix with `pnpm format`
-    #   content:lint      13 findings across 7 files (breakdown below)
+      # Both of these blocked nothing until 2026-09-15: they sat in a non-blocking
+      # `Content debt` tier while the migration worked its counts down (format:check from 49
+      # files, content:lint from 181 findings). Both reached zero, which is what the tier
+      # existed to wait for, so they moved here and the tier is gone. A failure now is a
+      # defect the PR introduced, not inherited: `pnpm format` fixes the first, and
+      # `pnpm content:lint` names the rule and line for the second.
+      - name: Formatting
+        run: pnpm format:check
+
+      - name: MDX structural lint
+        run: pnpm content:lint
+
+  network-checks:
+    # The one non-blocking check that is not about content quality. `format:check` and
+    # `content:lint` used to share this job as a `Content debt` backlog; both reached zero on
+    # 2026-09-15 and moved into `gates`, which is what the backlog existed for.
     #
-    # content:lint by rule:
-    #   A2  invalid admonition type                 7 in  4 files
-    #   A5  internal link keeps a .md/.mdx suffix   6 in  3 files
-    #
-    # A1 (empty admonition body, was 98) and A4 (markdown/entities inside title=, was 68)
-    # are now zero. They were one defect, not 166: the Docusaurus→Fumadocs admonition
-    # codemod stranded body prose inside `title=`. Recovering it in 0e5a64a took this
-    # job from 181 findings to 15.
-    #
-    # Read the count from the script's own summary line, not by counting printed lines:
-    # content:lint groups by rule and truncates each group, which is how this comment
-    # previously came to claim 39 findings.
-    #
-    # references:check reached zero and moved into `gates` on 2026-08-20.
-    # check-links reached zero and moved into `gates` on 2026-08-31.
-    # Move a step into the `gates` job above once its count reaches zero.
-    name: Content debt (non-blocking)
+    # What is left reports rather than blocks for a different reason, and reaching zero is not
+    # what would promote it: it is already green. It fetches ~30 Solidity sources from
+    # raw.githubusercontent at every run, so a GitHub blip turns it red for reasons unrelated to
+    # the change under review. Same argument as `build`. Its sibling `contracts:check` is offline,
+    # which is why that one blocks and this one cannot. Losing the network dependency is what
+    # would promote it.
+    name: Network checks (non-blocking)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -123,20 +123,6 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Formatting
-        run: pnpm format:check
-        continue-on-error: true
-
-      - name: MDX structural lint
-        run: pnpm content:lint
-        continue-on-error: true
-
-      # Green today, and non-blocking for a reason the two steps above do not share: this one
-      # fetches ~30 Solidity sources from raw.githubusercontent at every run, so a GitHub blip
-      # turns it red for reasons unrelated to the change under review. Same argument as `Build`.
-      # Its sibling `contracts:check` is offline, which is why that one blocks and this one
-      # cannot. Reaching zero is therefore not what would promote this step; losing the network
-      # dependency would be.
       - name: Generated precompile tables are current
         run: pnpm precompiles:check
         continue-on-error: true
