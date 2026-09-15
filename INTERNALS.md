@@ -175,6 +175,19 @@ by no component.** The last consumer, `FloatingHoverModal`, was deleted as dead 
 
 Partials carry no frontmatter; `<include>` strips it, and the lint flags vestigial frontmatter.
 
+**Two partials are generated, not written.** `content/partials/precompile-tables/*.mdx` comes from
+`pnpm precompiles:generate`, and `content/partials/_reference-arbitrum-contract-addresses-partial.mdx`
+from `pnpm contracts:generate` (the `@arbitrum/sdk` network registry plus
+`scripts/data/contract-addresses.data.mjs`, every address normalised to its EIP-55 checksum because
+`<AddressExplorerLink>` throws on a bad one). Each carries a do-not-edit marker at the top. Edit the
+generator or its data file, never the `.mdx`. These two are also the only partials Prettier touches,
+via the generators themselves; `.prettierignore` excludes `**/*.mdx` from `pnpm format`.
+
+The contract-addresses partial is the one that still carries frontmatter, so `partials:check` warns
+R3 on it. The generator reproduces it rather than dropping it: the title and summary in `CATALOG.md`
+are read from those keys, so removing them is a catalog change, not a formatting one, and belongs in
+its own commit.
+
 `CATALOG.md` and `manifest.json` are generated — never hand-edit them. Curate titles, summaries,
 and tags in the optional `content/partials/registry.json`.
 
@@ -200,6 +213,52 @@ catches a `<Var name>` with no matching key.**
 
 Values mirror upstream `arbitrum-docs/src/resources/globalVars.js`. Keep them in sync while that
 site is still live.
+
+### Announcement banner
+
+`app/layout.tsx` renders Fumadocs' `Banner` above everything else in `RootProvider`, which puts it
+above the navbar because every layout's header lives inside `{children}`. Its text, link, enabled
+flag, and id all come from `vars.json`, so writers change the message without touching code. It
+replaces the Docusaurus `announcementBar`.
+
+Three things about it are not obvious:
+
+- **The keys are not `<Var>` substitutions.** `pnpm vars:check` reports them as configured but
+  unreferenced in MDX. That warning is expected for this block and is not a defect.
+- **`announcementId` is the dismissal key, and dismissal is permanent.** Fumadocs writes
+  `nd-banner-<base32(id)>` to the viewer's `localStorage` on close and injects a script that hides
+  the banner before hydration. `localStorage` outlives the tab and the session, so a reader who
+  closes the banner is done with that id on that browser for good. The ticket asked for "per
+  session"; this is stronger, and it is what Fumadocs' component does. Reusing an id for a new
+  message therefore hides it from everyone who dismissed the old one.
+- **`announcementLinkHref` is gated.** `pnpm vars:check` requires an `https` URL or a root-absolute
+  internal path that resolves to a page or a `public/` file, with the rule in
+  `scripts/lib/announcement-link.mjs` and its tests beside it. `check-links` walks MDX only and this
+  value lives in JSON, so without that check the most visible link on the site is the one nothing
+  validates. Relative hrefs are rejected rather than resolved: the banner renders on every route, so
+  there is no page to resolve them against.
+- **`height` has to be a real length.** The prop lands in an inline style and in
+  `--fd-banner-height`, which the docs and notebook containers feed into `calc()` and a sticky
+  `top`. `auto` breaks the grid. The message fits one line from 640px up and wraps to two below, so
+  the layout passes a custom property that a media query switches between `3rem` and `4rem` rather
+  than a constant.
+- **The height and the text are coupled, and only the text is writer-facing.** The heights above
+  were chosen for a message of the current length, and that message is a `vars.json` value a writer
+  is meant to change without a code review. `3rem` holds two lines of `text-sm`, `4rem` holds three,
+  and a long enough message overflows. No gate sees this, because the text lives in JSON and the
+  height lives in TSX. The constraint is therefore stated in the [README](README.md#announcement-banner)
+  next to the key, as a budget of roughly 140 characters for `announcementText` plus
+  `announcementLinkText`. A character gate was considered and rejected: any threshold would be a
+  guess at Aeonik's metrics, and a gate that fires on a message which actually renders fine is worse
+  than the prose. Measuring the rendered bar and writing `--fd-banner-height` from a
+  `ResizeObserver` would remove the coupling properly; it needs a client component and was out of
+  scope here.
+- **`announcementId` is constrained by a pattern in the schema.** Banner writes it into the
+  element's `id` and into a generated `.<key> #<id> { display: none }` rule. The class half is
+  `nd-banner-<base32(id)>` and is always a legal identifier; the `#<id>` half is the raw value. A
+  space or a leading digit makes that selector match nothing, so closing the banner would look like
+  it worked and the banner would return on the next page load, silently. `content/vars.ts` requires
+  `^[A-Za-z][A-Za-z0-9_-]*$` so the failure happens at module load instead.
 
 ## Redirects
 
@@ -469,6 +528,16 @@ cookies, no localStorage), session replay off, autocapture off, and the remote-c
 disabled. `defaults` is pinned to a dated value so upgrading `posthog-js` cannot silently change
 what is captured.
 
+**The 404 page** (`app/not-found.tsx`) captures `404_error` through
+`components/analytics/not-found-tracker.tsx`, with the same fields the Docusaurus `NotFound`
+swizzle sent: pathname, search, hash, referrer, user agent, and full URL. It reads `window.posthog`
+rather than importing the SDK, so it captures nothing outside production instead of pulling a few
+hundred kilobytes into every deployment. Because the SDK initialises from an effect of its own, out
+of a ~290 kB async chunk, and no ordering between the two effects is guaranteed, the tracker retries
+on a backoff spanning about sixteen seconds rather than losing the event to that race. It snapshots
+the location at mount, so a late attempt still reports the URL the reader landed on. These events are what M-53 monitors after cutover to find inbound URLs the
+redirect map still misses.
+
 **Environment variables.** `NEXT_PUBLIC_POSTHOG_KEY` is the PostHog project token (`phc_…`), which
 is write-only and safe to expose. `NEXT_PUBLIC_VERCEL_ENV` is set by Vercel; you never set it by
 hand. Setting the key locally does nothing on its own, which is deliberate: local browsing must not
@@ -479,7 +548,7 @@ pollute production data.
 CI runs on push and PR to `main` (`.github/workflows/ci.yml`) in three jobs. **Only the first
 blocks.** A green PR does not mean the content is clean.
 
-**`Gates` (blocking)** — nine steps:
+**`Gates` (blocking)** — ten steps:
 
 | Step                       | Catches                                                                       |
 | -------------------------- | ----------------------------------------------------------------------------- |
@@ -492,14 +561,21 @@ blocks.** A green PR does not mean the content is clean.
 | `references:check`         | Glossary ids and `<Reference>` targets                                        |
 | `images:presence`          | A markdown image with a remote src, which renders as a 500                    |
 | `check-links`              | Broken internal doc links                                                     |
+| `contracts:check`          | The generated contract-address partial matches `@arbitrum/sdk`                |
 
 `check-links` exists because Fumadocs has no equivalent of Docusaurus's `onBrokenLinks: 'throw'`.
 `pnpm build` chains it ahead of `next build`, so a broken link also fails the Vercel deploy.
 
-**`Content debt` (non-blocking)** — `format:check` and `content:lint`, each marked
-`continue-on-error` because each still fails on pre-existing debt. The job comment records the
-counts. **Promote a step into `Gates` once its count reaches zero** — that promotion is the point
-of the split. This tier is a backlog, not a policy.
+**`Content debt` (non-blocking)** — `format:check`, `content:lint` and `precompiles:check`, each
+marked `continue-on-error`. The first two still fail on pre-existing debt, and the job comment
+records the counts. **Promote one of those two into `Gates` once its count reaches zero** — that
+promotion is the point of the split. This tier is a backlog, not a policy.
+
+`precompiles:check` is in this tier for a different reason, and reaching zero is not what would
+promote it: it is already green. It fetches about thirty Solidity sources from
+`raw.githubusercontent` on every run, so a GitHub blip turns it red for reasons unrelated to the
+change under review, the same argument that keeps `Build` non-blocking. Losing the network
+dependency is what would promote it.
 
 **`Build` (non-blocking)** runs `pnpm build`. It catches MDX compile errors that `types:check` cannot
 see. It was made non-blocking because the MDX image pipeline fetched remote images at build time, so
@@ -509,14 +585,40 @@ is gone: the build no longer touches the network for images (see
 this job into `Gates` is now possible and wants its own change, not least because a full build is
 the slowest job here.
 
-**Run by hand only:** `drift`, `precompiles:check`, `redirects:legacy`, `redirects:check`, and the
-network mode of `images:check`. `redirects:check` cannot run in CI as-is because it reads
-`/llms.txt` off a running site. `images:check` reaches out to third-party hosts, so its result
-depends on somebody else's uptime. Its offline sibling `images:presence` does run in CI.
+**Run by hand only:** `drift`, `redirects:legacy`, `redirects:check`, and the network mode of
+`images:check`. `redirects:check` cannot run in CI as-is because it reads `/llms.txt` off a running
+site. `images:check` reaches out to third-party hosts, so its result depends on somebody else's
+uptime. Its offline sibling `images:presence` does run in CI.
 
 `upstream-refresh.yml` runs Mondays at 08:00 UTC and on `workflow_dispatch`: `nitro:check-release`,
-then `precompiles:generate`, opening `automated/upstream-refresh` as a PR if anything changed. It
-never writes to `main` and no-ops when the tree is clean.
+then `precompiles:generate`, then `contracts:generate`, opening `automated/upstream-refresh` as a PR
+if anything changed. It never writes to `main` and no-ops when the tree is clean.
+
+The two generators' `--check` modes sit in different CI tiers, because they are not the same kind
+of check.
+
+`contracts:check` blocks. Its input does not move on its own: the generator reads the network
+registry that ships inside `@arbitrum/sdk`, and that pin is exact, so the step can only go red on
+a human act. There are two, and both should block. One is a hand edit to the generated partial,
+against the do-not-edit marker inside it; before this gate existed such an edit passed CI, merged,
+and was then silently reverted by the next weekly refresh under the automation's authorship rather
+than its author's. The other is a PR bumping the SDK to a release that moves a published address,
+which is a value a reader pastes into a transaction and must never change unreviewed.
+
+A Dependabot bump of the SDK therefore reddens only the bumping PR, not every open one: CI installs
+from each branch's own lockfile, so no other branch sees the new registry until that PR merges. The
+fix in that PR is one command, `pnpm contracts:generate`, and a commit of the regenerated partial.
+Note the gate fires only when a bump actually moves an address; a release that changes nothing the
+partial renders stays green.
+
+`precompiles:check` does not block, for the network reason given above rather than for any
+statement about its input.
+
+When `contracts:check` fails it prints a line-level diff, so a reviewer can see whether an address
+moved or only the formatting did. That diff is a real one, computed over a longest common
+subsequence in `scripts/lib/line-diff.mjs`: comparing the two files by line index instead reported
+every line after an insertion as changed, which on this 112-line partial meant 53 lines for a
+two-line edit and defeated the point of printing it.
 
 ## Upstream drift
 
