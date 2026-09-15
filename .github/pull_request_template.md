@@ -23,7 +23,9 @@ Please fill out the form below to ensure your doc gets quickly approved and merg
 
 <!-- Mark completed items with an "x" -->
 
-- [ ] I have read the [CONTRIBUTE.md](../CONTRIBUTE.md) guidelines
+- [ ] I have read the
+      [CONTRIBUTE.md](https://github.com/OffchainLabs/Fumadocs-test/blob/main/CONTRIBUTE.md)
+      guidelines
 - [ ] My changes follow the style conventions outlined in CONTRIBUTE.md
 - [ ] I have used sentence-case for titles and headers
 - [ ] I have used descriptive link text (not "here" or "this")
@@ -31,14 +33,15 @@ Please fill out the form below to ensure your doc gets quickly approved and merg
 - [ ] Every new or edited page has all five required frontmatter fields (`title`, `description`,
       `content_type`, `author`, `sme`)
 - [ ] I have added new pages to the appropriate `meta.json` for sidebar ordering
-- [ ] I searched [`content/partials/CATALOG.md`](../content/partials/CATALOG.md) before writing a
-      new banner, note, or table
-- [ ] I have run `pnpm types:check`, `pnpm vars:check`, `pnpm nav:check`, `pnpm partials:check`,
-      `pnpm references:check`, and `pnpm check-links` locally
+- [ ] I searched
+      [`content/partials/CATALOG.md`](https://github.com/OffchainLabs/Fumadocs-test/blob/main/content/partials/CATALOG.md)
+      before writing a new banner, note, or table
+- [ ] I have run `pnpm types:check`, `pnpm test`, `pnpm vars:check`, `pnpm nav:check`,
+      `pnpm partials:check`, `pnpm references:check`, and `pnpm check-links` locally
 - [ ] I have opened every changed page on `http://localhost:3000` (not `127.0.0.1`) to confirm it
       renders correctly
-- Third-party docs only: Do you agree to the third-party content policy outlined within
-  [CONTRIBUTE.md](../CONTRIBUTE.md)?
+- Third-party docs only: have you read the third-party content guidance in `CONTRIBUTE.md`, and
+  does this contribution give the reader actionable guidance rather than promote a product?
   - [ ] Yes
   - [ ] Not applicable
 
