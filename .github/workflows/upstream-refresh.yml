@@ -6,8 +6,9 @@ name: Upstream refresh
 #
 # The generators run unconditionally rather than only after a version bump: the precompile
 # tables also go stale when a pin in the generator changes or a doc comment is edited
-# upstream at the same commit, and the contract addresses go stale whenever the
-# @arbitrum/sdk devDependency is bumped, which happens on its own schedule.
+# upstream at the same commit. The contract-address generator is the exception, and runs
+# here only as a backstop; see the comment on its step for why it cannot normally change
+# anything.
 
 on:
   schedule:
@@ -51,8 +52,13 @@ jobs:
       - name: Regenerate precompile tables
         run: pnpm precompiles:generate
 
-      # Reads the @arbitrum/sdk network registry installed above, so it picks up an SDK bump
-      # from Dependabot without any pin of its own. No network access, unlike the step above.
+      # A backstop, and expected to be a no-op. Unlike the step above this one has no input that
+      # moves on its own: the install is --frozen-lockfile, so it reads the same pinned
+      # @arbitrum/sdk registry main was generated from, and `contracts:check` blocks every PR, so
+      # main is already current with that pin. A Dependabot SDK bump therefore arrives already
+      # regenerated, having had to pass that gate. What is left for this step to catch is a hand
+      # edit that reached main without the gate, an admin merge or a direct push. No network
+      # access, unlike the step above.
       - name: Regenerate contract addresses
         run: pnpm contracts:generate
 
