@@ -10,7 +10,11 @@
  *      with any `#anchor`/`?query`);
  *   2. moves the file (via `git mv`), recomputing the file's *own* relative links so they stay valid;
  *   3. updates the doc's entry in the surrounding `meta.json` navigation;
- *   4. records the old→new URL in `redirects.config.mjs`.
+ *   4. records the old→new URL in `redirects.config.mjs`;
+ *   5. retargets the moved path in `scripts/lib/tree-compare.mjs`'s `RENAME_MAP` and
+ *      `scripts/data/upstream.config.json`'s `guttedAllowlist`, if either names it (see
+ *      `scripts/lib/drift-maps.mjs`) — otherwise a move silently orphans a drift exemption, which
+ *      `pnpm test` only catches in whatever unrelated PR happens to run next.
  *
  * `--dry-run` prints every change without touching the filesystem. Paths are repo-relative files under
  * `content/docs/` (not site URLs). After a real run, verify with `pnpm restructure` or `pnpm check-links`.
@@ -36,6 +40,7 @@ import {
   stringifyMeta,
   toPosix,
 } from './lib/doc-links.mjs';
+import { updateDriftMaps } from './lib/drift-maps.mjs';
 
 const REDIRECTS_START = '// AUTO-GENERATED REDIRECTS START';
 const REDIRECTS_END = '// AUTO-GENERATED REDIRECTS END';
@@ -272,6 +277,8 @@ function main() {
 
   const fromMeta = computeFileMeta(docsRoot, fromAbs);
   const toMeta = computeFileMeta(docsRoot, toAbs);
+  const docsRelFrom = toPosix(path.relative(docsRoot, fromAbs));
+  const docsRelTo = toPosix(path.relative(docsRoot, toAbs));
 
   const records = scanLinks(index);
   const { editsByFile, changes, unrenderable } = planMove(records, index, fromAbs, toAbs);
@@ -317,6 +324,7 @@ function main() {
     }
     const metaNotes = updateMeta(fromAbs, toAbs, true);
     for (const n of metaNotes) console.log(`  ${n}`);
+    for (const n of updateDriftMaps(repoRoot, docsRelFrom, docsRelTo, true)) console.log(`  ${n}`);
     if (fromMeta.url !== toMeta.url) {
       console.log(
         `  redirect: { source: '${fromMeta.url}', destination: '${toMeta.url}', permanent: true }`,
@@ -344,6 +352,7 @@ function main() {
     console.warn('  note: moved without git (untracked source or no work tree) — move is unstaged');
 
   for (const n of updateMeta(fromAbs, toAbs, false)) console.log(`  ${n}`);
+  for (const n of updateDriftMaps(repoRoot, docsRelFrom, docsRelTo, false)) console.log(`  ${n}`);
 
   // Redirect for the moved URL.
   const redirectsPath = path.join(repoRoot, 'redirects.config.mjs');

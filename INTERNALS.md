@@ -397,7 +397,14 @@ destination, not on the first hop.
 Both blocks in `redirects.config.mjs` are generated. Never hand-edit it.
 
 **Moved pages.** `pnpm move-doc <from> <to>` writes the old→new URL between the `AUTO-GENERATED`
-markers.
+markers. It also retargets the moved path if either drift map names it: a `RENAME_MAP` value (or the
+`to` field of a `merge: true` entry) in `scripts/lib/tree-compare.mjs`, and a `guttedAllowlist` entry's
+`local` field in `scripts/data/upstream.config.json` (see [Upstream drift](#upstream-drift)). Before
+this, a move left those maps pointing at a path that no longer existed, which only surfaced as a
+`pnpm test` failure in whatever unrelated PR happened to run next — the maps themselves gave no
+warning. `scripts/lib/drift-maps.mjs` does the rewrite; `RENAME_MAP` keys (upstream/Tree A paths) and
+`absentAllowlist` (which names only an upstream path, never a local one) are never touched, because
+only local paths move.
 
 **Legacy `docs.arbitrum.io` URLs.** `pnpm redirects:legacy` regenerates `redirects.legacy.mjs`.
 Legacy URLs were served at the site root (`/stylus/using-cli`) and this site serves docs under
