@@ -5,12 +5,8 @@
  *   pnpm redirects:check                       # needs `pnpm dev` running
  *   pnpm redirects:check --base-url <origin>   # check any origin already serving the site
  *
- * In CI this runs inside the `Build` job in `.github/workflows/ci.yml`, against `next start` on
- * localhost rather than against a deployed preview. That is a deliberate security choice, not a
- * convenience: checking a Vercel preview means holding VERCEL_AUTOMATION_BYPASS_SECRET in CI, and
- * that secret bypasses Deployment Protection on every deployment in the project (production
- * included) and is injected into every build Vercel runs. A localhost server needs no secret, so a
- * pull request from a fork is checked exactly like any other. See INTERNALS.md#redirects.
+ * CI runs this in the `Build` job against `next start` on localhost. Pointing it at a Vercel
+ * preview instead would need a protection-bypass secret in CI; see INTERNALS.md#redirects.
  *
  * `redirects.config.mjs` is built by tooling that infers routable URLs by walking the content
  * tree — `.mdx` only, `index` means the directory, `_`-prefixed files are partials, everything

@@ -499,16 +499,14 @@ build is already happening in that job, so the whole step costs about three seco
 non-blocking only because that job is; promoting `Build` into `Gates` promotes this with it.
 
 **It deliberately does not check a Vercel preview, and should not be changed back.** The obvious
-design — a `deployment_status` workflow pointed at the PR's preview URL — was built on
-`fs-2675` and then abandoned on security grounds once this repository went public.
-`deployment_status` runs from the default branch with full secrets access, so checking out the PR's
-commit and running its copy of `redirects-check.mjs` executes contributor code next to whatever
-secret the step holds. The secret it needs is the worse half: `VERCEL_AUTOMATION_BYPASS_SECRET`
-bypasses Deployment Protection on **every** deployment in the project, production included, and
-Vercel injects it into every build it runs, so simply creating it hands it to any fork preview a
-maintainer authorizes, with no GitHub Actions involved at all. A server on localhost needs no
-credential, so a pull request from a fork is checked exactly like a branch PR. Full write-up in
-`security-review-fs-2675-redirects-check-ci.md`.
+design, a `deployment_status` workflow pointed at the PR's preview URL, was built on `fs-2675` and
+abandoned once this repository went public. `deployment_status` runs from the default branch with
+full secrets access, so checking out the PR's commit and running its copy of `redirects-check.mjs`
+executes contributor code beside whatever secret the step holds. The secret is the worse half:
+`VERCEL_AUTOMATION_BYPASS_SECRET` bypasses Deployment Protection on **every** deployment in the
+project, production included, and Vercel injects it into every build, so creating it at all hands it
+to any fork preview a maintainer authorizes. A localhost server needs no credential, so a fork PR is
+checked exactly like a branch PR.
 
 The site does not have to be a _deployed_ site for the router to be the authority on what is
 routable. That is the whole trick.

@@ -150,8 +150,7 @@ jobs:
     #
     # Promoting this job into `gates` is therefore possible now. It is deliberately left
     # out of that change: a full build is the slowest job here, so flipping it wants its
-    # own PR and a look at the added PR latency. That promotion now also promotes the
-    # redirect check in the last step, which is the only automated coverage redirects have.
+    # own PR and a look at the added PR latency. It would promote the redirect check too.
     #
     # It catches MDX compile errors that types:check cannot see.
     name: Build (non-blocking)
@@ -173,62 +172,29 @@ jobs:
 
       - run: pnpm build
 
-      # redirects:check needs a running site. It reads `/llms.txt`, which is `llms(source).index()`
-      # over the same `source` the docs routes render from, and the router is the only authority on
-      # what is routable — re-deriving the URLs from the filesystem would check
-      # `redirects.config.mjs` against the same guesses that generated it. See INTERNALS.md#redirects.
-      #
-      # That site does not have to be a *deployed* site, which is the whole point of doing it here.
-      # Checking a Vercel preview instead would mean a `deployment_status` workflow holding
-      # VERCEL_AUTOMATION_BYPASS_SECRET, and that secret bypasses Deployment Protection on every
-      # deployment in the project, production included. Vercel also injects it into every build it
-      # runs, so merely creating it hands it to any fork preview a maintainer authorizes. Running
-      # `next start` on localhost needs no secret, so a fork PR is checked like any other.
-      #
-      # This step lives here rather than in its own job to reuse the build above instead of paying
-      # for a second one; the whole step costs about three seconds. It is non-blocking only because
-      # this job is — see the note on the job.
+      # redirects:check needs a running site: it reads `/llms.txt`, the router's own page list.
+      # Reusing the build above is why it lives here; the step costs about three seconds.
+      # Deliberately a local server, not a Vercel preview — see INTERNALS.md#redirects.
       - name: Redirects resolve against the built site
         run: |
           set -euo pipefail
-
-          # Two details here are load-bearing and were both found by running this for real:
-          #
-          # `npx next start`, not `pnpm start`. `$!` would otherwise be the pnpm wrapper, and
-          # killing that leaves `next start` running as an orphan still holding the port.
-          #
-          # Server output to a file, not to this step's stdout. An orphaned or slow-exiting
-          # server that inherits the step's stdout keeps that pipe open after the script is
-          # done, and the runner waits on the pipe, so the step hangs until the job timeout
-          # instead of finishing. The log is printed below on the paths where it is useful.
+          # `npx next start`, not `pnpm start`: `$!` would be the pnpm wrapper, and killing that
+          # orphans the server. Output to a file: a server on this step's stdout holds the pipe
+          # open and hangs the step until the job timeout.
           log="$RUNNER_TEMP/next-start.log"
           npx next start > "$log" 2>&1 &
           server=$!
           trap 'kill "$server" 2>/dev/null || true' EXIT
-
-          # Poll /llms.txt rather than /: it is the one route the check reads, and the build runs
-          # in `compile` mode with no prerendering, so it renders on first request.
-          #
-          # The `kill -0` is not redundant with the timeout. A server that dies at once (port
-          # already bound, a crash on boot) would otherwise burn the full 120s and then report a
-          # timeout, hiding the real error that is sitting in the server's own log.
           ready=0
           for _ in $(seq 1 60); do
-            if curl -sf -o /dev/null http://localhost:3000/llms.txt; then
-              ready=1
-              break
-            fi
-            if ! kill -0 "$server" 2>/dev/null; then
-              cat "$log"
-              echo "::error::next start exited before serving /llms.txt"
-              exit 1
-            fi
+            if curl -sf -o /dev/null http://localhost:3000/llms.txt; then ready=1; break; fi
+            # a server that died on boot should not wait out the full 120s
+            if ! kill -0 "$server" 2>/dev/null; then break; fi
             sleep 2
           done
           if [ "$ready" != 1 ]; then
             cat "$log"
-            echo "::error::next start never served /llms.txt within 120s"
+            echo "::error::next start never served /llms.txt"
             exit 1
           fi
-
           pnpm redirects:check
