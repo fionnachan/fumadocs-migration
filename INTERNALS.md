@@ -309,6 +309,31 @@ catches a `<Var name>` with no matching key.**
 Values mirror upstream `arbitrum-docs/src/resources/globalVars.js`. Keep them in sync while that
 site is still live.
 
+**`<Var>` does not render inside code.** MDX does not evaluate components inside a fenced code
+block or an inline code span, so a `<Var name="…" />` placed there ships as the literal tag text.
+Neither `vars:check` nor `types:check` sees this, since both only prove the variable exists, not
+where it's used. `content-lint` rule A6 catches it. Fix a finding by removing the code span if the
+value was never code to begin with, which is the common case; a `docker run` command a reader copies
+genuinely needs the value spelled out, so hardcode it there and put the live `<Var>` in the prose
+next to it.
+
+The hardcoded copies are kept in step by `pnpm nitro:check-release`, which rewrites the **outgoing**
+`latestNitroNodeImage` value when it bumps the variable, but only in a file that opts in by carrying
+the marker `{/* sync-with-var: latestNitroNodeImage */}`. Two weaker rules were tried and rejected:
+
+- Flagging every `offchainlabs/nitro-node:` literal that is not the current value. `content/` holds
+  47 older tags pinned deliberately in historical examples, so the rule would open with 47 findings,
+  none of them defects, and push `content:lint` further from promotion into the blocking tier.
+- Rewriting every occurrence of the outgoing value with no marker. That looks safe, since the
+  outgoing value can only ever be a copy of what was current, and it is not:
+  `content/docs/run-a-node/arbos-releases/*.mdx` pin the minimum Nitro version for each ArbOS
+  release, and `arbos61.mdx` pins `v3.11.3-beb2108`, which _is_ the current image right up until the
+  next release ships. An unattended rewrite would make that page claim ArbOS 61 requires a build
+  published after it. A version stated as a fact about the past and a version stated as "the latest"
+  are the same string, and nothing but an explicit marker tells them apart.
+
+So do not put the marker on a page that states a Nitro version historically.
+
 ### Announcement banner
 
 `app/layout.tsx` renders Fumadocs' `Banner` above everything else in `RootProvider`, which puts it
@@ -374,37 +399,95 @@ Both blocks in `redirects.config.mjs` are generated. Never hand-edit it.
 **Moved pages.** `pnpm move-doc <from> <to>` writes the old→new URL between the `AUTO-GENERATED`
 markers.
 
-**Legacy `docs.arbitrum.io` URLs.** `pnpm redirects:legacy` regenerates `redirects.legacy.mjs` from
-the sibling repo's `vercel.json`. Legacy URLs were served at the site root (`/stylus/using-cli`)
-and this site serves docs under `/docs`, so sources stay root-level — that is what real inbound
-links look like — and destinations are rewritten to `/docs/…`. The output is committed, so builds
-never need the sibling repo; only regeneration does.
+**Legacy `docs.arbitrum.io` URLs.** `pnpm redirects:legacy` regenerates `redirects.legacy.mjs`.
+Legacy URLs were served at the site root (`/stylus/using-cli`) and this site serves docs under
+`/docs`, so sources stay root-level (that is what real inbound links look like) and destinations
+are rewritten to `/docs/…`. The output is committed, so builds never need the sibling repo; only
+regeneration does. The generator locates that checkout the way `scripts/data/upstream.config.json`
+describes (`--upstream <dir>`, then `UPSTREAM_DOCS_REPO`, then `repo`, then the probe paths), so it
+runs from a worktree without a flag.
 
-The generator resolves a destination in this order, declining rather than guessing:
+**Two kinds of source feed in, and both flow through the same resolution order.**
+
+- **Upstream's own redirect sources**, from the sibling repo's `vercel.json`: URLs upstream had
+  already moved before the migration.
+- **Upstream's canonical page URLs**, derived from its `docs/` tree by
+  `scripts/lib/upstream-pages.mjs`. These were never redirect sources anywhere, so until 2026-09-11
+  nothing mapped them and all ~289 of them would have 404'd at cutover, purely because of the
+  `/docs` prefix. They are now the larger half of the map.
+
+Deriving those canonical URLs means reimplementing Docusaurus's routing, because upstream sets
+`routeBasePath: '/'` and the computed slug _is_ the URL. The rules, transcribed from
+`@docusaurus/plugin-content-docs` and verified against upstream's published `/llms.txt`:
+
+- Drop the extension, and strip a `NN-` number prefix from every path segment, except date-like
+  and version-like names (`2024-06-…`, `7.0-…`), which upstream leaves alone.
+- A file named `index`, `README`, or the same as its parent directory takes the directory's URL.
+- Frontmatter `id` renames the last URL segment; frontmatter `slug` replaces the URL outright and
+  wins over `id`. Both are in use upstream (`use-supras-price-feed-oracle.mdx` serves at
+  `…/supras-price-feed`; `get-started/overview.mdx` serves at `/`).
+- `sdk/`, `api/`, `hosted-pdfs/`, `superpowers/`, any `partials/` directory, anything `_`-prefixed,
+  and `Offchain-pattern-guide.md` are not pages. This matches upstream's own
+  `nonCanonicalRoutePatterns`.
+- Category landings that exist only in `sidebars.js` (a `generated-index` link with an explicit
+  `slug`, such as `/stylus`) are real indexable URLs upstream, so they are seeded too.
+
+The generator then resolves a destination in this order, declining rather than guessing. For a
+canonical URL the target is the URL itself, because the page was live there; for a redirect it is
+the end of upstream's own chain.
 
 1. **`MANUAL_DESTINATIONS`** — hand-verified legacy destination → local page. A value may carry an
    `#anchor`; the page part must resolve or the generator throws.
 2. **Self-URL** — the legacy path still names a live page here under `/docs`. Upstream moved the
-   page and this site did not, so serve ours.
+   page and this site did not, so serve ours. This is the rule that resolves most canonical URLs.
 3. **Section renames** — whole sections that moved wholesale (`/run-arbitrum-node` → `/run-a-node`).
    Deep restructures are deliberately absent: their pages moved individually, so a prefix rule
    would produce confidently-wrong destinations.
-4. **Basename fallback** — accepted only when exactly one local page carries that slug _and_ the
+4. **Exact title**, when exactly one local page carries the upstream page's frontmatter title
+   verbatim. Ahead of the basename, because a title identifies a page where a basename only
+   suggests one. This site pairs a `features/…/choose-X` page answering "why would I want X" with
+   a `configuration/…/X` how-to, and the two often share a basename or differ only by a `config-`
+   prefix; the basename alone kept picking the "why" half, so a reader after a procedure landed on
+   a page that has none. Declines when two local pages share the title, _and_ when two upstream
+   pages shared it, which is the same asymmetry rule 5 guards against: there the legacy path was
+   doing the disambiguating and the title cannot. Two upstream pages folded into one here may well
+   be deliberate, but that is a judgement, and judgements belong in `MANUAL_DESTINATIONS` rather
+   than being inferred from a title collision. Declining sends the source to the todo file, where
+   the tripwire makes someone decide.
+5. **Basename fallback** — accepted only when exactly one local page carries that slug _and_ the
    basename was unique upstream too. Where the legacy path was doing the disambiguating, the
    fallback cannot, and declines.
+6. **`SECTION_LANDINGS`**, the nearest live section, for a page upstream has and this site has not
+   ported. Not an equivalence, and last on purpose: the day the page is ported, rule 2 matches
+   first and the entry goes inert on its own.
 
 It also follows upstream's own redirect chains to their terminal destination first. Many upstream
 entries point at a URL that is itself a redirect source, up to three hops deep, so a raw
 `destination` is often not where a reader ends up.
 
+**A source that names a live route here is skipped, not emitted.** Next runs `redirects()` before
+anything renders, so such a redirect wins over the route and makes it unreachable. Upstream's
+homepage `/` is the standing example. `reservedRouteReason` in `scripts/lib/upstream-pages.mjs`
+holds the list: the root, `/llms*`, `/og`, `/api`, `/img`, the `public/` asset directories, and
+the icon and PDF files. `/docs` is checked against the content tree instead of banned wholesale.
+
 **The guiding rule: a redirect to a plausible-but-wrong page is worse than a 404.** It silently
 sends readers somewhere wrong, and `redirects:check` cannot catch it, because the destination
 exists.
 
+**`MANUAL_DESTINATIONS` and `SECTION_LANDINGS` are hand-written, so a test pins them against the
+content tree.** The generator throws when an entry it _reaches_ names a missing page, but it only
+reaches an entry whose source is in upstream's corpus on that run, so an entry orphaned by
+`pnpm move-doc` would otherwise rot silently into a redirect to a 404. `pnpm test` walks
+`content/docs` and asserts every non-external value in both maps still resolves — the same guard,
+for the same reason, as the one the drift allowlists carry.
+
 Anything unresolvable lands in `redirects.legacy.todo.json`. **That file reached `[]` on
-2026-08-31 and is now a tripwire, not a backlog.** A non-empty todo after a regeneration means
-upstream added a redirect this site cannot resolve; map it in `MANUAL_DESTINATIONS`, confirming the
-upstream page's frontmatter title against the local candidates, rather than leaving it parked.
+2026-08-31, stayed `[]` when canonical URLs were added on 2026-09-11, and is a tripwire, not a
+backlog.** A non-empty todo after a regeneration means upstream added a page or a redirect this
+site cannot resolve; map it in `MANUAL_DESTINATIONS` (or `SECTION_LANDINGS`, when this site has no
+such page yet), confirming the upstream page's frontmatter title against the local candidates,
+rather than leaving it parked.
 
 `pnpm redirects:check` validates every destination against `/llms.txt` — the router's own page
 list — and fails on a dead destination or a source that shadows a live page. It needs the site
@@ -436,17 +519,106 @@ Single locale, no i18n. Pages live directly under `content/docs/…` and serve a
 no `[lang]` route segment and no locale middleware; `lib/i18n.ts` was deleted on 2026-08-18 along
 with the `ja` and `zh-CN` trees.
 
-`proxy.ts` does exactly two things:
+`proxy.ts` does exactly three things:
 
-1. An explicit **bypass list** of routes served verbatim: `/_next/`, `/img/`, `/favicon.ico`,
+1. **Request tracking** for markdown and `llms*.txt` fetches, production only (below).
+2. An explicit **bypass list** of routes served verbatim: `/_next/`, `/img/`, `/favicon.ico`,
    `/sitemap.xml`, `/robots.txt`, `/llms*`, `/og/`, `/api/`.
-2. `.md`-suffix rewrites plus `Accept: text/markdown` content negotiation to the markdown route.
+3. `.md`-suffix rewrites plus `Accept: text/markdown` content negotiation to the markdown route.
 
 **A new top-level route belongs in that bypass list**, or markdown negotiation will try to rewrite
 it.
 
 Re-adding localization means restoring `defineI18n`, the `i18n` argument to `loader()`, a `[lang]`
 segment, and `createI18nMiddleware`.
+
+### Request tracking
+
+`proxy.ts` also records who fetches the markdown, continuing the `llms_file_fetched` PostHog event
+upstream's `middleware.ts` produced. The point is to answer "which pages are AI assistants and
+crawlers actually reading", which server logs alone do not.
+
+**It runs before the bypass list**, because `/llms.txt`, `/llms-full.txt` and the `/llms.mdx/`
+mirrors are all in that list and are exactly the fetches worth counting.
+
+Four request shapes are tracked, and the classification lives in `lib/llms-tracking.ts`:
+
+| Request                                     | Tracked as        | `file_type` |
+| ------------------------------------------- | ----------------- | ----------- |
+| `/llms.txt`, `/llms-full.txt`               | as-is             | `index`     |
+| `/docs/<slug>.md`                           | as-is             | `page`      |
+| `/llms.mdx/docs/<slug>/content.md`          | `/docs/<slug>.md` | `page`      |
+| `/docs/<slug>` with `Accept: text/markdown` | `/docs/<slug>.md` | `page`      |
+
+All three markdown shapes normalise to the one canonical `.md` path, so a page's fetches are one
+number rather than three. **Each request is counted once:** a Next rewrite does not re-enter the
+proxy, so `/docs/x.md` fires one event, not a second one for the mirror it rewrites to. A `.md` on
+a legacy URL is not tracked either, because it is answered with a 307 and the destination request
+is tracked instead.
+
+Two upstream rules are dropped: the `/sdk/` exclusion (there is no `/sdk` route here) and tracking
+of `.md` outside the docs tree.
+
+**Production only.** Nothing is sent unless `VERCEL_ENV === 'production'`, so local development and
+preview deployments stay out of the numbers and need no key. The key is `NEXT_PUBLIC_POSTHOG_KEY`,
+the same publishable `phc_` token `lib/posthog.ts` uses, posted to the same `us.i.posthog.com` host.
+
+**Tracking can never break a response.** The capture is handed to `event.waitUntil()` so the
+response is not held for it, and every failure path is caught and logged. A missing key logs once
+per request and drops the event. A **rejected** event is logged too, which needs its own line of
+code: `fetch` rejects only on a network failure, so a 401 from a revoked project token resolves
+normally, and without a `response.ok` check it would read exactly like no traffic at all.
+
+**Schedule it with the `NextFetchEvent` Next passes as the proxy's second argument, never with
+`waitUntil` from `@vercel/functions`.** That helper resolves the request context through
+`globalThis[Symbol.for('@vercel/request-context')]`; when the symbol is absent its `getContext()`
+returns `{}`, the call becomes `undefined?.(promise)`, and the promise is dropped with no error, no
+log and no type error. **Next 16 does not install that symbol** (it installs
+`@next/request-context`), so the capture would be at the mercy of whether the invocation happened to
+outlive the response. Upstream's middleware used the framework's event for the same reason.
+
+Nothing catches that locally, which is what makes it worth a paragraph: the promise chain starts
+executing the moment it is constructed, so in `next dev` the fetch completes either way and an
+end-to-end check passes while production loses events. `waitUntil` only extends the runtime's
+lifetime past the response. Two tests in `scripts/lib/llms-tracking.test.mjs` assert the wiring
+directly, because no runtime check can.
+
+**The `distinct_id` is pseudonymous, not anonymous.** `buildTrackingPayload` hashes the client IP
+with a UTC daily salt and sends only the hash; the raw address is never in the payload. Rotating the
+salt daily prevents linking a reader across days, while one client's requests within a day still
+collapse into a single PostHog person rather than one per hit. **It does not prevent re-identification:**
+the salt is a public date string, so the whole IPv4 space can be hashed against it in seconds and a
+stored id matched back to an address. Treat the id as personal data. Making it genuinely one-way
+needs a secret salt and a decision about the unset case, which is deliberately left as follow-up
+rather than half-built here.
+
+A request with no `x-forwarded-for` gets a random id instead of the hash of the empty string, which
+is a constant and would pile every such request onto one shared person that reads as a single
+extraordinarily busy client. **That branch, and only that branch, also sets
+`$process_person_profile: false`,** because a unique id per request would otherwise mint a person
+profile per request and none of them could ever be related to anything. On the hashed path the
+profile is the point: it is what makes "how many distinct crawlers fetched this page today"
+answerable, at the cost of one profile per client per day, and it is upstream's behaviour.
+
+**Tracking applies exactly the condition the negotiation rewrite applies, and no more.** That
+rewrite is `/docs{/*path}`, which matches dotted slugs, so requiring a dot-free path in
+`lib/llms-tracking.ts` made a slug like `/docs/v1.2/guide` serve markdown and record nothing. The
+proxy cannot check that a page exists, since it cannot import `lib/source`, so this can track a
+request that 404s, exactly as the `.md` branch already does for `/docs/nope.md`. That is the right
+way round: an overcount shows up in PostHog as a `file` value nobody recognises, an undercount
+shows up as silence.
+
+**The `$current_url` origin comes from `getSiteUrl()`,** not from `request.nextUrl.origin`. A
+production deployment answers on its `*.vercel.app` alias as well as on the custom domain, so the
+request origin would record two `$current_url` values for one page and split the series. It also
+keeps the site-URL rule in the one module that owns it (see [Page metadata](#page-metadata)).
+
+`lib/llms-tracking.ts` is **deliberately import-free**, including of `lib/shared.ts`, so that
+`scripts/lib/llms-tracking.test.mjs` can import it directly under `node --test` using Node 22's
+native type stripping. That is what lets `pnpm test` exercise the exact module `proxy.ts` runs
+instead of a copy that would drift from it. The price is two local copies of the route constants;
+`proxy.ts` pins them with two `satisfies` statements, so moving `docsRoute` or `docsContentRoute`
+without mirroring it fails `types:check`.
 
 ### `/sitemap.xml` and `/robots.txt`
 
@@ -519,8 +691,8 @@ here. Implementations live in `components/mdx/`. Fumadocs' `Accordion`/`Accordio
 are re-exported.
 
 Some names are aliases of the same component: `AEL` → `AddressExplorerLink`, `ImageWithCaption` →
-`ImageZoom`. Unported Docusaurus widgets map to `PendingWidget`, which renders a placeholder — a
-page using one is not broken, just incomplete.
+`ImageZoom`. Every Docusaurus widget the content uses is now ported, so there is no placeholder
+component any more.
 
 Adding a component here makes it available in all MDX with no import.
 
@@ -540,6 +712,29 @@ misspelling must not put a reader on a web2 page in front of a wallet prompt. Th
 into `abi.ts` as a TypeScript `as const` (the compiled artifact's bytecode was never used) so viem
 can infer argument and return types. With no wallet installed the widget renders a notice instead of
 throwing.
+
+**EdgeChallengeFlow.** The BoLD bisection replay (`components/mdx/EdgeChallengeFlow/`), ported from
+the Docusaurus interactive diagram. d3 draws one tree per challenge level; the reader plays, steps,
+or jumps to the end of a recorded Arbitrum Sepolia challenge. The 236 KB event log stays a static
+asset at `public/data/edge-challenge-flow.json` and is fetched on mount, so it never enters a
+JavaScript bundle; `/data/` is on `proxy.ts`'s bypass list, by the same convention as every other
+top-level route and not because a rewrite currently reaches it. Its stylesheet
+(`edge-challenge-flow.css`) reads `--color-fd-*` tokens for every surface and text colour, and
+declares only the four status hues (active, bisected, has-rival, OSP confirmed) itself, once per
+theme, so no colour is hardcoded in the d3 code. Panel labels are `h4`/`h5`: the widget sits inside
+a page section, so its labels nest under that section's heading rather than competing with it in a
+screen reader's heading list. Tree nodes are focusable, with Enter/Space to inspect and the arrow
+keys to expand or collapse, and wheel zoom needs a modifier key so scrolling past the diagram does
+not trap the page.
+
+**FlowChart.** The Timeboost centralized auction diagram (`components/mdx/CentralizedAuction/`),
+registered under the name the MDX already used. The artwork is a 2300-line inline SVG exported from
+a design tool and keeps its own palette, because recolouring an illustration per theme is not the
+same as theming a UI. On top of it sit five numbered markers; three of them open a step dialog, as
+upstream had it, built on the same Radix dialog as `PdfModal` with the code sample highlighted by
+Fumadocs' `DynamicCodeBlock`. The upstream `@react-spring/web` animations (a pulsing ring, a hover
+grow, a dialog fade) are CSS here, so the dependency was not carried over, and all three respect
+`prefers-reduced-motion`.
 
 **Image zoom.** `<ImageZoom>` resolves to the wrapper in `components/mdx/ImageZoom/`: plain `<img>`
 child, supports `caption`, needs no dimensions, no Next image optimization. To use Fumadocs' native
@@ -620,19 +815,24 @@ to work around with `--ignore-engines`.
 
 ## Analytics
 
-Three independent paths send events to the same PostHog project. They share nothing but the
+Four independent paths send events to the same PostHog project. They share nothing but the
 project token, so one being off does not affect the others.
 
-| Path                                | Where                                               | Runs on                                           |
-| ----------------------------------- | --------------------------------------------------- | ------------------------------------------------- |
-| Page feedback                       | `lib/posthog.ts`, a server action                   | everywhere, including local                       |
-| Web analytics (`$pageview`)         | `components/analytics/posthog-provider.tsx`, client | production only                                   |
-| Inkeep search and chat (`inkeep_*`) | the bridge in `lib/inkeep.ts`, client               | production only, piggybacking on the client above |
+| Path                                   | Where                                               | Runs on                                           |
+| -------------------------------------- | --------------------------------------------------- | ------------------------------------------------- |
+| Page feedback                          | `lib/posthog.ts`, a server action                   | everywhere, including local                       |
+| Web analytics (`$pageview`)            | `components/analytics/posthog-provider.tsx`, client | production only                                   |
+| Inkeep search and chat (`inkeep_*`)    | the bridge in `lib/inkeep.ts`, client               | production only, piggybacking on the client above |
+| Markdown fetches (`llms_file_fetched`) | `proxy.ts` via `lib/llms-tracking.ts`, server       | production only                                   |
+
+The fourth path is documented in full under [Request tracking](#request-tracking); the rest of this
+section is about the three client and server-action paths.
 
 **The production gate.** `VERCEL_ENV` is a server-only variable, so a client component cannot read
 it. Vercel exposes the same value to the browser as `NEXT_PUBLIC_VERCEL_ENV`, which is what the
-provider checks. It is `production` on the production deployment, `preview` on every preview build,
-and unset locally.
+provider checks. Request tracking runs in the proxy and so reads the server-side `VERCEL_ENV`
+directly; the two gates are the same value reached from different sides. It is `production` on the
+production deployment, `preview` on every preview build, and unset locally.
 
 That check has to stay written as a literal `process.env.NEXT_PUBLIC_VERCEL_ENV` member expression.
 Next inlines those at build time, so on a non-production build the enabled flag folds to `false`
@@ -824,6 +1024,36 @@ flag the exclusion rules dropped, grouped by the rule that dropped it; without i
 only the per-rule counts. One rule matches on the flag's **description**, so a Nitro release that
 reworks a docstring can drop a flag off the page, and the counts are what make that visible in the
 weekly refresh PR's log.
+
+## The local pre-commit hook
+
+A Husky pre-commit hook (`.husky/pre-commit`) runs `pnpm exec lint-staged` on every `git commit`,
+configured in `.lintstagedrc.mjs`. It exists to catch what the gates above only catch several
+commits later, in CI. It is a separate, third tier from the two CI tiers, not a copy of either
+one:
+
+- Prettier runs on every staged file type it understands, except `meta.json`. `meta.json` is
+  generator output (`stringifyMeta` in `scripts/lib/doc-links.mjs`), written one array entry per
+  line on purpose; Prettier collapses a short array onto one line, so the two would fight each
+  other on every `pnpm move-doc` run. `format:check` already tracks the resulting debt in
+  `Content debt`, so excluding it here does not hide anything new.
+- Staged `content/**/*.mdx` files get `content:lint`, restricted to the staged files, but only for
+  the rules that are already at zero findings across the whole tree (`A1`, `A3`, `A4`). `A2` and
+  `A5` still have pre-existing findings and stay non-blocking in CI for exactly that reason: making
+  the hook enforce a rule CI itself does not enforce yet would reject a commit over a defect the
+  contributor did not introduce, with `--no-verify` as the only way out. Widen the rule list here
+  in the same commit that clears a rule's CI count to zero and promotes it out of `Content debt`.
+- Prettier and content-lint run as one sequential array entry for `content/**/*.mdx`, not as two
+  separate glob entries. lint-staged runs separate glob entries concurrently by default, and an
+  `.mdx` file under `content/` would otherwise match both the general Prettier glob and the
+  content-lint glob at the same time, letting one read a file the other is still rewriting.
+- A staged `.ts`/`.tsx` file runs one full `pnpm types:check`, not a bare `tsc --noEmit`. Next's
+  route-handler types and the fumadocs-mdx `.source/` collection are both generated, so plain
+  `tsc` fails on a fresh checkout with no `.next/types` yet; `types:check` regenerates both first.
+  This also means the hook cost is not proportional to the edit: even a one-line `.ts` change pays
+  for a full regenerate-and-typecheck pass.
+
+The hook skips entirely when `CI=true` (CI already runs the full `Gates` job) and when `HUSKY=0`.
 
 ## Upstream drift
 

@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { test } from 'node:test';
 
-import { lintSource, stripCode } from './content-lint.mjs';
+import { lintContent, lintSource, stripCode } from './content-lint.mjs';
 
 const rules = (src) => lintSource(src).map((f) => f.rule);
 
@@ -139,4 +142,67 @@ test('A5 ignores external and fragment targets', () => {
 test('findings carry 1-indexed line numbers', () => {
   const found = lintSource('line1\nline2\n:::note\n');
   assert.equal(found[0].line, 3);
+});
+
+test('A6 does NOT fire on a Var in prose', () => {
+  assert.deepEqual(rules('The current release is <Var name="nitroVersionTag" />.'), []);
+});
+
+test('A6 fires on a Var in a fenced code block', () => {
+  const found = lintSource('```shell\ndocker run <Var name="latestNitroNodeImage" /> keygen\n```');
+  assert.deepEqual(
+    found.map((f) => f.rule),
+    ['A6'],
+  );
+  assert.match(found[0].message, /fenced code block/);
+});
+
+test('A6 fires on a Var in an inline code span', () => {
+  const found = lintSource('The image: `<Var name="latestNitroNodeImage" />`');
+  assert.deepEqual(
+    found.map((f) => f.rule),
+    ['A6'],
+  );
+  assert.match(found[0].message, /inline code span/);
+});
+
+test('A6 checks fenced blocks inside a partial too', () => {
+  // Partials have no frontmatter and are consumed via <include>, but lintSource itself is
+  // frontmatter-agnostic: it is only ever handed the raw text of one file, partial or page.
+  const found = lintSource(
+    '<include cwd>content/partials/_reference-nitro-cli.mdx</include>\n\n```shell\n<Var name="latestNitroNodeImage" />\n```',
+  );
+  assert.deepEqual(
+    found.map((f) => f.rule),
+    ['A6'],
+  );
+});
+
+test('lintContent({ files }) lints only the given files, not the whole tree', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'content-lint-'));
+  try {
+    mkdirSync(path.join(root, 'content'), { recursive: true });
+    const clean = path.join(root, 'content', 'clean.mdx');
+    const dirty = path.join(root, 'content', 'dirty.mdx');
+    writeFileSync(clean, 'nothing wrong here\n');
+    writeFileSync(dirty, ':::caution\nbad\n:::\n');
+
+    // Walking the whole tree finds both ::: lines in dirty.mdx, none in clean.mdx.
+    assert.equal(lintContent(root).length, 2);
+
+    // Restricting to one file (repo-root-relative) finds only that file's findings.
+    const onlyClean = lintContent(root, { files: ['content/clean.mdx'] });
+    assert.deepEqual(onlyClean, []);
+
+    const onlyDirty = lintContent(root, { files: [dirty] });
+    assert.equal(onlyDirty.length, 2);
+    assert.ok(onlyDirty.every((f) => f.rel === 'content/dirty.mdx'));
+
+    // A non-mdx path in `files` is silently skipped.
+    const nonMdx = path.join(root, 'content', 'readme.txt');
+    writeFileSync(nonMdx, ':::caution\n:::\n');
+    assert.deepEqual(lintContent(root, { files: [nonMdx] }), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

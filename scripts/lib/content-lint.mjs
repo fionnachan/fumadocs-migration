@@ -15,6 +15,12 @@
  *       `[text](/docs/x)` renders literally and the link is unclickable. HTML entities are not
  *       flagged: JSX decodes those in attribute values, so they render as intended.
  *   A5  Internal link target keeping a `.md`/`.mdx` suffix — 404s at runtime.
+ *   A6  `<Var>` inside a fenced code block or inline code span. MDX does not evaluate components
+ *       inside code, so the reader sees the literal `<Var name="…" />` tag instead of its value.
+ *       Coverage matches `stripCode`, which models backtick and tilde fences and single-backtick
+ *       spans only: a `<Var>` inside a four-space-indented block or a double-backtick span is not
+ *       flagged. Widening A6 alone would make it disagree with A1..A5 about what "code" is, so the
+ *       two move together or not at all. Neither form appears in `content/`.
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -104,13 +110,53 @@ export function lintSource(source) {
     }
   }
 
+  // A6: `<Var>` used inside code. MDX does not evaluate components inside a fenced block or an
+  // inline code span, so the reader sees the literal `<Var name="…" />` tag, not its value.
+  //
+  // Walk fenced blocks and inline spans against `source` directly (not the code-stripped `text`,
+  // which is exactly what we need to look *inside*), matching `stripCode`'s own regexes so a
+  // fence's own backticks are never mistaken for an inline-code delimiter.
+  const varRe = /<Var\b[^>]*\/?>/g;
+  for (const m of source.matchAll(/^([ \t]*)(`{3,}|~{3,})[\s\S]*?^\1?\2[^\n]*$/gm)) {
+    for (const vm of m[0].matchAll(varRe)) {
+      add(
+        'A6',
+        m.index + vm.index,
+        '<Var> inside a fenced code block renders as a literal tag, not its value',
+      );
+    }
+  }
+  const withoutFences = source.replace(/^([ \t]*)(`{3,}|~{3,})[\s\S]*?^\1?\2[^\n]*$/gm, (m) =>
+    m.replace(/[^\n]/g, ' '),
+  );
+  for (const m of withoutFences.matchAll(/`[^`\n]*`/g)) {
+    const span = source.slice(m.index, m.index + m[0].length);
+    for (const vm of span.matchAll(varRe)) {
+      add(
+        'A6',
+        m.index + vm.index,
+        '<Var> inside an inline code span renders as a literal tag, not its value',
+      );
+    }
+  }
+
   return findings.sort((a, b) => a.line - b.line || a.rule.localeCompare(b.rule));
 }
 
-/** Lint every MDX file under `content/`, newest-defect-first by rule then path. */
-export function lintContent(repoRoot, { dir = 'content' } = {}) {
+/**
+ * Lint every MDX file under `content/`, newest-defect-first by rule then path.
+ *
+ * Pass `files` (absolute or repo-root-relative paths) to lint only those files instead of
+ * walking `dir` — used by the pre-commit hook (lint-staged) so a single-file commit does not
+ * pay for a full-tree walk. Non-MDX paths in `files` are silently skipped, matching the walk's
+ * own `isMdx` filter.
+ */
+export function lintContent(repoRoot, { dir = 'content', files } = {}) {
   const out = [];
-  for (const abs of walk(path.join(repoRoot, dir), isMdx)) {
+  const targets = files
+    ? files.map((f) => (path.isAbsolute(f) ? f : path.resolve(repoRoot, f))).filter(isMdx)
+    : walk(path.join(repoRoot, dir), isMdx);
+  for (const abs of targets) {
     const rel = toPosix(path.relative(repoRoot, abs));
     for (const f of lintSource(readFileSync(abs, 'utf8'))) out.push({ rel, ...f });
   }
