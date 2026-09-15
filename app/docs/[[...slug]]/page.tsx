@@ -116,19 +116,34 @@ export default async function Page({
   );
 }
 
-// Defer page generation to first-request time (ISR).
+// This route cannot be prerendered, and the reason is in the page above: it
+// `await`s `searchParams` to read `?v=` (partial versioning). A page that reads
+// searchParams is dynamic by definition, so `generateStaticParams` has nothing
+// to prerender no matter what it returns.
 //
-// `source.generateParams()` would return ~585 (195 pages × 3 locales) static
-// params, which `next build` parallel-prerenders. A race in Next 16.2.6's
-// prerender worker pool surfaces as non-deterministic `null.useContext`
-// crashes (see investigation 2026-05-22). Returning [] sidesteps the race:
-// pages are rendered on first request and cached at the edge, then served
-// statically on subsequent hits. The trade-off is +100-500ms latency on the
-// FIRST view of each page after a deploy — acceptable for a docs site.
+// Measured on Next 16.3.4 (2026-09-15), full `next build`:
 //
-// `dynamicParams` defaults to true for catchall routes, so all valid slugs
-// still render. Revisit when Next.js / Fumadocs fix the prerender race; the
-// fix is to restore `return source.generateParams()`.
+//   `source.generateParams()`, searchParams present -> 0 pages prerendered
+//   `source.generateParams()`, searchParams removed -> 347 pages prerendered
+//
+// So this returns [] rather than enumerating 347 params that would produce no
+// output. It is no longer the Next 16.2.6 prerender-crash workaround it was
+// written as: that crash does not reproduce on 16.3.4, which is why FS-2689
+// dropped `--experimental-build-mode=compile` from the build script.
+//
+// `force-dynamic` below is load-bearing, not decoration. Without it, a full
+// build with no static params makes Next prerender a fallback shell for the
+// route; the searchParams access poisons that shell, and every docs page then
+// serves it as a 500 with digest DYNAMIC_SERVER_USAGE. Compile mode used to
+// hide this by never prerendering anything at all. Declaring the route dynamic,
+// which is simply true, skips the fallback shell. It costs no caching: the
+// response already carries `private, no-cache, no-store` either way.
+//
+// To actually prerender these pages, `?v=` has to stop coming from
+// searchParams. That is a change to the versioning URL contract, not to this
+// file; see the FS-2688/FS-2689 findings and the design ticket that followed.
+export const dynamic = 'force-dynamic';
+
 export async function generateStaticParams() {
   return [];
 }
