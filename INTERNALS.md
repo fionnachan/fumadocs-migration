@@ -680,10 +680,11 @@ is gone: the build no longer touches the network for images (see
 this job into `Gates` is now possible and wants its own change, not least because a full build is
 the slowest job here.
 
-**Run by hand only:** `drift`, `cli:check`, `redirects:legacy`, `redirects:check`, and the network
+**Run by hand only:** `cli:check`, `redirects:legacy`, `redirects:check`, and the network
 mode of `images:check`. `redirects:check` cannot run in CI as-is because it reads `/llms.txt` off a
 running site. `images:check` reaches out to third-party hosts, so its result depends on somebody
-else's uptime. Its offline sibling `images:presence` does run in CI.
+else's uptime. Its offline sibling `images:presence` does run in CI. `drift` is the one to run by
+hand for a local check but no longer manual-only: the `drift` job below runs it weekly.
 
 `upstream-refresh.yml` runs Mondays at 08:00 UTC and on `workflow_dispatch`, in two independent
 jobs:

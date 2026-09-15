@@ -123,14 +123,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-
+      # No pnpm and no install: upstream-drift.mjs and everything it reaches
+      # (lib/git-freshness.mjs, lib/tree-compare.mjs, lib/upstream-tree.mjs) import only `node:`
+      # builtins and each other, so the dependency tree is never touched. `refresh` above is the
+      # job that needs the install.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
 
       # `--filter=blob:none` rather than `--depth 1`: the report labels each absent page DRIFT
       # (added upstream after the port window) or MISS (should have been ported), and it reads
@@ -149,8 +148,13 @@ jobs:
 
       # upstream-drift.mjs exits 1 both when it finds drift and when it refuses to run (missing
       # tree, untrustworthy baseline), so the exit code alone cannot be trusted. A completed run
-      # always prints its counts as the first stdout line; anything else is an environment
-      # failure and fails the job rather than quietly closing the issue.
+      # always prints a counts line; anything else is an environment failure and fails the job
+      # rather than quietly closing the issue.
+      #
+      # Match that line anywhere in the report, not at a fixed offset: the script prints a
+      # "comparing against <path>" line ahead of it. And keep the stale-allowlist suffix
+      # optional, because the script appends ", N stale allowlist" exactly when an exemption has
+      # expired, which is the case this job most needs to report rather than choke on.
       - name: Compare the content trees
         id: drift
         run: |
@@ -158,7 +162,7 @@ jobs:
           node scripts/upstream-drift.mjs --tree-a "$UPSTREAM_DIR/docs" > drift-report.txt 2> drift-errors.txt
           status=$?
           set -e
-          if ! head -n 1 drift-report.txt | grep -qE '^upstream-drift: [0-9]+ absent, [0-9]+ gutted$'; then
+          if ! grep -qE '^upstream-drift: [0-9]+ absent, [0-9]+ gutted(, [0-9]+ stale allowlist)?$' drift-report.txt; then
             echo "upstream-drift produced no report (exit $status):"
             cat drift-errors.txt
             exit 1
@@ -189,15 +193,21 @@ jobs:
               echo 'ABSENT is a page that exists upstream with no counterpart here. GUTTED is a page'
               echo 'whose body here is under 70% of the upstream body. DRIFT means the page was added'
               echo 'upstream after the port window closed; MISS means it should already have been ported.'
+              echo 'STALE-ALLOWLIST means upstream edited a page whose exemption a human granted against'
+              echo 'an older revision: re-read both pages, then either update reviewedUpstreamSha in'
+              echo 'scripts/data/upstream.config.json or drop the entry. It is not a porting task.'
               echo
               echo '```'
-              cat drift-report.txt
+              # Drop the leading "comparing against <path>" line: on a runner that path is an
+              # absolute workspace directory and means nothing to a human reading the issue.
+              tail -n +2 drift-report.txt
               echo '```'
               echo
               echo "Reproduce locally with \`pnpm drift --tree-a <arbitrum-docs>/docs\`. [Workflow run]($RUN_URL)"
               echo
               echo 'This issue is maintained automatically: the body is replaced on every run, so do not'
-              echo 'edit it. It closes itself when the report comes back empty.'
+              echo 'edit it. It closes itself when the report comes back empty. Do not close it by hand'
+              echo 'either: the next run would open a second one rather than reopening this.'
             } > issue-body.md
 
             if [ -n "$number" ]; then
