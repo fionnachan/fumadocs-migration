@@ -39,8 +39,10 @@ export function baseOptions(): BaseLayoutProps {
             url: docHref('build-decentralized-apps'),
             menu: {
               className: 'md:row-span-3',
+              // The site's `blue-dark-blue` gradient (arbitrum-website tailwind.config.js). Its
+              // cyan-ending gradients fail AA with white text, so this is the one for text panels.
               banner: (
-                <div className="-mx-3 -mt-3 flex flex-col justify-end rounded-t-lg bg-gradient-to-br from-blue-600 via-blue-500 to-cyan-400 p-4 pt-20 text-white">
+                <div className="-mx-3 -mt-3 flex flex-col justify-end rounded-t-lg bg-linear-to-b from-arbitrum-blue to-arbitrum-navy p-4 pt-20 text-white">
                   <p className="text-base font-medium">Build apps on Arbitrum</p>
                   <p className="text-sm text-white/80">
                     Deploy smart contracts and decentralized apps.
