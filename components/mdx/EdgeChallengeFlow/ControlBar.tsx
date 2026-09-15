@@ -31,19 +31,25 @@ export default function ControlBar({
   return (
     <div className="ecf-controls">
       <button
+        type="button"
         className={`ecf-btn ${isPlaying ? 'ecf-btn--pause' : 'ecf-btn--play'}`}
         disabled={!hasEvents}
         onClick={isPlaying ? onPause : onPlay}
       >
         {isPlaying ? 'Pause' : 'Play'}
       </button>
-      <button className="ecf-btn" disabled={!hasEvents || atEnd} onClick={onNext}>
+      <button type="button" className="ecf-btn" disabled={!hasEvents || atEnd} onClick={onNext}>
         Next
       </button>
-      <button className="ecf-btn ecf-btn--show-all" disabled={!hasEvents} onClick={onShowAll}>
+      <button
+        type="button"
+        className="ecf-btn ecf-btn--show-all"
+        disabled={!hasEvents}
+        onClick={onShowAll}
+      >
         Show All
       </button>
-      <button className="ecf-btn" disabled={!hasEvents} onClick={onReset}>
+      <button type="button" className="ecf-btn" disabled={!hasEvents} onClick={onReset}>
         Reset
       </button>
       <label className="ecf-speed-label">

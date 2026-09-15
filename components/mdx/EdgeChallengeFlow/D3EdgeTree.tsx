@@ -24,6 +24,10 @@ export default function D3EdgeTree({
   const containerRef = useRef<HTMLDivElement>(null);
   const d3Ref = useRef<any>(null);
   const zoomStateRef = useRef<any>(null);
+  // Expanding or collapsing redraws the whole tree, which destroys the focused <g>. Remembering
+  // which node had focus lets the redraw put it back, so an arrow key does not drop a keyboard
+  // reader out of the diagram entirely.
+  const focusedKeyRef = useRef<string | null>(null);
 
   const renderTree = useCallback(
     async (isCancelled: () => boolean) => {
@@ -92,6 +96,13 @@ export default function D3EdgeTree({
         g = svg.append('g');
         const zoomBehavior = zoom<SVGSVGElement, unknown>()
           .scaleExtent([0.2, 2])
+          // d3-zoom's wheel handler calls preventDefault, so without this filter a reader scrolling
+          // the page with the pointer over the diagram zooms instead of scrolling and cannot get
+          // past it. Requiring a modifier for wheel events leaves drag-to-pan and pinch untouched.
+          .filter((event: any) => {
+            if (event.type === 'wheel') return event.ctrlKey || event.metaKey;
+            return !event.button;
+          })
           .on('zoom', (event) => {
             zoomStateRef.current = event.transform;
             g.attr('transform', event.transform as any);
@@ -109,6 +120,10 @@ export default function D3EdgeTree({
       if (zoomStateRef.current) {
         g.attr('transform', zoomStateRef.current);
       }
+      // Whether this redraw is what takes focus away. Playback redraws the tree roughly once a
+      // second, so restoring focus on any redraw would repeatedly yank a reader who is elsewhere on
+      // the page back into the diagram.
+      const focusWasInside = container.contains(document.activeElement);
       g.selectAll('*').remove();
 
       const linkPath = linkHorizontal<any, any>()
@@ -184,6 +199,44 @@ export default function D3EdgeTree({
           onToggleNode(d.data.rangeKey);
         });
 
+      // Keyboard path. Everything the node inspector shows is otherwise reachable only with a
+      // pointer: the nodes are plain <g> elements, so they need the role, the label and the key
+      // handling spelled out. Enter/Space mirrors click, the arrow keys mirror dblclick, in the
+      // direction a tree widget is expected to use them.
+      const hasChildren = (d: any) => Boolean(d.children?.length || d.data._children?.length);
+
+      node
+        .filter((d: any) => d.data.rangeKey)
+        .attr('tabindex', 0)
+        .attr('role', 'button')
+        .attr('aria-label', (d: any) => {
+          const description = buildNodeLines(d.data).join('. ');
+          if (!hasChildren(d)) return `${description}. Press Enter to inspect.`;
+          const expandHint = collapsedSet.has(d.data.rangeKey)
+            ? 'right arrow to expand'
+            : 'left arrow to collapse';
+          return `${description}. Press Enter to inspect, ${expandHint}.`;
+        })
+        .on('focus', (_event: FocusEvent, d: any) => {
+          focusedKeyRef.current = d.data.rangeKey;
+        })
+        .on('keydown', (event: KeyboardEvent, d: any) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onSelectNode(d.data.rangeKey);
+            return;
+          }
+          if (!hasChildren(d)) return;
+          const collapsed = collapsedSet.has(d.data.rangeKey);
+          if (
+            (event.key === 'ArrowRight' && collapsed) ||
+            (event.key === 'ArrowLeft' && !collapsed)
+          ) {
+            event.preventDefault();
+            onToggleNode(d.data.rangeKey);
+          }
+        });
+
       node
         .filter((d: any) => d.data.rangeKey)
         .append('rect')
@@ -220,6 +273,14 @@ export default function D3EdgeTree({
         .attr('text-anchor', 'end')
         .attr('class', 'ecf-node-label')
         .text((d: any) => (collapsedSet.has(d.data.rangeKey) ? '+' : '-'));
+
+      const focusedKey = focusedKeyRef.current;
+      if (focusWasInside && focusedKey) {
+        const target = node
+          .filter((d: any) => d.data.rangeKey === focusedKey)
+          .node() as SVGGElement | null;
+        target?.focus();
+      }
     },
     [group, state, levelMeta, collapsedSet, onSelectNode, onToggleNode],
   );

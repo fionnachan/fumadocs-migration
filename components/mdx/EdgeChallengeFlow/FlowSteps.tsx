@@ -14,7 +14,7 @@ export default function FlowSteps({ currentStepIndex }: FlowStepsProps) {
           else if (index < currentStepIndex) className += ' ecf-step--done';
           return (
             <div key={step.id} className={className}>
-              <h3>{step.title}</h3>
+              <h5>{step.title}</h5>
               <p>{step.desc}</p>
             </div>
           );

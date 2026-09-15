@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ARBISCAN_BASE_URL } from './constants';
 import { formatRangeText, normalizeHex, resolveLevelType, shortHex } from './edgeChallengeLogic';
@@ -19,13 +19,43 @@ export default function NodeDetailsPanel({
   levelMeta,
   edgeAddedById,
 }: NodeDetailsPanelProps) {
+  // Keyed by the value copied, so each button reports its own outcome. The clipboard write can be
+  // refused outright (insecure origin, permission denied), and a swallowed rejection leaves a
+  // failure looking exactly like a success.
+  const [copyState, setCopyState] = useState<Record<string, 'copied' | 'failed'>>({});
+  const copyTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  useEffect(
+    () => () => {
+      for (const timer of copyTimers.current) clearTimeout(timer);
+    },
+    [],
+  );
+
   const copyToClipboard = useCallback(async (value: string) => {
+    let outcome: 'copied' | 'failed' = 'copied';
     try {
       await navigator.clipboard.writeText(value);
     } catch {
-      // fallback
+      outcome = 'failed';
     }
+    setCopyState((previous) => ({ ...previous, [value]: outcome }));
+    copyTimers.current.push(
+      setTimeout(() => {
+        setCopyState((previous) => {
+          const { [value]: _discarded, ...rest } = previous;
+          return rest;
+        });
+      }, 2000),
+    );
   }, []);
+
+  const copyLabel = (value: string) => {
+    const outcome = copyState[value];
+    if (outcome === 'copied') return 'Copied';
+    if (outcome === 'failed') return 'Copy failed';
+    return 'Copy';
+  };
 
   if (!selectedNodeKey || !rangeNodes.get(selectedNodeKey)) {
     return (
@@ -63,8 +93,12 @@ export default function NodeDetailsPanel({
         ) : mutualIds.length === 1 ? (
           <span className="ecf-copy-item">
             <code className="ecf-copy-text">{shortHex(mutualIds[0], 8, 6)}</code>
-            <button className="ecf-copy-btn" onClick={() => copyToClipboard(mutualIds[0])}>
-              Copy
+            <button
+              type="button"
+              className="ecf-copy-btn"
+              onClick={() => copyToClipboard(mutualIds[0])}
+            >
+              {copyLabel(mutualIds[0])}
             </button>
           </span>
         ) : (
@@ -72,8 +106,8 @@ export default function NodeDetailsPanel({
             {mutualIds.map((id) => (
               <div key={id} className="ecf-copy-item">
                 <code className="ecf-copy-text">{shortHex(id, 8, 6)}</code>
-                <button className="ecf-copy-btn" onClick={() => copyToClipboard(id)}>
-                  Copy
+                <button type="button" className="ecf-copy-btn" onClick={() => copyToClipboard(id)}>
+                  {copyLabel(id)}
                 </button>
               </div>
             ))}
@@ -106,8 +140,12 @@ export default function NodeDetailsPanel({
               <div key={edge.id} className="ecf-edge-item">
                 <div className="ecf-edge-item-header">
                   Edge ID: <code className="ecf-copy-text">{shortHex(edge.id)}</code>
-                  <button className="ecf-copy-btn" onClick={() => copyToClipboard(edge.id)}>
-                    Copy
+                  <button
+                    type="button"
+                    className="ecf-copy-btn"
+                    onClick={() => copyToClipboard(edge.id)}
+                  >
+                    {copyLabel(edge.id)}
                   </button>
                 </div>
                 <div className="ecf-edge-item-detail">

@@ -37,7 +37,7 @@ export default function EventTimeline({
 
   return (
     <div className="ecf-timeline" ref={containerRef}>
-      <h3>Event Timeline</h3>
+      <h5>Event Timeline</h5>
       {appliedEvents.length === 0 ? (
         <p className="ecf-placeholder-text">
           Press Play or Next to step through onchain events. Each event will appear here as it is

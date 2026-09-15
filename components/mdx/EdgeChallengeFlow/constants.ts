@@ -40,7 +40,9 @@ export const DEFAULT_INTERVAL_MS = 1200;
 export const ARBISCAN_BASE_URL = 'https://sepolia.arbiscan.io';
 
 /**
- * Decoded challenge logs, served as a static asset from `public/data/`. `proxy.ts` passes it through
- * untouched: it is neither a `.md` request nor a docs path, so no bypass-list entry is needed.
+ * Decoded challenge logs, served as a static asset from `public/data/`. `/data/` is on `proxy.ts`'s
+ * bypass list, so the request is served verbatim. No rewrite pattern reaches it today either, but
+ * that anchoring is an implementation detail rather than a promise, and the bypass list is where a
+ * path that must be served verbatim costs one line and cannot be broken from a distance.
  */
 export const DATA_URL = '/data/edge-challenge-flow.json';
