@@ -697,15 +697,41 @@ is gone: the build no longer touches the network for images (see
 this job into `Gates` is now possible and wants its own change, not least because a full build is
 the slowest job here.
 
-**Run by hand only:** `drift`, `cli:check`, `redirects:legacy`, `redirects:check`, and the network
+**Run by hand only:** `cli:check`, `redirects:legacy`, `redirects:check`, and the network
 mode of `images:check`. `redirects:check` cannot run in CI as-is because it reads `/llms.txt` off a
 running site. `images:check` reaches out to third-party hosts, so its result depends on somebody
-else's uptime. Its offline sibling `images:presence` does run in CI.
+else's uptime. Its offline sibling `images:presence` does run in CI. `drift` is the one to run by
+hand for a local check but no longer manual-only: the `drift` job below runs it weekly.
 
-`upstream-refresh.yml` runs Mondays at 08:00 UTC and on `workflow_dispatch`: `nitro:check-release`,
-then `precompiles:generate`, `contracts:generate` and `cli:generate`, opening
-`automated/upstream-refresh` as a PR if anything changed. It never writes to `main` and no-ops when
-the tree is clean.
+`upstream-refresh.yml` runs Mondays at 08:00 UTC and on `workflow_dispatch`, in two independent
+jobs:
+
+- **`refresh`** runs `nitro:check-release`, then `precompiles:generate`, `contracts:generate` and
+  `cli:generate`, opening `automated/upstream-refresh` as a PR if anything changed. It never writes
+  to `main` and no-ops when the tree is clean.
+- **`drift`** clones the still-live `arbitrum-docs`, runs `upstream-drift.mjs` against it, and keeps
+  a single issue titled "Upstream drift" in sync with the report: created or its body replaced while
+  anything is absent or gutted, commented and closed once the report comes back empty. It holds
+  `issues: write` and nothing else. **It is deleted at cutover (plan M-52)**, when there is no longer
+  an upstream to drift from.
+
+The two jobs have no `needs` between them on purpose, so a failing generator never hides a drift
+report and a missing upstream clone never blocks the refresh PR.
+
+`upstream-drift.mjs` exits 1 both when it finds drift and when it refuses to run at all (missing
+tree, or a clone stale enough to under-report), so the job cannot read the exit code alone. It
+requires the `N absent, M gutted` summary to appear somewhere on stdout; anything else fails the job
+instead of closing the issue on a report that never happened. **Match that line anywhere, and keep
+its suffix optional.** The script prints a `comparing against <path>` line ahead of it, so a guard
+pinned to line one never matches, and it appends `, N stale allowlist` exactly when an exemption has
+expired, so a guard anchored at `gutted$` rejects the one case the report most needs to deliver.
+Two details of the clone are equally load-bearing and easy to get wrong:
+
+- It is cloned `--filter=blob:none`, **not** `--depth 1`. The report splits absent pages into DRIFT
+  (added upstream after the port window) and MISS (should already have been ported) using
+  `git log --diff-filter=A`, which a depth-1 clone cannot answer, so everything would come back MISS.
+- `git clone` never writes `.git/FETCH_HEAD`, and `lib/git-freshness.mjs` treats a clone that has
+  never fetched as an untrustworthy baseline. The job runs an explicit `git fetch` afterwards.
 
 The three generators' `--check` modes sit in three different places, because they are not the same
 kind of check.
