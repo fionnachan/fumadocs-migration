@@ -70,14 +70,17 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      # --ignore-scripts: the checkout above is deployment.sha, i.e. whatever commit Vercel
-      # built this preview from. redirects-check.mjs and its only local import
-      # (redirects.config.mjs) need no npm package and no generated .source/ collection, so
-      # skipping lifecycle scripts costs nothing here — and it matters, because the next step
-      # puts VERCEL_AUTOMATION_BYPASS_SECRET into the job's environment. Without
-      # --ignore-scripts, a postinstall hook from that checkout runs first, before the secret
-      # exists, but could still rewrite scripts/redirects-check.mjs on disk; the step after it
-      # would then execute the rewritten file with the secret present.
+      # --ignore-scripts: the checkout above is deployment.sha, i.e. whatever commit Vercel built
+      # this preview from. redirects-check.mjs and its only local import (redirects.config.mjs)
+      # need no npm package and no generated .source/ collection, so skipping lifecycle scripts
+      # costs nothing here. This narrows the attack surface, it does not close it: the next step
+      # still executes scripts/redirects-check.mjs straight from that same untrusted checkout,
+      # with VERCEL_AUTOMATION_BYPASS_SECRET in its environment, and that script can do anything
+      # with the secret it likes. --ignore-scripts only rules out an *incidental* postinstall
+      # hook doing the same thing first. What actually keeps this safe today is that the `if:`
+      # above requires `creator.login == 'vercel[bot]'` and this repo does not build previews for
+      # fork PRs, so deployment.sha is never attacker-controlled in practice; if that ever
+      # changes, this job needs real fork-provenance gating, not just this flag.
       - run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Run redirects:check against the preview
