@@ -184,6 +184,12 @@ export default defineConfig({
     rehypeCodeOptions: {
       ...rehypeCodeDefaultOptions,
       transformers: [...(rehypeCodeDefaultOptions.transformers ?? []), transformerTwoslash()],
+      // Shiki cannot lazy-load a language for a fenced block that appears *inside* a twoslash hover
+      // popup, so the ones a TypeScript popup can quote have to be preloaded or that page throws at
+      // render (a 500 `types:check` cannot see). This is a preload list, not an allowlist: `lazy`
+      // stays on by default, so shell, Rust, Solidity and the rest still load on demand as before.
+      // Prescribed by https://www.fumadocs.dev/docs/markdown/twoslash.
+      langs: ['js', 'jsx', 'ts', 'tsx'],
     },
   },
 });

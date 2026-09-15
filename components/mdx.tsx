@@ -21,6 +21,7 @@ import {
   TroubleshootingConfig,
   TroubleshootingReport,
 } from '@/components/mdx/Troubleshooting';
+import { Popup, PopupContent, PopupTrigger } from '@/components/mdx/Twoslash';
 import { VanillaAdmonition } from '@/components/mdx/VanillaAdmonition';
 import { Var } from '@/components/mdx/Var';
 import { VendingMachine } from '@/components/mdx/VendingMachine';
@@ -68,6 +69,17 @@ function withPdfModal(Base: NonNullable<MDXComponents['a']>) {
 export function getMDXComponents(components?: MDXComponents) {
   const merged = {
     ...defaultMdxComponents,
+    // `transformerTwoslash` (wired in source.config.ts) compiles a ```ts twoslash block into markup
+    // that references `Popup` / `PopupTrigger` / `PopupContent` by name. Those names have to be in
+    // this map or the page throws "Expected component `Popup` to be defined" at render time. That is
+    // a 500, not a build failure, because the frontmatter schema is all `types:check` sees. The
+    // registration has been missing since twoslash was first wired up (twoslash 3.3.1 emitted the
+    // same three tag names and 500s on the same page), and it went unnoticed only because no page
+    // uses a twoslash block yet. `components/mdx/Twoslash` keeps the popover code out of every docs
+    // page's eager bundle; see the comment there.
+    Popup,
+    PopupContent,
+    PopupTrigger,
     Accordion,
     Accordions,
     AddressExplorerLink,
