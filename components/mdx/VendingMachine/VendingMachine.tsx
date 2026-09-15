@@ -176,6 +176,10 @@ export function VendingMachine({ id, type = 'web2' }: { id?: string; type?: Vend
     setBusy(true);
     try {
       let gotCupcake: boolean;
+      // What to say when no cupcake came out. The two modes fail for different reasons, so they do
+      // not share a message: `VendingMachine.sol` enforces the same five-second rule by reverting
+      // with RATE_LIMIT_MESSAGE, and that revert arrives as a thrown error, not as this branch.
+      let failureMessage = RATE_LIMIT_MESSAGE;
 
       if (isWeb3) {
         const { account, contract } = requireWeb3Inputs();
@@ -217,6 +221,11 @@ export function VendingMachine({ id, type = 'web2' }: { id?: string; type?: Vend
           }),
         );
         gotCupcake = after === before + 1;
+        if (!gotCupcake) {
+          failureMessage =
+            'The transaction was mined but the cupcake balance did not change. Check that the ' +
+            'contract address belongs to the network selected in your wallet.';
+        }
         setCupcakeBalance(after);
       } else {
         const key = identity || 'no name';
@@ -238,7 +247,7 @@ export function VendingMachine({ id, type = 'web2' }: { id?: string; type?: Vend
         setStatus('');
       } else {
         setFailed(true);
-        setStatus(RATE_LIMIT_MESSAGE);
+        setStatus(failureMessage);
       }
     } catch (error) {
       setFailed(true);
