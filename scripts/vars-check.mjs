@@ -5,12 +5,49 @@
  *   pnpm vars:check           # human report; exits 1 if any variable is unresolvable
  *   pnpm vars:check --json    # JSON audit to stdout; exits 0 (for tooling/diffs)
  *
+ * Also validates `announcementLinkHref`, the banner target in `vars.json`. `check-links` walks MDX
+ * only and that value appears in no `.mdx` file, so without this the site's most visible link is
+ * the one nothing checks.
+ *
  * `content/vars.ts` validates `vars.json` with `z.object`, which strips unknown keys instead of
  * rejecting them, and `components/mdx/Var` renders `String(vars[name])`. So any name outside
  * `schemaKeys ∩ jsonKeys` renders the literal string `undefined` into the page. MDX is never
  * type-checked, so nothing else catches this — `pnpm types:check` exits 0 on a tree full of them.
  */
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+
+import { checkAnnouncementLink } from './lib/announcement-link.mjs';
+import { buildIndex } from './lib/doc-links.mjs';
 import { auditVars, unresolvedSiteCount } from './lib/vars-audit.mjs';
+
+/**
+ * Read `announcementLinkHref` and assert it points somewhere real.
+ *
+ * Absent key: silent. The banner is optional, and the schema in `content/vars.ts` is what makes it
+ * required once adopted; this gate only judges a value that exists.
+ *
+ * @returns {string | null} an error message, or null when there is nothing to report.
+ */
+function announcementLinkError(repoRoot) {
+  let vars;
+  try {
+    vars = JSON.parse(readFileSync(path.join(repoRoot, 'content', 'vars.json'), 'utf8'));
+  } catch {
+    return null; // Malformed or missing vars.json is already the audit's problem, not this check's.
+  }
+
+  if (!('announcementLinkHref' in vars)) return null;
+
+  const { ok, reason } = checkAnnouncementLink(
+    vars.announcementLinkHref,
+    buildIndex(repoRoot),
+    repoRoot,
+  );
+  if (ok) return null;
+
+  return `announcementLinkHref ${reason}: ${JSON.stringify(vars.announcementLinkHref)}`;
+}
 
 function main() {
   const json = process.argv.slice(2).includes('--json');
@@ -66,6 +103,12 @@ function main() {
       `vars-check: ${strippedJsonKeys.length} vars.json key(s) absent from the vars.ts schema — silently stripped by z.object, so they look configured but are not:`,
     );
     for (const k of strippedJsonKeys) console.error(`  ${k}`);
+  }
+
+  const linkError = announcementLinkError(process.cwd());
+  if (linkError) {
+    failed = true;
+    console.error(`vars-check: the announcement banner link is broken. ${linkError}`);
   }
 
   if (audit.dynamic.length > 0) {
