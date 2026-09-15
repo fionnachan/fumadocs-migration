@@ -397,7 +397,41 @@ destination, not on the first hop.
 Both blocks in `redirects.config.mjs` are generated. Never hand-edit it.
 
 **Moved pages.** `pnpm move-doc <from> <to>` writes the old→new URL between the `AUTO-GENERATED`
-markers.
+markers. It also retargets the moved path if either drift map names it: a `RENAME_MAP` value (or the
+`to` field of a `merge: true` entry) in `scripts/lib/tree-compare.mjs`, and a `guttedAllowlist` entry's
+`local` field in `scripts/data/upstream.config.json` (see [Upstream drift](#upstream-drift)). Before
+this, a move left those maps pointing at a path that no longer existed, which only surfaced as a
+`pnpm test` failure in whatever unrelated PR happened to run next — the maps themselves gave no
+warning. `scripts/lib/drift-maps.mjs` does the rewrite; `RENAME_MAP` keys (upstream/Tree A paths) and
+`absentAllowlist` (which names only an upstream path, never a local one) are never touched, because
+only local paths move.
+
+Three things about that rewrite are load-bearing, and each exists because the alternative fails
+quietly:
+
+- **It edits only inside the `RENAME_MAP` object literal.** `tree-compare.mjs` also declares
+  `SECTION_MAP`, whose values are bare section prefixes (`'stylus'`, `'oracles'`, `'run-a-node'`). A
+  whole-file match for a top-level page's path would rewrite one of those and silently remap an
+  entire upstream section, while reporting it on the CLI as a `RENAME_MAP` change.
+- **A missed match aborts the step.** The rewrite is textual and single-quote-only, so reformatting
+  `tree-compare.mjs` to double quotes, or writing an entry as a template literal, would match nothing
+  and leave the stale path in place, which is the original bug again with no warning. After
+  rewriting, `drift-maps` imports `tree-compare.mjs` and checks its substitution count against the
+  parsed `RENAME_MAP`; a disagreement throws and names the path. It also warns, without failing, when
+  the destination is already another entry's target, since `pairTrees` rejects two upstream pages
+  claiming one local file unless every entry involved declares `merge: true`.
+- **It runs last and writes both maps or neither.** Every read, rewrite, verification and Prettier
+  pass happens before the first write, and `move-doc` calls it after the redirect is appended, so a
+  formatter or parse failure cannot cost the redirect or leave one map retargeted and the other not.
+
+**A move can still leave `MANUAL_DESTINATIONS` stale.** `scripts/lib/legacy-redirects.mjs` keeps a
+third hand-written map of local paths, as site URLs rather than content-relative paths, and
+`move-doc` does not touch it. Moving a page named there fails
+`scripts/generate-legacy-redirects.test.mjs` ("every hand-written destination still names a live
+page") in whatever PR runs `pnpm test` next, the same shape of failure this section exists to
+prevent. Retargeting it correctly also means regenerating `redirects.legacy.mjs`, which needs the
+sibling `arbitrum-docs` checkout that `move-doc` deliberately does not require, so it is tracked
+separately as FS-2697. Until then, after moving a page, grep `MANUAL_DESTINATIONS` for its old URL.
 
 **Legacy `docs.arbitrum.io` URLs.** `pnpm redirects:legacy` regenerates `redirects.legacy.mjs`.
 Legacy URLs were served at the site root (`/stylus/using-cli`) and this site serves docs under
