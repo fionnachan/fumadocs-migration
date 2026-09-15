@@ -80,7 +80,7 @@ async function probe(url) {
 
       // A HEAD that is refused or unimplemented says nothing about the image itself.
       if (method === 'HEAD' && [403, 405, 501].includes(response.status)) continue;
-      return { status: response.status };
+      return { status: response.status, method };
     } catch (error) {
       if (method === 'GET') return { error: error.message ?? String(error) };
     }
@@ -104,7 +104,16 @@ async function probeAll(urls) {
 }
 
 function describe(result) {
-  return result.error ? `request failed: ${result.error}` : `HTTP ${result.status}`;
+  if (result.error) return `request failed: ${result.error}`;
+
+  // 403 is the one status a human has to interpret rather than act on. It arrives here only after
+  // a GET with a browser user agent, so it does not distinguish "the image is gone" from "the host
+  // refuses automated clients" — and this mode is advisory precisely so a person makes that call.
+  if (result.status === 403) {
+    return `HTTP 403 (${result.method}) — gone, or the host blocks automation; open it in a browser`;
+  }
+
+  return `HTTP ${result.status} (${result.method})`;
 }
 
 function report(entries, heading, log) {
