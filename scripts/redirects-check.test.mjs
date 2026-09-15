@@ -25,7 +25,10 @@ test('parseArgs: --bypass-header beats the environment variable', () => {
 });
 
 test('parseArgs: the environment variable applies when the flag is absent', () => {
-  const result = parseArgs([], { ...defaults, env: { VERCEL_AUTOMATION_BYPASS_SECRET: 'env-secret' } });
+  const result = parseArgs([], {
+    ...defaults,
+    env: { VERCEL_AUTOMATION_BYPASS_SECRET: 'env-secret' },
+  });
   assert.equal(result.bypassHeader, 'env-secret');
 });
 

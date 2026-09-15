@@ -53,7 +53,9 @@ async function fetchRoutableUrls(baseUrl, bypassHeader) {
     );
   }
   if (!response.ok) {
-    throw new Error(`redirects-check: ${url} returned ${response.status}${protectionHint(response.status)}`);
+    throw new Error(
+      `redirects-check: ${url} returned ${response.status}${protectionHint(response.status)}`,
+    );
   }
   const body = await response.text();
   const urls = new Set([...body.matchAll(/\]\((\/[^)]*)\)/g)].map((m) => bareUrl(m[1])));
