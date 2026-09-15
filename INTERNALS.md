@@ -456,32 +456,58 @@ blocks.** A green PR does not mean the content is clean.
 | `versioned-docs-check.mjs` | Archived-page registry drift                                                  |
 | `references:check`         | Glossary ids and `<Reference>` targets                                        |
 | `check-links`              | Broken internal doc links                                                     |
+| `contracts:check`          | The generated contract-address partial matches `@arbitrum/sdk`                |
 
 `check-links` exists because Fumadocs has no equivalent of Docusaurus's `onBrokenLinks: 'throw'`.
 `pnpm build` chains it ahead of `next build`, so a broken link also fails the Vercel deploy.
 
-**`Content debt` (non-blocking)** — `format:check` and `content:lint`, each marked
-`continue-on-error` because each still fails on pre-existing debt. The job comment records the
-counts. **Promote a step into `Gates` once its count reaches zero** — that promotion is the point
-of the split. This tier is a backlog, not a policy.
+**`Content debt` (non-blocking)** — `format:check`, `content:lint` and `precompiles:check`, each
+marked `continue-on-error`. The first two still fail on pre-existing debt, and the job comment
+records the counts. **Promote one of those two into `Gates` once its count reaches zero** — that
+promotion is the point of the split. This tier is a backlog, not a policy.
+
+`precompiles:check` is in this tier for a different reason, and reaching zero is not what would
+promote it: it is already green. It fetches about thirty Solidity sources from
+`raw.githubusercontent` on every run, so a GitHub blip turns it red for reasons unrelated to the
+change under review, the same argument that keeps `Build` non-blocking. Losing the network
+dependency is what would promote it.
 
 **`Build` (non-blocking)** — `pnpm build`, deliberately not blocking: the MDX image pipeline fetches
 remote images at build time, so a dead third-party URL turns it red for reasons unrelated to the
 change under review. It still catches MDX compile errors that `types:check` cannot see.
 
-**Run by hand only:** `drift`, `precompiles:check`, `contracts:check`, `redirects:legacy`,
-`redirects:check`. `redirects:check` cannot run in CI as-is because it reads `/llms.txt` off a
-running site.
+**Run by hand only:** `drift`, `redirects:legacy`, `redirects:check`. `redirects:check` cannot run
+in CI as-is because it reads `/llms.txt` off a running site.
 
 `upstream-refresh.yml` runs Mondays at 08:00 UTC and on `workflow_dispatch`: `nitro:check-release`,
 then `precompiles:generate`, then `contracts:generate`, opening `automated/upstream-refresh` as a PR
 if anything changed. It never writes to `main` and no-ops when the tree is clean.
 
-Neither generator's `--check` mode blocks CI, deliberately. Both compare the committed file against
-a moving upstream (a Nitro tag, the `@arbitrum/sdk` network registry), so a red gate would mean
-"someone published a release", not "this PR is wrong". The weekly refresh PR is the right place to
-notice that, and `contracts:check` prints a line-level diff so a reviewer can see whether an address
-moved or only the formatting did.
+The two generators' `--check` modes sit in different CI tiers, because they are not the same kind
+of check.
+
+`contracts:check` blocks. Its input does not move on its own: the generator reads the network
+registry that ships inside `@arbitrum/sdk`, and that pin is exact, so the step can only go red on
+a human act. There are two, and both should block. One is a hand edit to the generated partial,
+against the do-not-edit marker inside it; before this gate existed such an edit passed CI, merged,
+and was then silently reverted by the next weekly refresh under the automation's authorship rather
+than its author's. The other is a PR bumping the SDK to a release that moves a published address,
+which is a value a reader pastes into a transaction and must never change unreviewed.
+
+A Dependabot bump of the SDK therefore reddens only the bumping PR, not every open one: CI installs
+from each branch's own lockfile, so no other branch sees the new registry until that PR merges. The
+fix in that PR is one command, `pnpm contracts:generate`, and a commit of the regenerated partial.
+Note the gate fires only when a bump actually moves an address; a release that changes nothing the
+partial renders stays green.
+
+`precompiles:check` does not block, for the network reason given above rather than for any
+statement about its input.
+
+When `contracts:check` fails it prints a line-level diff, so a reviewer can see whether an address
+moved or only the formatting did. That diff is a real one, computed over a longest common
+subsequence in `scripts/lib/line-diff.mjs`: comparing the two files by line index instead reported
+every line after an insertion as changed, which on this 112-line partial meant 53 lines for a
+two-line edit and defeated the point of printing it.
 
 ## Upstream drift
 
