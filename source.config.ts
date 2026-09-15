@@ -101,6 +101,24 @@ export default defineConfig({
     // the ported docs (mirrors the Docusaurus setup). KaTeX CSS is imported in
     // app/layout.tsx.
     remarkPlugins: [remarkMath],
+    // Never reach out to the network to measure a third-party image.
+    //
+    // fumadocs' remark-image probes every image for its intrinsic size, and for an `https://` src
+    // that means an HTTP request at compile time. `onError` defaults to `error`, so a single dead
+    // URL threw and took the whole MDX compile down: every docs page 500s, not just the page
+    // holding the image (FS-2681).
+    //
+    // `external: false` disables the probe for remote URLs only, and nothing else changes for
+    // local images: `useImport` stays on, so a `/img/…` src is imported and the bundler fails the
+    // build on a path that does not exist.
+    //
+    // The consequence to know about is that a markdown image with a remote src now reaches
+    // `next/image` without a `width` and renders as an HTTP 500. That is the case
+    // `pnpm images:presence` blocks in CI. `<ImageZoom src="https://…" />` is unaffected, because
+    // it is a plain `<img>`. See INTERNALS.md "Remote images are never fetched at build".
+    remarkImageOptions: {
+      external: false,
+    },
     rehypePlugins: (v) => [rehypeKatex, ...v],
     //
     // twoslash only activates on ```ts twoslash blocks (TypeScript). Other

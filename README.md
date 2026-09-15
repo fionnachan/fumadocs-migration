@@ -5,7 +5,9 @@ Arbitrum documentation portal — a Next.js 16 / Fumadocs migration of
 Serves English MDX docs; deployed on Vercel.
 
 This file covers **how to work on the docs.** For how the codebase works and why, see
-[INTERNALS.md](INTERNALS.md).
+[INTERNALS.md](INTERNALS.md). Contributing a page or a PR? Start with
+[CONTRIBUTE.md](CONTRIBUTE.md) instead — it covers the frontmatter contract, partials, variables,
+moving pages, and the gates to run before you push.
 
 New to Fumadocs, or coming from the Docusaurus site? Start with
 [What Fumadocs is](INTERNALS.md#what-fumadocs-is) and
