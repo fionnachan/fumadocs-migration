@@ -90,25 +90,24 @@ export function groupByNamespace(flags) {
  *
  * @param {Array} flags already filtered and sorted
  * @param {object} options
+ * @param {Array<{label: string, href: string}>} options.introLinks guides the admonition lists
  * @param {Record<string, {label: string, href: string}>} options.namespaceLinks
  * @param {{label: string, href: string}} options.defaultNamespaceLink
  * @param {string} options.nitroVersionTag
  */
 export function renderGeneratedRegion(
   flags,
-  { namespaceLinks, defaultNamespaceLink, nitroVersionTag },
+  { introLinks, namespaceLinks, defaultNamespaceLink, nitroVersionTag },
 ) {
   const groups = groupByNamespace(flags);
   const lines = [];
+  const intro = introLinks.map((link) => `- [${link.label}](${link.href})`).join('\n');
 
   lines.push(`<VanillaAdmonition type="info" title="Auto-generated reference">
 
 This page lists every CLI flag accepted by the Nitro node binary. For explanations, examples, and recommended configurations, see the curated guides:
 
-- [Configuration system](/docs/run-a-node/nitro/configuration-system)
-- [Docker and CLI binaries](/docs/run-a-node/nitro/docker-and-cli-binaries)
-- [Node tuning and monitoring](/docs/run-a-node/nitro/node-tuning-and-monitoring)
-- [DA tools reference](/docs/run-a-node/nitro/da-tools-reference)
+${intro}
 
 **Total flags:** ${flags.length} across ${groups.length} namespaces, read from Nitro \`${nitroVersionTag}\`.
 

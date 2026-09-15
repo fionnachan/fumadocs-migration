@@ -116,6 +116,11 @@ export function extractFlags({
   const visited = new Set();
 
   function walk(dir, funcName, prefix, depth, bindings) {
+    // Keyed on where the registration happens and what it is called, but not on `bindings`: a
+    // registration function reached twice with the same prefix and *different* defaults would
+    // yield only the first set. Nitro does not do that at the pinned tag (the one function that
+    // serves two callers, the data poster, gets a different prefix each time), so this is a note
+    // for whoever debugs a flag whose default looks like its sibling's, not a bug today.
     const key = `${dir}.${funcName} ${prefix}`;
     if (visited.has(key)) return;
     visited.add(key);
@@ -205,6 +210,32 @@ export function extractFlags({
   }
 
   walk(entryPoint.dir, entryPoint.func, '', 0, new Map());
+
+  // Both curated tables are plain lookups, so an entry whose flag Nitro has *removed* stops
+  // matching and costs nothing: no error, no output, just a line in the data file that no longer
+  // describes Nitro under a docblock promising that could not happen. A *renamed* flag does fail
+  // the run, but only as a side effect of the new name reaching the resolver, which blames the
+  // resolver rather than the stale entry. So check the other direction too, the way the drift
+  // allowlists are: a curated exemption that rots into a no-op has to fail loudly.
+  //
+  // This runs against the flags as collected, before the caller applies `exclusions`.
+  // `defaultOverrides` declares `blocks-reexecutor.room`, which the blocks-reexecutor exclusion
+  // rule keeps off the published page; checking against the published list would report that
+  // live entry as unused on every run.
+  const seen = new Set(flags.map((flag) => flag.flag));
+  for (const [table, entries] of [
+    ['customFlagTypes', customTypes],
+    ['defaultOverrides', defaultOverrides],
+  ]) {
+    for (const flag of Object.keys(entries)) {
+      if (seen.has(flag)) continue;
+      problems.push(
+        `${table} entry "${flag}" (scripts/data/nitro-cli-reference.data.mjs) matched no flag; ` +
+          `Nitro no longer registers it, so drop the entry or correct its name`,
+      );
+    }
+  }
+
   flags.sort((a, b) => a.flag.localeCompare(b.flag));
   return { flags, problems };
 }

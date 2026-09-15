@@ -745,10 +745,17 @@ worth knowing:
 - **Anything it cannot evaluate fails the run.** Five flags default to `util.GoMaxProcs()`, decided
   at process start, and three are registered with `f.Var` and a custom `pflag.Value`. Those are
   declared in `scripts/data/nitro-cli-reference.data.mjs`; a new one with no entry stops the
-  generator instead of publishing a blank cell.
+  generator instead of publishing a blank cell. **The check runs in both directions**: an entry in
+  either list that matches no flag Nitro still registers also stops the run, so a curated
+  exemption cannot rot into a no-op the way it could when both lists were plain lookups.
 
-`--nitro-path <dir>` reads an existing Nitro clone. It still extracts the tree at the pinned tag, so
-a local run and a CI run see the same source no matter what the checkout has checked out.
+`--nitro-path <dir>` (or `NITRO_REPO_PATH` in the environment, which the flag overrides) reads an
+existing Nitro clone. It still extracts the tree at the pinned tag, so a local run and a CI run see
+the same source no matter what the checkout has checked out. `--verbose` additionally names every
+flag the exclusion rules dropped, grouped by the rule that dropped it; without it the run prints
+only the per-rule counts. One rule matches on the flag's **description**, so a Nitro release that
+reworks a docstring can drop a flag off the page, and the counts are what make that visible in the
+weekly refresh PR's log.
 
 ## Upstream drift
 

@@ -30,7 +30,7 @@ pnpm build          # next build --experimental-build-mode=compile
 pnpm start          # serve the production build
 pnpm partials:catalog  # regenerate content/partials/CATALOG.md + manifest.json
 pnpm partials:check    # validate partials: include/import resolution, no routing leak, catalog freshness
-pnpm test              # node --test over scripts/**/*.test.mjs (10 suites)
+pnpm test              # node --test over scripts/**/*.test.mjs (11 files)
 pnpm check-links       # broken internal doc links
 pnpm content:lint      # MDX structural defects (stray :::, admonition shape)
 pnpm images:check      # report unreachable remote images (exit 1 only with --strict)

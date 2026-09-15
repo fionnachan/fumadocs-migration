@@ -251,6 +251,55 @@ describe('extractFlags', () => {
     assert.match(problems[0], /has no entry in customFlagTypes/);
   });
 
+  it('reports a customFlagTypes entry that matches no flag rather than letting it rot', () => {
+    const { problems } = extractFlags({
+      dirs: indexed.dirs,
+      fileImports: indexed.fileImports,
+      entryPoint: { dir: 'cmd/config', func: 'NodeConfigAddOptions' },
+      customTypes: {
+        'node.batch-poster.levels': { type: 'CompressionLevelStepList', default: '[]' },
+        'node.staker.levels': { type: 'CompressionLevelStepList', default: '[]' },
+        'node.retired.levels': { type: 'CompressionLevelStepList', default: '[]' },
+      },
+    });
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /customFlagTypes entry "node\.retired\.levels" .* matched no flag/);
+  });
+
+  it('reports a defaultOverrides entry that matches no flag rather than letting it rot', () => {
+    const { problems } = extractFlags({
+      dirs: indexed.dirs,
+      fileImports: indexed.fileImports,
+      entryPoint: { dir: 'cmd/config', func: 'NodeConfigAddOptions' },
+      customTypes: {
+        'node.batch-poster.levels': { type: 'CompressionLevelStepList', default: '[]' },
+        'node.staker.levels': { type: 'CompressionLevelStepList', default: '[]' },
+      },
+      defaultOverrides: { 'node.gone.threads': 'GOMAXPROCS' },
+    });
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /defaultOverrides entry "node\.gone\.threads" .* matched no flag/);
+  });
+
+  it('accepts an override for a flag the caller later excludes from the page', () => {
+    // `defaultOverrides` declares `blocks-reexecutor.room`, which the blocks-reexecutor exclusion
+    // rule keeps off the published page. The check runs against the flags as collected, so a live
+    // entry for an about-to-be-excluded flag must not be reported as unused.
+    const { flags, problems } = extractFlags({
+      dirs: indexed.dirs,
+      fileImports: indexed.fileImports,
+      entryPoint: { dir: 'cmd/config', func: 'NodeConfigAddOptions' },
+      customTypes: {
+        'node.batch-poster.levels': { type: 'CompressionLevelStepList', default: '[]' },
+        'node.staker.levels': { type: 'CompressionLevelStepList', default: '[]' },
+      },
+      defaultOverrides: { 'node.batch-poster.max-delay': 'GOMAXPROCS' },
+    });
+    assert.deepEqual(problems, []);
+    const overridden = flags.find((flag) => flag.flag === 'node.batch-poster.max-delay');
+    assert.equal(overridden.default, 'GOMAXPROCS');
+  });
+
   it('reports a registration call it cannot follow instead of dropping the namespace', () => {
     const { flags, problems } = extractFlags({
       dirs: indexed.dirs,
@@ -294,6 +343,10 @@ describe('page rendering', () => {
     },
   ];
   const options = {
+    introLinks: [
+      { label: 'Configuration system', href: '/docs/x' },
+      { label: 'DA tools reference', href: '/docs/da' },
+    ],
     namespaceLinks: { http: { label: 'Configuration system', href: '/docs/x' } },
     defaultNamespaceLink: { label: 'Fallback', href: '/docs/y' },
     nitroVersionTag: 'v9.9.9',
@@ -347,6 +400,11 @@ describe('page rendering', () => {
   it('falls back to the default guide link for an unlisted namespace', () => {
     const out = renderGeneratedRegion(flags, options);
     assert.match(out, /Related guide: \[Fallback\]\(\/docs\/y\)/);
+  });
+
+  it('lists the curated intro guides, including one that is no namespace', () => {
+    const out = renderGeneratedRegion(flags, options);
+    assert.ok(out.includes('- [Configuration system](/docs/x)\n- [DA tools reference](/docs/da)'));
   });
 
   it('keeps the existing frontmatter and the prose outside the markers', () => {
