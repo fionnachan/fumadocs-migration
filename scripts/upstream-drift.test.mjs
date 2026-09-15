@@ -7,8 +7,8 @@ import {
   RENAME_MAP,
   bodyLineCount,
   buildTreeIndex,
-  mapSectionPath,
   isMergeRename,
+  mapSectionPath,
   normalizeSlug,
   pairTrees,
 } from './lib/tree-compare.mjs';
@@ -249,15 +249,12 @@ test('the checked-in config allowlists exactly the four gutted false positives',
   // All three are card-landing rewrites or import-boilerplate line gaps confirmed at content parity
   // by side-by-side review. Anything else here is real content loss being silenced.
   const config = readUpstreamConfig();
-  assert.deepEqual(
-    [...allowlistEntries(config.guttedAllowlist).keys()].sort(),
-    [
-      'for-devs/dev-tools-and-resources/chain-info.mdx',
-      'for-devs/oracles/oracles-content-map.mdx',
-      'get-started/overview.mdx',
-      'launch-arbitrum-chain/overview/introduction.mdx',
-    ],
-  );
+  assert.deepEqual([...allowlistEntries(config.guttedAllowlist).keys()].sort(), [
+    'for-devs/dev-tools-and-resources/chain-info.mdx',
+    'for-devs/oracles/oracles-content-map.mdx',
+    'get-started/overview.mdx',
+    'launch-arbitrum-chain/overview/introduction.mdx',
+  ]);
   for (const entry of config.guttedAllowlist) {
     assert.ok(entry.reason, `gutted allowlist entry ${entry.path} must carry a reason`);
     assert.ok(entry.local, `gutted allowlist entry ${entry.path} must name its local counterpart`);
@@ -306,7 +303,10 @@ test('pairTrees lets a directory match claim its Tree B file', () => {
     'how-arbitrum-works/deep-dives/arbos.mdx',
     'some-other-section/arbos.mdx',
   ]);
-  assert.equal(paired.get('how-arbitrum-works/deep-dives/arbos.mdx'), 'how-arbitrum-works/deep-dives/arbos.mdx');
+  assert.equal(
+    paired.get('how-arbitrum-works/deep-dives/arbos.mdx'),
+    'how-arbitrum-works/deep-dives/arbos.mdx',
+  );
   // The second upstream page must report ABSENT rather than stealing the first one's counterpart.
   assert.equal(paired.get('some-other-section/arbos.mdx'), null);
 });
@@ -352,7 +352,8 @@ test('the upstream pages that share a basename with a deep-dive now map to their
     'launch-arbitrum-chain/chain-config/costs/gas-optimization.mdx':
       'launch-arbitrum-chain/configuration/costs/gas-optimization-tools.mdx',
     // The gentle intro was renamed to stf.mdx and expanded, so it is a rename and not a gap.
-    'how-arbitrum-works/deep-dives/01-stf-gentle-intro.mdx': 'how-arbitrum-works/deep-dives/stf.mdx',
+    'how-arbitrum-works/deep-dives/01-stf-gentle-intro.mdx':
+      'how-arbitrum-works/deep-dives/stf.mdx',
   };
   for (const [upstream, local] of Object.entries(cases)) {
     assert.equal(mapSectionPath(upstream), local, `${upstream} should map to ${local}`);
@@ -432,7 +433,10 @@ test('gitBlobHash matches what git hash-object produces', () => {
 test('isAllowlistStale only accepts the exact reviewed revision', () => {
   const sha = gitBlobHash('upstream content');
   assert.equal(isAllowlistStale({ reviewedUpstreamSha: sha }, sha), false);
-  assert.equal(isAllowlistStale({ reviewedUpstreamSha: sha }, gitBlobHash('edited upstream')), true);
+  assert.equal(
+    isAllowlistStale({ reviewedUpstreamSha: sha }, gitBlobHash('edited upstream')),
+    true,
+  );
 });
 
 test('isAllowlistStale treats a missing reviewedUpstreamSha as stale', () => {
