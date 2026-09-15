@@ -40,6 +40,7 @@ jobs:
       github.event.deployment.environment == 'Preview' &&
       github.event.deployment.creator.login == 'vercel[bot]'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       statuses: write # to post this job's own result as a commit status, see above
@@ -47,10 +48,11 @@ jobs:
       - name: Mark the check pending
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
           SHA: ${{ github.event.deployment.sha }}
           TARGET_URL: ${{ github.event.deployment_status.environment_url }}
         run: |
-          gh api "repos/${{ github.repository }}/statuses/$SHA" \
+          gh api "repos/$REPO/statuses/$SHA" \
             -f state=pending \
             -f context=redirects-check \
             -f description='Checking redirects against the preview' \
@@ -68,7 +70,15 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
+      # --ignore-scripts: the checkout above is deployment.sha, i.e. whatever commit Vercel
+      # built this preview from. redirects-check.mjs and its only local import
+      # (redirects.config.mjs) need no npm package and no generated .source/ collection, so
+      # skipping lifecycle scripts costs nothing here — and it matters, because the next step
+      # puts VERCEL_AUTOMATION_BYPASS_SECRET into the job's environment. Without
+      # --ignore-scripts, a postinstall hook from that checkout runs first, before the secret
+      # exists, but could still rewrite scripts/redirects-check.mjs on disk; the step after it
+      # would then execute the rewritten file with the secret present.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Run redirects:check against the preview
         id: check
@@ -77,10 +87,16 @@ jobs:
           PREVIEW_URL: ${{ github.event.deployment_status.environment_url }}
         run: node scripts/redirects-check.mjs --base-url "$PREVIEW_URL"
 
+      # if: always() also runs on cancellation (e.g. a second deployment_status "success" event
+      # for the same sha cancels this run via the concurrency group above), and a cancelled run
+      # is neither a pass nor a real failure — it just means a newer run is reporting instead.
+      # Excluding 'cancelled' stops this step from posting a false state=failure that could
+      # otherwise race that newer run's status write.
       - name: Report result as a commit status
-        if: always()
+        if: always() && steps.check.outcome != 'cancelled'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
           SHA: ${{ github.event.deployment.sha }}
           TARGET_URL: ${{ github.event.deployment_status.environment_url }}
           OUTCOME: ${{ steps.check.outcome }}
@@ -92,7 +108,7 @@ jobs:
             state=failure
             description='A redirect is dead or shadowed on the preview — see the job log'
           fi
-          gh api "repos/${{ github.repository }}/statuses/$SHA" \
+          gh api "repos/$REPO/statuses/$SHA" \
             -f state="$state" \
             -f context=redirects-check \
             -f description="$description" \

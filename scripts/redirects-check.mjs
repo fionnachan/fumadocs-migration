@@ -27,20 +27,9 @@
  * External (http/https) destinations are reported as SKIPPED and not verified.
  */
 import { redirects } from '../redirects.config.mjs';
+import { parseArgs, protectionHint } from './lib/redirects-check.mjs';
 
 const DEFAULT_BASE_URL = 'http://localhost:3000';
-
-function parseArgs(argv) {
-  const baseUrlIndex = argv.indexOf('--base-url');
-  const bypassIndex = argv.indexOf('--bypass-header');
-  return {
-    baseUrl: (baseUrlIndex === -1 ? DEFAULT_BASE_URL : argv[baseUrlIndex + 1]).replace(/\/+$/, ''),
-    bypassHeader:
-      bypassIndex === -1
-        ? (process.env.VERCEL_AUTOMATION_BYPASS_SECRET ?? '')
-        : argv[bypassIndex + 1],
-  };
-}
 
 const isExternal = (value) => /^https?:\/\//.test(value);
 
@@ -64,12 +53,7 @@ async function fetchRoutableUrls(baseUrl, bypassHeader) {
     );
   }
   if (!response.ok) {
-    const hint =
-      response.status === 401 || response.status === 403
-        ? ' — if this deployment has Vercel Deployment Protection enabled, pass ' +
-          '--bypass-header <secret> or set VERCEL_AUTOMATION_BYPASS_SECRET'
-        : '';
-    throw new Error(`redirects-check: ${url} returned ${response.status}${hint}`);
+    throw new Error(`redirects-check: ${url} returned ${response.status}${protectionHint(response.status)}`);
   }
   const body = await response.text();
   const urls = new Set([...body.matchAll(/\]\((\/[^)]*)\)/g)].map((m) => bareUrl(m[1])));
@@ -82,7 +66,9 @@ async function fetchRoutableUrls(baseUrl, bypassHeader) {
 }
 
 async function main() {
-  const { baseUrl, bypassHeader } = parseArgs(process.argv.slice(2));
+  const { baseUrl, bypassHeader } = parseArgs(process.argv.slice(2), {
+    defaultBaseUrl: DEFAULT_BASE_URL,
+  });
   const routable = await fetchRoutableUrls(baseUrl, bypassHeader);
 
   const dead = [];
