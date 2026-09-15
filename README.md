@@ -147,9 +147,11 @@ The current Nitro release is <Var name="nitroVersionTag" />.
 
 **Variables do not work inside code.** MDX does not evaluate components inside a fenced code block
 or an inline code span, so `<Var name="…" />` there renders as a literal tag, not its value.
-Hardcode the current value in the code instead, and reference the variable in the prose next to it
-so the two can be checked against each other. `pnpm content:lint` (rule A6) fails on any `<Var>`
-found inside code.
+Usually the value was never code to begin with, and dropping the backticks is the whole fix. When a
+reader is meant to copy the line, as in a `docker run` command, hardcode the current value in the
+code and reference the variable in the prose next to it. `pnpm content:lint` (rule A6) fails on any
+`<Var>` found inside code, and `pnpm nitro:check-release` rewrites hardcoded copies of
+`latestNitroNodeImage` when it bumps that variable, so the two do not drift apart.
 
 **To update a value:** edit [`content/vars.json`](content/vars.json), then run `pnpm vars:check`.
 

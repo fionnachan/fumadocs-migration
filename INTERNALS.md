@@ -312,8 +312,16 @@ site is still live.
 **`<Var>` does not render inside code.** MDX does not evaluate components inside a fenced code
 block or an inline code span, so a `<Var name="…" />` placed there ships as the literal tag text.
 Neither `vars:check` nor `types:check` sees this, since both only prove the variable exists, not
-where it's used. `content-lint` rule A6 catches it; fix a finding by hardcoding the current value in
-the code and putting the live `<Var>` in the prose next to it.
+where it's used. `content-lint` rule A6 catches it. Fix a finding by removing the code span if the value was never
+code to begin with, which is the common case; a `docker run` command a reader copies genuinely needs
+the value spelled out, so hardcode it there and put the live `<Var>` in the prose next to it.
+
+The hardcoded copies are kept in step by `pnpm nitro:check-release`, which rewrites every occurrence
+of the **outgoing** `latestNitroNodeImage` value under `content/` when it bumps the variable. It
+matches that one string exactly rather than the `offchainlabs/nitro-node:` prefix, because `content/`
+holds dozens of older tags pinned deliberately in historical examples and a prefix match cannot tell
+those from a stale copy. A rule that flagged every non-current literal was considered and rejected
+for the same reason: it would open with 47 findings, none of them defects.
 
 ### Announcement banner
 

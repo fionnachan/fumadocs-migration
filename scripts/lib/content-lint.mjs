@@ -17,6 +17,10 @@
  *   A5  Internal link target keeping a `.md`/`.mdx` suffix — 404s at runtime.
  *   A6  `<Var>` inside a fenced code block or inline code span. MDX does not evaluate components
  *       inside code, so the reader sees the literal `<Var name="…" />` tag instead of its value.
+ *       Coverage matches `stripCode`, which models backtick and tilde fences and single-backtick
+ *       spans only: a `<Var>` inside a four-space-indented block or a double-backtick span is not
+ *       flagged. Widening A6 alone would make it disagree with A1..A5 about what "code" is, so the
+ *       two move together or not at all. Neither form appears in `content/`.
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -115,7 +119,11 @@ export function lintSource(source) {
   const varRe = /<Var\b[^>]*\/?>/g;
   for (const m of source.matchAll(/^([ \t]*)(`{3,}|~{3,})[\s\S]*?^\1?\2[^\n]*$/gm)) {
     for (const vm of m[0].matchAll(varRe)) {
-      add('A6', m.index + vm.index, '<Var> inside a fenced code block renders as a literal tag, not its value');
+      add(
+        'A6',
+        m.index + vm.index,
+        '<Var> inside a fenced code block renders as a literal tag, not its value',
+      );
     }
   }
   const withoutFences = source.replace(/^([ \t]*)(`{3,}|~{3,})[\s\S]*?^\1?\2[^\n]*$/gm, (m) =>
@@ -124,7 +132,11 @@ export function lintSource(source) {
   for (const m of withoutFences.matchAll(/`[^`\n]*`/g)) {
     const span = source.slice(m.index, m.index + m[0].length);
     for (const vm of span.matchAll(varRe)) {
-      add('A6', m.index + vm.index, '<Var> inside an inline code span renders as a literal tag, not its value');
+      add(
+        'A6',
+        m.index + vm.index,
+        '<Var> inside an inline code span renders as a literal tag, not its value',
+      );
     }
   }
 

@@ -10,6 +10,11 @@
  *   nitroVersionTag       the git tag, which also drives the precompile source links
  *   latestNitroNodeImage  the published node Docker image, read from Docker Hub
  *
+ * It then rewrites any hardcoded copy of the **outgoing** image tag under `content/` to the new one.
+ * Those copies exist because `<Var>` does not evaluate inside a code fence (content-lint rule A6),
+ * so a copy-pasteable `docker run` command has to spell the tag out. Matching the outgoing value
+ * exactly means a deliberately pinned older tag in a historical example is never touched.
+ *
  * Callers must regenerate the precompile tables afterwards — their implementation links
  * embed `nitroVersionTag`, so a bump leaves them stale. `.github/workflows/upstream-refresh.yml`
  * runs `precompiles:generate` in the same job for exactly this reason.
@@ -22,6 +27,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { runScript, setOutput, writeOrCheck } from './lib/generated-partial.mjs';
+import { syncImageInContent } from './lib/nitro-node-image.mjs';
 
 const VARS_PATH = path.join('content', 'vars.json');
 const NITRO_REPO = 'OffchainLabs/nitro';
@@ -123,6 +129,24 @@ async function main() {
 
   console.log(`updated nitroVersionTag      → ${updated.nitroVersionTag}`);
   console.log(`updated latestNitroNodeImage → ${updated.latestNitroNodeImage}`);
+
+  // A `docker run` line a reader copies has to carry the image tag literally, because `<Var>` does
+  // not evaluate inside a code fence (content-lint A6). Those copies would otherwise keep the old
+  // tag while the prose beside them advertises the new one, with no gate to catch it. Only the
+  // exact outgoing value is rewritten, so deliberately pinned older tags are left alone.
+  const synced = syncImageInContent(
+    process.cwd(),
+    vars.latestNitroNodeImage,
+    updated.latestNitroNodeImage,
+  );
+  const total = synced.reduce((n, f) => n + f.count, 0);
+  console.log(
+    total === 0
+      ? 'no hardcoded copies of the old image in content/'
+      : `rewrote ${total} hardcoded copies of the old image across ${synced.length} file(s):`,
+  );
+  for (const f of synced) console.log(`  ${f.rel} (${f.count})`);
+
   console.log('Regenerate the precompile tables: pnpm precompiles:generate');
 
   setOutput('updates_made', 'true');
