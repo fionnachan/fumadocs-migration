@@ -61,9 +61,14 @@ Vercel deploy too. See [The gates](INTERNALS.md#the-gates) for the full list.
 A Husky pre-commit hook also runs automatically on `git commit`, scoped to staged files only
 ([`.lintstagedrc.mjs`](.lintstagedrc.mjs)):
 
-- Prettier formats every staged file it understands.
-- Staged `.mdx` under `content/` also gets `content:lint`, restricted to those files.
-- A staged `.ts`/`.tsx` file triggers one full `pnpm types:check` (not per file).
+- Prettier formats every staged file it understands, except `meta.json` (generator output;
+  formatting it here would fight `pnpm move-doc` on every run).
+- Staged `.mdx` under `content/` also gets `content:lint`, restricted to those files and to the
+  rules that are already clean repo-wide (see [The gates](INTERNALS.md#the-gates) for why the
+  rest stay non-blocking).
+- A staged `.ts`/`.tsx` file triggers one full `pnpm types:check` (not per file). This regenerates
+  `.source/`, runs `next typegen`, then type-checks the whole project, so it takes several seconds
+  even for a one-line change. That is expected, not a hang.
 
 It skips entirely when `HUSKY=0` or `CI=true`, and reverts to the pre-commit state if any task
 fails, so a failed commit never leaves half-formatted files staged. Bypass with
