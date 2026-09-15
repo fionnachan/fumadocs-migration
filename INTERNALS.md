@@ -14,6 +14,8 @@ canonical for humans, and the one to edit first.**
 - [The pipeline](#the-pipeline)
 - [`source` is a choke point](#source-is-a-choke-point)
 - [The frontmatter contract](#the-frontmatter-contract)
+- [Last modified dates](#last-modified-dates)
+- [Page metadata](#page-metadata)
 - [Partials](#partials)
 - [Global variables](#global-variables)
 - [Redirects](#redirects)
@@ -21,7 +23,11 @@ canonical for humans, and the one to edit first.**
 - [Partial versioning](#partial-versioning)
 - [Glossary and inline references](#glossary-and-inline-references)
 - [Custom MDX components](#custom-mdx-components)
+- [Remote images are never fetched at build](#remote-images-are-never-fetched-at-build)
+- [The Node runtime](#the-node-runtime)
+- [Analytics](#analytics)
 - [The gates](#the-gates)
+- [Upstream drift](#upstream-drift)
 - [What nothing catches](#what-nothing-catches)
 - [Known trade-off: no static prerendering](#known-trade-off-no-static-prerendering)
 - [Design specs](#design-specs)
@@ -41,10 +47,10 @@ Four packages are installed here:
 
 | Package             | Version | Responsible for                                                                 |
 | ------------------- | ------- | ------------------------------------------------------------------------------- |
-| `fumadocs-core`     | 16.15.1 | Headless engine: the Loader API, page tree, search, TOC, MDX plugins            |
-| `fumadocs-mdx`      | 15.3.1  | The content source: compiles MDX into typed **collections**                     |
-| `fumadocs-ui`       | 16.15.1 | The default theme: `DocsPage`/`DocsBody` layouts, tabs, accordions, code blocks |
-| `fumadocs-twoslash` | 3.3.0   | Type-checked TypeScript code samples (` ```ts twoslash `)                       |
+| `fumadocs-core`     | 16.15.9 | Headless engine: the Loader API, page tree, search, TOC, MDX plugins            |
+| `fumadocs-mdx`      | 15.4.0  | The content source: compiles MDX into typed **collections**                     |
+| `fumadocs-ui`       | 16.15.9 | The default theme: `DocsPage`/`DocsBody` layouts, tabs, accordions, code blocks |
+| `fumadocs-twoslash` | 3.3.1   | Type-checked TypeScript code samples (` ```ts twoslash `)                       |
 
 `fumadocs-ui` is a theme, not a requirement — the headless core would work without it. We use it,
 and override its tokens rather than forking it.
@@ -71,6 +77,13 @@ grouping** — its `pages: []` array takes basename slugs and supports `...` res
 **The catch-all route.** One file, `app/docs/[[...slug]]/page.tsx`, renders every docs page. It
 takes the slug segments, calls `source.getPage()`, and renders. Adding an `.mdx` file creates a
 route with no wiring; there is no per-page React file.
+
+**The action row** under the title holds `MarkdownCopyButton`, `ViewOptionsPopover`,
+`RequestUpdateLink` (`components/RequestUpdateLink.tsx`, the port of the Docusaurus `HeaderBadges`
+"Request an update" badge: a server-rendered link to a prefilled GitHub issue, built from
+`gitConfig`, `page.url`, and `NEXT_PUBLIC_SITE_URL`), and, on versioned pages only,
+`VersionSwitcher`. The [last updated](#last-modified-dates) line sits above it, between the
+description and the row.
 
 **Slugs are the file path minus the extension**, with a trailing `index` dropped —
 `content/docs/stylus/quickstart.mdx` serves at `/docs/stylus/quickstart`, given `baseUrl: '/docs'`.
@@ -147,6 +160,97 @@ cost a 24 MB chunk on every docs page. No gate catches this — see
 A missing or invalid field fails `types:check` and `build`. This is the most common reason a build
 breaks after adding content.
 
+## Last modified dates
+
+Each docs page prints "Last updated on <date>" under its description, the equivalent of upstream
+Docusaurus' `showLastUpdateTime`. The date is not frontmatter and writers never set it: the
+`lastModified` option on the `docs` and `docsVersions` collections makes `fumadocs-mdx` read it
+from git, and `page.data.lastModified` (a `Date`) reaches the page component through the same
+`source` object as everything else. An archived version shows the archive file's own date, not the
+live page's.
+
+**No date is resolved unless the checkout has complete git history**, decided by the
+`hasFullGitHistory()` probe at the top of `source.config.ts`. This is not belt and braces. In a
+shallow clone the oldest commit is grafted in as a parentless root, so git diffs it against the
+empty tree and reports it as adding every file under it. Measured on this repo at `--depth=10`:
+430 of about 450 pages came back stamped with a single boundary commit that in full history
+touched no content at all. A wrong date on every page is worse than no date, so the probe yields
+no dates instead. Nothing renders, no error appears, and nothing fails.
+
+**The option is never set to `false`, and that detail is load-bearing.** `lastModified` is part of
+the collection's _type_ contract, not only its behaviour: fumadocs-mdx adds the
+`lastModified?: Date` field to the generated `DocData` only when the option is truthy. Setting it
+to `false` in a shallow checkout deletes the field from the type, and the docs page then fails
+`types:check` with TS2339. That makes the gate pass or fail according to how the repository
+happened to be cloned, which is exactly what happened on the first attempt at this change: green
+locally, red in CI, because `actions/checkout` clones shallow. The probe therefore chooses between
+two _truthy_ values. With full history it passes `true`, which uses fumadocs-mdx's batched
+`git log`. Without it, it passes a resolver that returns `undefined` for every file, which keeps
+the field typed while yielding no dates.
+
+The choice is made in `source.config.ts` at build time rather than at render time because pages
+render on demand in a serverless runtime that has neither git nor the repository.
+
+**What a reviewer must configure.** Vercel clones at `--depth=10` by default, so the dates are
+absent on previews and in production until someone sets `VERCEL_DEEP_CLONE=true` in the Vercel
+project's environment variables. Nothing else is needed: a deep clone makes the probe pass on its
+own. The same applies to any CI job that wants the dates, since `actions/checkout` defaults to
+`fetch-depth: 1`. No gate depends on the dates, so `ci.yml` is deliberately left alone.
+
+The rendered date is formatted in UTC so that the output does not depend on which machine rendered
+the page. A commit made late in the evening in a western timezone therefore reads as the next day.
+The machine-readable `dateTime` attribute on the `<time>` element always carries the exact instant.
+
+## Page metadata
+
+`generateMetadata` in `app/docs/[[...slug]]/page.tsx` emits the per-page title and description, an
+Open Graph image from the `og/` route, a canonical URL, and the Twitter card tags
+(`summary_large_image`, site `@arbitrum`). The canonical deliberately uses `page.url`, which
+carries no query string, so an archived `?v=` view canonicalizes to the live page rather than
+splitting it in two.
+
+**Every absolute URL a page publishes as metadata traces back to `getSiteUrl()` in
+`lib/shared.ts`, and that helper throws rather than guessing.** It returns `NEXT_PUBLIC_SITE_URL`, falls back to `http://localhost:3000`
+outside production, throws when `VERCEL_ENV` or `NEXT_PUBLIC_VERCEL_ENV` is `production` and the
+variable is unset, and throws when a configured value does not parse as an absolute URL. The throw exists because `NEXT_PUBLIC_*` values are inlined at build time:
+a production build with the variable missing would bake `http://localhost:3000` into the canonical
+and social image URL of every page in the deployed output. Those pages then tell crawlers the
+canonical copy lives on localhost, which is worse than emitting no canonical at all, and nothing
+about the running site reveals it. Failing the build is the last cheap moment to catch it.
+
+**The rule lives in `lib/site-url.mjs`, in plain JavaScript, and both `lib/shared.ts` and
+`next.config.mjs` import it.** That split is not stylistic. `pnpm build` runs with
+`--experimental-build-mode=compile` and `generateStaticParams` returns `[]` (see the
+[known trade-off](#known-trade-off-no-static-prerendering)), so no page or layout module is evaluated at build time and
+`getSiteUrl()`'s throw never fires there. `next.config.mjs` is the earliest thing the build does
+evaluate, which makes it the real gate, and it cannot import TypeScript. The rule used to be
+written out by hand in both files, which meant the copy with the tests was the backstop and the
+copy without them was the gate, one edit away from silently diverging. One module imported by both
+removes the question. A malformed value is caught in the same place and for the same reason: an
+origin pasted without a scheme (`docs.arbitrum.io`) satisfies a presence check, then throws inside
+`new URL()` at the root layout's module scope on the first request after promotion and 500s every
+route, which is the unset failure again but worse, because the unset case at least fails the build.
+
+`app/layout.tsx` calls `getSiteUrl()` at module scope for `metadataBase`, which keeps the failure a
+module-load one rather than a per-request one for anything reached outside a build. The docs page calls it again to build the
+canonical absolutely rather than leaning on `metadataBase` resolution, so the one value that a
+wrong canonical depends on is read through the one helper that refuses to invent it. The helper imports
+nothing but the rule module, and must stay that way: it is what lets `app/sitemap.ts` and
+`app/robots.ts` use it without pulling `lib/source` toward a client bundle. `scripts/lib/site-url.test.mjs` covers it, calling the `.mjs` rule directly and
+then checking both wrappers: `getSiteUrl()` in a subprocess with `--experimental-strip-types`,
+because `node --test` cannot import TypeScript, and `next.config.mjs` by importing it under a
+controlled environment, which is the case that pins the build failure itself.
+
+**`RequestUpdateLink` is the one deliberate exception, and it should stay one.** It reads
+`NEXT_PUBLIC_SITE_URL` directly (`components/RequestUpdateLink.tsx`) and falls back to the
+site-relative path rather than to the helper's localhost. Its URL is not metadata: it goes into the
+body of a GitHub issue that a person reads, and `/docs/stylus/quickstart` tells that person which
+page the report is about, while `http://localhost:3000/docs/stylus/quickstart` is noise from
+whoever happened to file it from a dev server. In production the two are identical, because the
+build fails when the variable is unset. Do not "fix" this into a `getSiteUrl()` call.
+
+`app/(home)/page.tsx` sets no canonical of its own and is the one remaining page without one.
+
 ## Partials
 
 Reusable `_`-prefixed fragments live in `content/partials/` — **outside** the doc collection `dir`
@@ -165,6 +269,19 @@ supported by the tooling (`scripts/lib/partials.mjs` scans the importer roots) b
 by no component.** The last consumer, `FloatingHoverModal`, was deleted as dead code.
 
 Partials carry no frontmatter; `<include>` strips it, and the lint flags vestigial frontmatter.
+
+**Two partials are generated, not written.** `content/partials/precompile-tables/*.mdx` comes from
+`pnpm precompiles:generate`, and `content/partials/_reference-arbitrum-contract-addresses-partial.mdx`
+from `pnpm contracts:generate` (the `@arbitrum/sdk` network registry plus
+`scripts/data/contract-addresses.data.mjs`, every address normalised to its EIP-55 checksum because
+`<AddressExplorerLink>` throws on a bad one). Each carries a do-not-edit marker at the top. Edit the
+generator or its data file, never the `.mdx`. These two are also the only partials Prettier touches,
+via the generators themselves; `.prettierignore` excludes `**/*.mdx` from `pnpm format`.
+
+The contract-addresses partial is the one that still carries frontmatter, so `partials:check` warns
+R3 on it. The generator reproduces it rather than dropping it: the title and summary in `CATALOG.md`
+are read from those keys, so removing them is a catalog change, not a formatting one, and belongs in
+its own commit.
 
 `CATALOG.md` and `manifest.json` are generated — never hand-edit them. Curate titles, summaries,
 and tags in the optional `content/partials/registry.json`.
@@ -191,6 +308,52 @@ catches a `<Var name>` with no matching key.**
 
 Values mirror upstream `arbitrum-docs/src/resources/globalVars.js`. Keep them in sync while that
 site is still live.
+
+### Announcement banner
+
+`app/layout.tsx` renders Fumadocs' `Banner` above everything else in `RootProvider`, which puts it
+above the navbar because every layout's header lives inside `{children}`. Its text, link, enabled
+flag, and id all come from `vars.json`, so writers change the message without touching code. It
+replaces the Docusaurus `announcementBar`.
+
+Three things about it are not obvious:
+
+- **The keys are not `<Var>` substitutions.** `pnpm vars:check` reports them as configured but
+  unreferenced in MDX. That warning is expected for this block and is not a defect.
+- **`announcementId` is the dismissal key, and dismissal is permanent.** Fumadocs writes
+  `nd-banner-<base32(id)>` to the viewer's `localStorage` on close and injects a script that hides
+  the banner before hydration. `localStorage` outlives the tab and the session, so a reader who
+  closes the banner is done with that id on that browser for good. The ticket asked for "per
+  session"; this is stronger, and it is what Fumadocs' component does. Reusing an id for a new
+  message therefore hides it from everyone who dismissed the old one.
+- **`announcementLinkHref` is gated.** `pnpm vars:check` requires an `https` URL or a root-absolute
+  internal path that resolves to a page or a `public/` file, with the rule in
+  `scripts/lib/announcement-link.mjs` and its tests beside it. `check-links` walks MDX only and this
+  value lives in JSON, so without that check the most visible link on the site is the one nothing
+  validates. Relative hrefs are rejected rather than resolved: the banner renders on every route, so
+  there is no page to resolve them against.
+- **`height` has to be a real length.** The prop lands in an inline style and in
+  `--fd-banner-height`, which the docs and notebook containers feed into `calc()` and a sticky
+  `top`. `auto` breaks the grid. The message fits one line from 640px up and wraps to two below, so
+  the layout passes a custom property that a media query switches between `3rem` and `4rem` rather
+  than a constant.
+- **The height and the text are coupled, and only the text is writer-facing.** The heights above
+  were chosen for a message of the current length, and that message is a `vars.json` value a writer
+  is meant to change without a code review. `3rem` holds two lines of `text-sm`, `4rem` holds three,
+  and a long enough message overflows. No gate sees this, because the text lives in JSON and the
+  height lives in TSX. The constraint is therefore stated in the [README](README.md#announcement-banner)
+  next to the key, as a budget of roughly 140 characters for `announcementText` plus
+  `announcementLinkText`. A character gate was considered and rejected: any threshold would be a
+  guess at Aeonik's metrics, and a gate that fires on a message which actually renders fine is worse
+  than the prose. Measuring the rendered bar and writing `--fd-banner-height` from a
+  `ResizeObserver` would remove the coupling properly; it needs a client component and was out of
+  scope here.
+- **`announcementId` is constrained by a pattern in the schema.** Banner writes it into the
+  element's `id` and into a generated `.<key> #<id> { display: none }` rule. The class half is
+  `nd-banner-<base32(id)>` and is always a legal identifier; the `#<id>` half is the raw value. A
+  space or a leading digit makes that selector match nothing, so closing the banner would look like
+  it worked and the banner would return on the next page load, silently. `content/vars.ts` requires
+  `^[A-Za-z][A-Za-z0-9_-]*$` so the failure happens at module load instead.
 
 ## Redirects
 
@@ -302,7 +465,7 @@ with the `ja` and `zh-CN` trees.
 `proxy.ts` does exactly two things:
 
 1. An explicit **bypass list** of routes served verbatim: `/_next/`, `/img/`, `/favicon.ico`,
-   `/llms*`, `/og/`, `/api/`.
+   `/sitemap.xml`, `/robots.txt`, `/llms*`, `/og/`, `/api/`.
 2. `.md`-suffix rewrites plus `Accept: text/markdown` content negotiation to the markdown route.
 
 **A new top-level route belongs in that bypass list**, or markdown negotiation will try to rewrite
@@ -310,6 +473,51 @@ it.
 
 Re-adding localization means restoring `defineI18n`, the `i18n` argument to `loader()`, a `[lang]`
 segment, and `createI18nMiddleware`.
+
+### `/sitemap.xml` and `/robots.txt`
+
+Both are Next **metadata routes** (`app/sitemap.ts`, `app/robots.ts`), file conventions rather than
+route handlers, so there is no `route.ts` and no hand-written XML. Neither sets `revalidate`: a
+metadata route with no request-time input is already cached at build time by default.
+
+**Both read the deployed origin through `getSiteUrl()`** (see [Page metadata](#page-metadata)),
+the same helper behind `metadataBase` in `app/layout.tsx` and the docs page canonical, so the four
+can never disagree. `NEXT_PUBLIC_SITE_URL` is inlined at build time, so an unset value would
+otherwise ship a production sitemap and robots.txt pointing at localhost with nothing failing
+loudly; the helper throws on that condition instead. Outside production it falls back to
+`http://localhost:3000`, so a local build stays self-consistent rather than broken.
+
+**The sitemap derives every entry from `source.getPages()`**, the same choke point every other
+content consumer reads. Adding a page to `content/docs/` puts it in the sitemap with no further
+change. The home page at `/` is not in the doc collection and is prepended by hand.
+
+Upstream's Docusaurus sitemap needed a `nonCanonicalRoutePatterns` ignore list because Docusaurus
+routed partials, `_`-prefixed files, and auto-generated `/category/` index pages. **Here there is
+nothing to exclude:** partials live in `content/partials/`, archived versions in
+`content/_versions/`, and the glossary in `content/glossary/`, all outside the doc collection `dir`,
+so `source.getPages()` cannot return them. Verified 2026-09-11: the sitemap's URL set is exactly the
+339 unique doc URLs in `/llms.txt`, plus `/`.
+
+`lastModified` is emitted per page only when `page.data.lastModified` exists. It comes from the
+`lastModified` option on the docs collection, which is itself gated behind a full-git-history probe
+(see [Last modified dates](#last-modified-dates)). In a shallow checkout every page resolves to
+`undefined` and `<lastmod>` is simply absent, which is valid.
+
+`app/robots.ts` ports upstream `static/robots.txt` and differs from it in two deliberate ways:
+
+- **No `Disallow` lines.** Upstream disallowed `/category/` and `/hosted-pdfs/`; neither route
+  exists here, and disallowing paths that 404 is noise.
+- **`Content-Signal: search=yes, ai-input=yes, ai-train=no` is emitted through the rule's `other`
+  field.** The directive is not RFC 9309; it is draft-romm-aipref-contentsignals
+  ([contentsignals.org](https://contentsignals.org/)). Next models only the standard directives and
+  documents `other` as the pass-through for exactly this, available since Next 16.3.0, so no
+  separate `app/robots.txt/route.ts` handler is needed. Next emits `Allow` before `other`, which
+  reorders the lines relative to upstream's file; robots.txt directives are order-independent
+  within a group, so the meaning is unchanged.
+
+Neither route is reachable by the rewrite patterns today (both are anchored at `/docs`). They are
+in the bypass list by convention, because that list is where a route that must be served verbatim
+is cheap to state and hard to break from a distance.
 
 ## Partial versioning
 
@@ -348,12 +556,140 @@ component instead — for `_next/image` optimization — import it per file, whi
 for that file. The native component then requires `width`/`height` or the build fails; add
 `style={{ width: '100%', height: 'auto' }}` for responsiveness and drop `caption`.
 
+## Remote images are never fetched at build
+
+`source.config.ts` sets `remarkImageOptions: { external: false }`. Nothing in the build requests a
+third-party image.
+
+**Why.** Fumadocs' `remark-image` probes each image for its intrinsic size so it can emit
+`width`/`height`. For an `https://` src that probe is an HTTP request made while MDX compiles, and
+its `onError` default is `error`. One third-party URL that started answering 403 therefore threw
+during compilation and took down **every** docs page, not only the page holding the image:
+`/docs/get-started` served a 500 with `[Remark Image] Failed obtain image size for
+https://imgur.com/0q5bHZK.png`. That is the failure FS-2681 removed.
+
+**What this means per syntax.** The two ways to put an image on a page are no longer equivalent, and
+the difference is the thing to remember:
+
+| Syntax                          | Component                                    | Remote src after this change |
+| ------------------------------- | -------------------------------------------- | ---------------------------- |
+| `![alt](https://…)`             | `next/image`, via `defaultMdxComponents.img` | **The page 500s.**           |
+| `<ImageZoom src="https://…" />` | `components/mdx/ImageZoom`, a plain `<img>`  | Renders.                     |
+| `![alt](/img/…)`                | `next/image`, measured from disk             | Renders, optimized.          |
+
+Markdown is the broken one because `next/image` requires dimensions it can no longer obtain.
+Measured on a scratch page, not inferred: a reachable remote src in markdown syntax returns HTTP 500
+with `Image with src "…" is missing required "width" property`, while the same URL through
+`<ImageZoom>` returns 200 and emits `<img src="https://…">`. A remote markdown image would fail for
+a second reason as well if it got past the first, since `next.config.mjs` declares no
+`images.remotePatterns`.
+
+**So:** commit images under `public/` and reference them as `/img/…`. That is the only form that is
+both reliable and optimized. Where a third party's own CDN copy has to be used, `<ImageZoom>` is the
+supported way, as `content/docs/third-party-docs/Particle/particle.mdx` does.
+
+**Why `external: false` and not `onError: 'ignore'`.** Both stop the compile from throwing.
+`external: false` also stops the compile from touching the network at all, which keeps it
+deterministic and lets the `Build` job become blocking. `onError: 'ignore'` would keep a network
+round trip per remote image for a `width` that markdown cannot use anyway. Local images are still
+measured from disk, and `onError` stays at its default `error`, so a missing or corrupt file under
+`public/` still fails the build rather than shipping a broken page.
+
+**Finding them.** One script, two modes:
+
+- `pnpm images:presence` is offline and **blocking in CI**. It fails when a markdown image with a
+  remote src appears anywhere in content, which is exactly the case that 500s.
+- `pnpm images:check` requests every remote image, markdown or JSX, and prints the ones that no
+  longer answer. Report only, exits 0 unless `--strict`, and deliberately not in CI: a third party's
+  outage is not a reason to fail somebody else's pull request.
+
+## The Node runtime
+
+**Node 22 LTS, everywhere.** Three files state it and they must agree:
+
+| Where                            | What it says       | Who reads it                                    |
+| -------------------------------- | ------------------ | ----------------------------------------------- |
+| `engines.node` in `package.json` | `>=22.0.0 <23.0.0` | pnpm, which refuses to install on another major |
+| `.node-version`                  | `22`               | Vercel, nvm, fnm, asdf                          |
+| Vercel project settings          | Node.js 22.x       | the build and the serverless functions          |
+
+`.node-version` is the one that makes a fresh machine and a fresh Vercel build agree without anyone
+remembering to configure it. Vercel reads it on every build and pins the runtime to that major;
+without it Vercel uses its own current default, which is ahead of `engines` and drifts again each
+time Vercel moves. Upstream `arbitrum-docs` carries the same file with the same content.
+
+**The Vercel project setting still has to be set to Node.js 22.x by hand** (Settings, then Build and
+Deployment, then Node.js Version). `.node-version` pins the build; the project setting is what the
+deployed functions run on, and a mismatch between them is not reported anywhere.
+
+**Locally, use nvm**: `nvm use 22` in this directory, or `nvm install 22` first. nvm reads
+`.node-version` as well as `.nvmrc`, so no argument is needed once the file is present. Node 24 and
+26 are rejected by `engines` before anything installs, which is the intended behaviour and not a bug
+to work around with `--ignore-engines`.
+
+## Analytics
+
+Three independent paths send events to the same PostHog project. They share nothing but the
+project token, so one being off does not affect the others.
+
+| Path                                | Where                                               | Runs on                                           |
+| ----------------------------------- | --------------------------------------------------- | ------------------------------------------------- |
+| Page feedback                       | `lib/posthog.ts`, a server action                   | everywhere, including local                       |
+| Web analytics (`$pageview`)         | `components/analytics/posthog-provider.tsx`, client | production only                                   |
+| Inkeep search and chat (`inkeep_*`) | the bridge in `lib/inkeep.ts`, client               | production only, piggybacking on the client above |
+
+**The production gate.** `VERCEL_ENV` is a server-only variable, so a client component cannot read
+it. Vercel exposes the same value to the browser as `NEXT_PUBLIC_VERCEL_ENV`, which is what the
+provider checks. It is `production` on the production deployment, `preview` on every preview build,
+and unset locally.
+
+That check has to stay written as a literal `process.env.NEXT_PUBLIC_VERCEL_ENV` member expression.
+Next inlines those at build time, so on a non-production build the enabled flag folds to `false`
+and the guarded `import('posthog-js')` is dead code. Destructuring `process.env` into a local first
+turns it into a runtime lookup and loses that.
+
+The SDK sits behind `import()`, so it compiles to its own async chunk (~290 kB) rather than joining
+the chunk the layout loads. Turbopack emits that chunk either way, but with the gate off the
+browser never requests it: no script fetch, no `init`, no events, and `window.posthog` stays
+undefined.
+
+**Pageviews are manual.** `capture_pageview` is `false` because the App Router never does a full
+page load on navigation. `PageviewTracker` captures `$pageview` from an effect keyed on
+`usePathname()` and `useSearchParams()`. `useSearchParams` forces client-side rendering up to the
+nearest Suspense boundary, so the tracker is wrapped in its own `<Suspense>` and the rest of the
+tree still prerenders.
+
+**The `window.posthog` contract.** `lib/inkeep.ts` predates this component and looks for a global
+with a `capture` method; it no-oped for as long as nothing set one. The provider assigns the
+initialised client to `window.posthog` after `init()`, which is the only reason the `inkeep_*`
+events start flowing. Anything that replaces the provider has to keep that assignment.
+
+**Capture settings** mirror the Docusaurus `posthog-docusaurus` config: `persistence: 'memory'` (no
+cookies, no localStorage), session replay off, autocapture off, and the remote-config request
+disabled. `defaults` is pinned to a dated value so upgrading `posthog-js` cannot silently change
+what is captured.
+
+**The 404 page** (`app/not-found.tsx`) captures `404_error` through
+`components/analytics/not-found-tracker.tsx`, with the same fields the Docusaurus `NotFound`
+swizzle sent: pathname, search, hash, referrer, user agent, and full URL. It reads `window.posthog`
+rather than importing the SDK, so it captures nothing outside production instead of pulling a few
+hundred kilobytes into every deployment. Because the SDK initialises from an effect of its own, out
+of a ~290 kB async chunk, and no ordering between the two effects is guaranteed, the tracker retries
+on a backoff spanning about sixteen seconds rather than losing the event to that race. It snapshots
+the location at mount, so a late attempt still reports the URL the reader landed on. These events are what M-53 monitors after cutover to find inbound URLs the
+redirect map still misses.
+
+**Environment variables.** `NEXT_PUBLIC_POSTHOG_KEY` is the PostHog project token (`phc_…`), which
+is write-only and safe to expose. `NEXT_PUBLIC_VERCEL_ENV` is set by Vercel; you never set it by
+hand. Setting the key locally does nothing on its own, which is deliberate: local browsing must not
+pollute production data.
+
 ## The gates
 
 CI runs on push and PR to `main` (`.github/workflows/ci.yml`) in three jobs. **Only the first
 blocks.** A green PR does not mean the content is clean.
 
-**`Gates` (blocking)** — eight steps:
+**`Gates` (blocking)** — ten steps:
 
 | Step                       | Catches                                                                       |
 | -------------------------- | ----------------------------------------------------------------------------- |
@@ -364,26 +700,153 @@ blocks.** A green PR does not mean the content is clean.
 | `partials:check`           | Unresolved includes, routing leaks, stale catalog, `cwd` include in a partial |
 | `versioned-docs-check.mjs` | Archived-page registry drift                                                  |
 | `references:check`         | Glossary ids and `<Reference>` targets                                        |
+| `images:presence`          | A markdown image with a remote src, which renders as a 500                    |
 | `check-links`              | Broken internal doc links                                                     |
+| `contracts:check`          | The generated contract-address partial matches `@arbitrum/sdk`                |
 
 `check-links` exists because Fumadocs has no equivalent of Docusaurus's `onBrokenLinks: 'throw'`.
 `pnpm build` chains it ahead of `next build`, so a broken link also fails the Vercel deploy.
 
-**`Content debt` (non-blocking)** — `format:check` and `content:lint`, each marked
-`continue-on-error` because each still fails on pre-existing debt. The job comment records the
-counts. **Promote a step into `Gates` once its count reaches zero** — that promotion is the point
-of the split. This tier is a backlog, not a policy.
+**`Content debt` (non-blocking)** — `format:check`, `content:lint` and `precompiles:check`, each
+marked `continue-on-error`. The first two still fail on pre-existing debt, and the job comment
+records the counts. **Promote one of those two into `Gates` once its count reaches zero** — that
+promotion is the point of the split. This tier is a backlog, not a policy.
 
-**`Build` (non-blocking)** — `pnpm build`, deliberately not blocking: the MDX image pipeline fetches
-remote images at build time, so a dead third-party URL turns it red for reasons unrelated to the
-change under review. It still catches MDX compile errors that `types:check` cannot see.
+`precompiles:check` is in this tier for a different reason, and reaching zero is not what would
+promote it: it is already green. It fetches about thirty Solidity sources from
+`raw.githubusercontent` on every run, so a GitHub blip turns it red for reasons unrelated to the
+change under review, the same argument that keeps `Build` non-blocking. Losing the network
+dependency is what would promote it.
 
-**Run by hand only:** `drift`, `precompiles:check`, `redirects:legacy`, `redirects:check`.
-`redirects:check` cannot run in CI as-is because it reads `/llms.txt` off a running site.
+**`Build` (non-blocking)** runs `pnpm build`. It catches MDX compile errors that `types:check` cannot
+see. It was made non-blocking because the MDX image pipeline fetched remote images at build time, so
+a dead third-party URL turned it red for reasons unrelated to the change under review. That reason
+is gone: the build no longer touches the network for images (see
+[Remote images are never fetched at build](#remote-images-are-never-fetched-at-build)). Promoting
+this job into `Gates` is now possible and wants its own change, not least because a full build is
+the slowest job here.
+
+**Run by hand only:** `drift`, `redirects:legacy`, `redirects:check`, and the network mode of
+`images:check`. `redirects:check` cannot run in CI as-is because it reads `/llms.txt` off a running
+site. `images:check` reaches out to third-party hosts, so its result depends on somebody else's
+uptime. Its offline sibling `images:presence` does run in CI.
 
 `upstream-refresh.yml` runs Mondays at 08:00 UTC and on `workflow_dispatch`: `nitro:check-release`,
-then `precompiles:generate`, opening `automated/upstream-refresh` as a PR if anything changed. It
-never writes to `main` and no-ops when the tree is clean.
+then `precompiles:generate`, then `contracts:generate`, opening `automated/upstream-refresh` as a PR
+if anything changed. It never writes to `main` and no-ops when the tree is clean.
+
+The two generators' `--check` modes sit in different CI tiers, because they are not the same kind
+of check.
+
+`contracts:check` blocks. Its input does not move on its own: the generator reads the network
+registry that ships inside `@arbitrum/sdk`, and that pin is exact, so the step can only go red on
+a human act. There are two, and both should block. One is a hand edit to the generated partial,
+against the do-not-edit marker inside it; before this gate existed such an edit passed CI, merged,
+and was then silently reverted by the next weekly refresh under the automation's authorship rather
+than its author's. The other is a PR bumping the SDK to a release that moves a published address,
+which is a value a reader pastes into a transaction and must never change unreviewed.
+
+A Dependabot bump of the SDK therefore reddens only the bumping PR, not every open one: CI installs
+from each branch's own lockfile, so no other branch sees the new registry until that PR merges. The
+fix in that PR is one command, `pnpm contracts:generate`, and a commit of the regenerated partial.
+Note the gate fires only when a bump actually moves an address; a release that changes nothing the
+partial renders stays green.
+
+`precompiles:check` does not block, for the network reason given above rather than for any
+statement about its input.
+
+When `contracts:check` fails it prints a line-level diff, so a reviewer can see whether an address
+moved or only the formatting did. That diff is a real one, computed over a longest common
+subsequence in `scripts/lib/line-diff.mjs`: comparing the two files by line index instead reported
+every line after an insertion as changed, which on this 112-line partial meant 53 lines for a
+two-line edit and defeated the point of printing it.
+
+## Upstream drift
+
+`pnpm drift` compares this repo against the upstream Docusaurus tree
+(`OffchainLabs/arbitrum-docs`) and reports two things: **ABSENT**, an upstream page with no
+counterpart here, and **GUTTED**, a page whose body here is under 70% of the upstream body.
+
+**Finding the upstream checkout.** `scripts/lib/upstream-tree.mjs` resolves it from
+`scripts/data/upstream.config.json`, first hit wins:
+
+1. `--tree-a <path>`, which names the docs tree itself, resolved against the cwd
+2. `UPSTREAM_DOCS_REPO`, which names the repo root, resolved against the cwd
+3. `repo` in the config, resolved against **this repo's root**
+4. `probePaths` in the config, in order, resolved against this repo's root
+
+Config paths resolve against the repo root rather than the cwd because the checkout's position
+relative to this repo is fixed while the cwd is not: the sibling clone sits at `../arbitrum-docs`
+from the main checkout and `../../arbitrum-docs` from a worktree, and both are in `probePaths`. So
+clone `arbitrum-docs` next to this repo and `pnpm drift` needs no arguments from anywhere.
+
+**Pairing happens across the whole tree at once, not file by file.** `pairTrees` makes two passes:
+directory-qualified matches first, each claiming its local file, then the bare-slug fallback for
+whatever is left, never onto a file the first pass already claimed. One local file therefore pairs
+with at most one upstream page.
+
+**One local file pairs with at most one upstream page, in both passes.** The claim rule is not just
+a tie-breaker for the fallback: two upstream pages can land on the same local file through the
+directory match too, once a rename points them there. The single exception is a deliberate
+two-into-one port, which both sides declare with `merge: true` in `RENAME_MAP` (upstream splits
+batch-poster and assertion config across two pages; the port combined them). Without that flag the
+collision is treated as accidental and the later page reports ABSENT, which is the honest answer,
+because the tool cannot tell on its own whether the second page's content survived inside the first.
+
+This matters because upstream keeps a concept page and a how-to page under the same basename:
+`arbos`, `stf`, and `batchposter` versus `batch-poster`. Resolving one path at a time, the concept
+page paired correctly by directory and the how-to page then grabbed the **same** local file through
+the fallback. The report called three ported pages GUTTED at 0.12, 0.20 and 0.48, purely because it
+was measuring a how-to against a concept page, and hid three unported how-tos behind those ratios.
+One mispairing, two wrong answers, in opposite directions. A fourth case was quieter still:
+upstream's `chain-config/costs/gas-optimization.mdx` paired against the unrelated Stylus
+`best-practices/gas-optimization.mdx`, whose line count happened to clear 70%, so it produced no
+finding at all. All four turned out to be plain renames once pairing was fixed.
+
+**Three mechanisms change what the report says, and they are deliberately not one mechanism:**
+
+| Mechanism         | Where                               | Means                                                        |
+| ----------------- | ----------------------------------- | ------------------------------------------------------------ |
+| `RENAME_MAP`      | `scripts/lib/tree-compare.mjs`      | The page was ported under a different name                   |
+| `absentAllowlist` | `scripts/data/upstream.config.json` | The page was deliberately never ported                       |
+| `guttedAllowlist` | `scripts/data/upstream.config.json` | The page was ported at parity; only the line count disagrees |
+
+`RENAME_MAP` makes a page pair up so it is actually compared, which is the opposite of suppressing
+it. The two allowlists suppress a verdict, and they stay separate because they are earned
+differently. Absent-exempt means the content is not here on purpose. Gutted-exempt means the content
+**is** here and the 70% ratio is counting Docusaurus `import` lines and inline grid boilerplate the
+port does not carry. One combined list would let an exemption earned for one reason quietly cover
+the other.
+
+Every allowlist entry carries its reason, every `guttedAllowlist` entry also names its local
+counterpart, and the script lists what it suppressed under `ALLOWED` rather than hiding it. Tests
+pin both allowlists to their current contents and assert that every `RENAME_MAP` target and every
+`local` path is a file that exists — so growing a list is a visible decision, and an entry that rots
+into a no-op after a page moves fails the suite instead of quietly regrowing a false positive.
+
+An absent-exempt page is still compared for GUTTED when a counterpart exists, so an exemption can
+never hide content loss in whichever page absorbed it.
+
+**Exemptions expire, by design.** Each allowlist entry records `reviewedUpstreamSha`, the git blob
+hash of the upstream page as it read when a human granted the exemption. Drift recomputes that hash
+on every run and re-flags the pair as `STALE-ALLOWLIST`, failing the run, once upstream edits the
+page. An exemption is a judgement about one version of a page, not about the page forever, and
+without an expiry the surest way to hide a real future gap would be to have already allowlisted the
+page it lands in. An entry with no recorded hash counts as stale, so an entry added without one
+demands a review rather than being trusted. To clear a stale entry, read both pages again and either
+update the hash with `git -C ../arbitrum-docs hash-object docs/<path>` or drop the entry.
+
+**Prefer a rename over an exemption whenever one is available.** `01-stf-gentle-intro.mdx` sat in
+`absentAllowlist` on the theory that it had been absorbed into `deep-dives/stf.mdx`. Once pairing
+was fixed it turned out to be an ordinary rename at ratio 1.74, so it moved to `RENAME_MAP`, where
+the two pages get compared on every run instead of one of them being skipped. An exemption stops
+looking; a rename keeps looking.
+
+**The baseline has to be fresh.** A stale upstream clone does not make the comparison fail, it makes
+it lie: everything upstream changed after the last fetch looks identical to ours. `drift` refuses to
+run against a clone that has not fetched in 24 hours or is behind its upstream branch, so run
+`git -C ../arbitrum-docs fetch` first if it has been a while. This guard is the reason drift can be
+trusted at all, so do not route around it.
 
 ## What nothing catches
 
@@ -397,6 +860,9 @@ Every gate has a blind spot. These are the ones that have bitten:
   literal `:::`, `undefined`, or HTTP 500. Confirm content changes in a browser.
 - **A redirect to the wrong-but-existing page.** `redirects:check` only proves the destination
   resolves.
+- **A third-party image that has rotted.** Nothing in CI requests it, so a dead URL behind
+  `<ImageZoom src="https://…">` is silent. `pnpm images:check` is the manual sweep. The one case CI
+  does catch is a remote image in markdown syntax, via the offline `images:presence` gate.
 
 **Browse on `localhost:3000`, not `127.0.0.1`.** On `127.0.0.1` React does not hydrate and every
 component looks broken.

@@ -39,6 +39,13 @@ export default function proxy(request: NextRequest) {
     path === '/apple-icon.png' ||
     path === '/nitro-whitepaper.pdf' ||
     path.startsWith('/audit-reports/') ||
+    // Metadata routes (app/sitemap.ts, app/robots.ts). Listed by the same convention as every
+    // other top-level route rather than because a rewrite currently reaches them: both rewrite
+    // patterns below are anchored at `/docs`, so neither matches these paths today. That anchoring
+    // is an implementation detail of the patterns, not a promise. A route that must be served
+    // verbatim belongs here, where it is one line and cannot be broken from a distance.
+    path === '/sitemap.xml' ||
+    path === '/robots.txt' ||
     path === '/llms.txt' ||
     path === '/llms-full.txt' ||
     path.startsWith('/llms.mdx/') ||

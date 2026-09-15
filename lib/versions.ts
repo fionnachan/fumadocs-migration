@@ -33,6 +33,11 @@ export interface VersionedEntry {
   body: MDXContent;
   toc: TOCItemType[];
   info: { path: string; fullPath: string };
+  /**
+   * Last git commit that touched the archive file, from the collection's `lastModified` option.
+   * Absent when the checkout has no full git history (see `hasFullGitHistory` in source.config.ts).
+   */
+  lastModified?: Date;
 }
 
 const archives = docsVersions as VersionedEntry[];
