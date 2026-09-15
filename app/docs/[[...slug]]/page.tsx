@@ -15,7 +15,7 @@ import { VersionSwitcher } from '@/components/VersionSwitcher';
 import { Feedback } from '@/components/feedback/client';
 import { getMDXComponents } from '@/components/mdx';
 import { onPageFeedbackAction } from '@/lib/posthog';
-import { getSiteUrl, gitConfig } from '@/lib/shared';
+import { getSiteUrl, gitConfig, socialHandle } from '@/lib/shared';
 import { getPageImage, getPageMarkdownUrl, source } from '@/lib/source';
 import {
   LATEST_ID,
@@ -161,7 +161,7 @@ export async function generateMetadata({
     // type and the site handle have no such default and are what X needs to render a large card.
     twitter: {
       card: 'summary_large_image',
-      site: '@arbitrum',
+      site: socialHandle,
       title: page.data.title,
       description: page.data.description,
       images: [image],
