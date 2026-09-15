@@ -239,7 +239,7 @@ Censorship Timeout aims to limit the negative effects of:
 - Prolonged Sequencer censorship, or
 - Unexpected Sequencer outages
 
-## How the Censorship Timeout works
+### How the Censorship Timeout works
 
 To explain how this feature improves the security of chains settling to Arbitrum One and Nova, consider a scenario where an L3’s parent chain Sequencer (the L2 Sequencer) is censoring or offline. In such a case, every assertion and/or sub-challenge move would need to wait <Var name="arbOneForceIncludePeriodHours" /> hours before bypassing the L2 Sequencer (using the `SequencerInbox`'s [`forceInclusion`](/docs/how-arbitrum-works/deep-dives/transaction-lifecycle#force-inclusion-after-delays) method). In this scenario, a challenge resolution would be delayed by a time `t` where `t = (24 hours) * number of moves for a challenge`. To illustrate with sample numbers, if a challenge takes 50 sequential moves to resolve, then the delay would be 50 days.
 
@@ -259,6 +259,6 @@ Below are the initial, proposed parameter values for the Censorship Timeout feat
 
 We believe that the Censorship Timeout feature provides stronger guarantees of censorship resistance for Arbitrum chains—especially those that settle to Arbitrum One or Arbitrum Nova. As always, chain owners can decide whether to utilize this feature for their chain and can also change the default parameters as they see fit for their use case.
 
-## Decentralized fair sequencing
+### Decentralized fair sequencing
 
 Arbitrum’s long-term vision includes transitioning from a centralized Sequencer to a decentralized, fair sequencing model. In this framework, a committee of servers (or validators) collectively determines transaction ordering, ensuring fairness, reducing the influence of any single party, and making it more resistant to manipulation. By requiring a supermajority, this approach distributes sequencing power among multiple honest participants, mitigates the risks of front-running or censorship, and aligns with broader blockchain principles of enhanced security, transparency, and decentralization. The [Timeboost](/docs/how-arbitrum-works/timeboost/gentle-introduction) ordering policy is designed to be compatible with decentralized sequencing.
