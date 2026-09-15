@@ -22,11 +22,11 @@
 import { getArbitrumNetwork } from '@arbitrum/sdk';
 import fs from 'node:fs';
 import path from 'node:path';
-import prettier from 'prettier';
 
 import * as data from './data/contract-addresses.data.mjs';
 import { buildContent } from './lib/contract-addresses.mjs';
 import { StaleFileError, isCheckMode, runScript, writeOrCheck } from './lib/generated-partial.mjs';
+import { diffSummary } from './lib/line-diff.mjs';
 
 const OUTPUT_PATH = path.join(
   'content',
@@ -45,35 +45,6 @@ const OUTPUT_PATH = path.join(
  */
 const MDX_FORMAT = { parser: 'mdx', printWidth: 9999, proseWrap: 'preserve', plugins: [] };
 
-/**
- * Summarise how the committed partial differs from what this run would write. `--check` is the
- * CI signal, and "the file is stale" on its own does not say whether an address moved or only
- * whitespace did, which is exactly what a reviewer of the weekly refresh PR needs to know.
- *
- * @param {string} filePath
- * @param {string} content unformatted generator output
- * @returns {Promise<string>}
- */
-async function diffSummary(filePath, content) {
-  const config = await prettier.resolveConfig(filePath);
-  const expected = await prettier.format(content, { ...config, filepath: filePath, ...MDX_FORMAT });
-  const current = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf-8') : '';
-
-  const currentLines = current.split('\n');
-  const expectedLines = expected.split('\n');
-  const lines = [];
-  let changed = 0;
-
-  for (let i = 0; i < Math.max(currentLines.length, expectedLines.length); i++) {
-    if (currentLines[i] === expectedLines[i]) continue;
-    changed++;
-    if (currentLines[i] !== undefined) lines.push(`  - ${currentLines[i]}`);
-    if (expectedLines[i] !== undefined) lines.push(`  + ${expectedLines[i]}`);
-  }
-
-  return [`${changed} line(s) differ (- committed, + generated):`, ...lines].join('\n');
-}
-
 async function main() {
   const check = isCheckMode();
 
@@ -84,7 +55,13 @@ async function main() {
   try {
     await writeOrCheck(OUTPUT_PATH, content, { check, overrides: MDX_FORMAT });
   } catch (error) {
-    if (error instanceof StaleFileError) console.error(await diffSummary(OUTPUT_PATH, content));
+    // "The file is stale" does not say whether an address moved or only whitespace did, which is
+    // exactly what a reviewer of the weekly upstream-refresh PR needs to know. `writeOrCheck`
+    // hands back the text it formatted, so this prints the diff without formatting it again.
+    if (error instanceof StaleFileError) {
+      const current = fs.existsSync(OUTPUT_PATH) ? fs.readFileSync(OUTPUT_PATH, 'utf-8') : '';
+      console.error(diffSummary(current, error.formatted));
+    }
     throw error;
   }
 
