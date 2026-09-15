@@ -525,11 +525,15 @@ throwing.
 the Docusaurus interactive diagram. d3 draws one tree per challenge level; the reader plays, steps,
 or jumps to the end of a recorded Arbitrum Sepolia challenge. The 236 KB event log stays a static
 asset at `public/data/edge-challenge-flow.json` and is fetched on mount, so it never enters a
-JavaScript bundle; `proxy.ts` passes that path through without a bypass-list entry, because it is
-neither a `.md` request nor a docs path. Its stylesheet (`edge-challenge-flow.css`) reads
-`--color-fd-*` tokens for every surface and text colour, and declares only the four status hues
-(active, bisected, has-rival, OSP confirmed) itself, once per theme, so no colour is hardcoded in
-the d3 code.
+JavaScript bundle; `/data/` is on `proxy.ts`'s bypass list, by the same convention as every other
+top-level route and not because a rewrite currently reaches it. Its stylesheet
+(`edge-challenge-flow.css`) reads `--color-fd-*` tokens for every surface and text colour, and
+declares only the four status hues (active, bisected, has-rival, OSP confirmed) itself, once per
+theme, so no colour is hardcoded in the d3 code. Panel labels are `h4`/`h5`: the widget sits inside
+a page section, so its labels nest under that section's heading rather than competing with it in a
+screen reader's heading list. Tree nodes are focusable, with Enter/Space to inspect and the arrow
+keys to expand or collapse, and wheel zoom needs a modifier key so scrolling past the diagram does
+not trap the page.
 
 **Image zoom.** `<ImageZoom>` resolves to the wrapper in `components/mdx/ImageZoom/`: plain `<img>`
 child, supports `caption`, needs no dimensions, no Next image optimization. To use Fumadocs' native

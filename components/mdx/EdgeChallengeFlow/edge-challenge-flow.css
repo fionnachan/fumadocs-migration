@@ -37,11 +37,17 @@
   --ecf-osp: #4cd5a7;
 }
 
-.ecf-page h2,
-.ecf-page h3,
-.ecf-page h4 {
+/* The widget is not a `not-prose` island, so app/global.css's prose heading rules reach these
+   labels. At h5 those rules add uppercase and letter-spacing, which the panels do not want, and a
+   plain `.ecf-page h5` ties with `.prose :where(h5, h6)` on specificity, leaving the winner to
+   stylesheet order. The doubled class settles it outright. */
+.ecf-page.ecf-page h4,
+.ecf-page.ecf-page h5 {
   margin-top: 0;
   padding-top: 0;
+  text-transform: none;
+  letter-spacing: normal;
+  border-bottom: none;
 }
 
 .ecf-header-info {
@@ -161,7 +167,7 @@
   min-width: 140px;
 }
 
-.ecf-step h3 {
+.ecf-step h5 {
   font-size: 14px;
   font-weight: 600;
   margin: 0 0 2px;
@@ -199,7 +205,7 @@
   padding: 14px;
 }
 
-.ecf-panel h2 {
+.ecf-panel h4 {
   margin: 0 0 12px;
   font-size: 18px;
   font-weight: 600;
@@ -224,7 +230,7 @@
   gap: 10px;
 }
 
-.ecf-log h2 {
+.ecf-log h4 {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
@@ -259,7 +265,7 @@
   min-width: 0;
 }
 
-.ecf-tree-panel h3 {
+.ecf-tree-panel h5 {
   margin: 0;
   font-size: 17px;
   font-weight: 600;
@@ -294,6 +300,19 @@
   stroke-width: 1.8;
   rx: 8;
   ry: 8;
+}
+
+/* Nodes are focusable, so they need a focus ring. SVG honours `outline` unevenly across browsers,
+   so the ring is drawn on the node's own rect instead. The class is doubled to outrank the status
+   modifiers below (`.ecf-node--active rect` and friends), which set the same property and would
+   otherwise win on source order alone. */
+.ecf-node:focus {
+  outline: none;
+}
+
+.ecf-node.ecf-node:focus-visible rect {
+  stroke: var(--color-fd-ring);
+  stroke-width: 3.5;
 }
 
 .ecf-node text {
@@ -390,7 +409,7 @@
   min-height: 0;
 }
 
-.ecf-log-section h3 {
+.ecf-log-section h5 {
   margin: 0 0 8px;
   font-size: 14px;
   font-weight: 600;
@@ -493,7 +512,7 @@
 
 /* ── Event timeline ────────────────────────────────────────── */
 
-.ecf-timeline h3 {
+.ecf-timeline h5 {
   margin: 0 0 8px;
   font-size: 14px;
   font-weight: 600;

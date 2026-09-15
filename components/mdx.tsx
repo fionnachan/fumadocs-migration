@@ -73,6 +73,7 @@ export function getMDXComponents(components?: MDXComponents) {
     AddressExplorerLink,
     AEL: AddressExplorerLink,
     CustomDetails,
+    EdgeChallengeFlow,
     FAQStructuredData,
     FAQStructuredDataJsonLd: FAQStructuredData,
     ImageZoom,
@@ -91,7 +92,6 @@ export function getMDXComponents(components?: MDXComponents) {
     TroubleshootingReport,
     VanillaAdmonition,
     Var,
-    EdgeChallengeFlow,
     VendingMachine,
     // Placeholders for not-yet-ported interactive widgets (see PendingWidget).
     FlowChart: () => <PendingWidget name="FlowChart" />,

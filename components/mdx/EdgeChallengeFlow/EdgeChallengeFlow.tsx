@@ -124,11 +124,11 @@ function EdgeChallengeFlowLoaded({ data }: { data: EdgeChallengeData }) {
 
       <div className="ecf-grid">
         <div className="ecf-panel ecf-tree">
-          <h2>Edge Tree</h2>
+          <h4>Edge Tree</h4>
           <div className="ecf-tree-grid">
             {levelGroups.map((group) => (
               <div key={group.id} className="ecf-tree-panel">
-                <h3>{group.label}</h3>
+                <h5>{group.label}</h5>
                 <D3EdgeTree
                   group={group}
                   state={state}
@@ -147,17 +147,18 @@ function EdgeChallengeFlowLoaded({ data }: { data: EdgeChallengeData }) {
             <span className="ecf-legend-osp">OSP confirmed</span>
           </div>
           <div className="ecf-hint">
-            Tip: drag to pan, scroll to zoom, click nodes to view details, double-click to
-            expand/collapse.
+            Tip: drag to pan, ctrl-scroll (or ⌘-scroll) to zoom, click nodes to view details,
+            double-click to expand/collapse. From the keyboard: tab to a node, Enter to view
+            details, left/right arrows to collapse or expand.
           </div>
         </div>
 
         <div className="ecf-sidebar">
           <div className="ecf-panel ecf-log">
-            <h2>Information</h2>
+            <h4>Information</h4>
             <div className="ecf-log-split">
               <div className="ecf-log-section">
-                <h3>Node Info</h3>
+                <h5>Node Info</h5>
                 <NodeDetailsPanel
                   selectedNodeKey={selectedNodeKey}
                   rangeNodes={rangeIndex.rangeNodes}
