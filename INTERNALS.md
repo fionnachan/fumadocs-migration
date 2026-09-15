@@ -648,7 +648,7 @@ worth knowing:
   into the submodule's `arbitrum` package, so the generator materialises that submodule at its
   pinned commit and fails loudly if it is missing, rather than dropping 19 flags silently.
 - **Anything it cannot evaluate fails the run.** Five flags default to `util.GoMaxProcs()`, decided
-  at process start, and two are registered with `f.Var` and a custom `pflag.Value`. Those are
+  at process start, and three are registered with `f.Var` and a custom `pflag.Value`. Those are
   declared in `scripts/data/nitro-cli-reference.data.mjs`; a new one with no entry stops the
   generator instead of publishing a blank cell.
 
