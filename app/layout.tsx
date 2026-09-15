@@ -107,7 +107,14 @@ export default function Layout({ children }: { children: ReactNode }) {
                   --fd-banner-height, which the docs layout feeds to calc() and
                   a sticky `top`. So it has to be a real length, never `auto`.
                   The message fits one line from 640px up and wraps to two
-                  below, hence the variable rather than a constant. */}
+                  below, hence the variable rather than a constant.
+
+                  These two values are sized for a message a writer can change
+                  without touching this file: 3rem holds two lines of text-sm
+                  and 4rem holds three, so a long enough announcementText
+                  overflows and nothing catches it. The budget is written down
+                  in README next to the key. Raising a height here means
+                  raising the budget there too. */}
               <style>{`:root{--fd-announcement-height:4rem}@media (min-width:640px){:root{--fd-announcement-height:3rem}}`}</style>
               <Banner
                 id={vars.announcementId}
@@ -118,6 +125,15 @@ export default function Layout({ children }: { children: ReactNode }) {
                   {vars.announcementText}{' '}
                   <Link
                     href={vars.announcementLinkHref}
+                    // vars:check permits an https target as well as an internal
+                    // path, so the href may leave the site. `rel` is set only
+                    // then, because Next already omits it for internal routes
+                    // and an unconditional one would be noise on every page.
+                    rel={
+                      vars.announcementLinkHref.startsWith('https://')
+                        ? 'noopener noreferrer'
+                        : undefined
+                    }
                     className="underline underline-offset-2 hover:no-underline"
                   >
                     {vars.announcementLinkText}

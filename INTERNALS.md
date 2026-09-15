@@ -223,6 +223,23 @@ Three things about it are not obvious:
   `top`. `auto` breaks the grid. The message fits one line from 640px up and wraps to two below, so
   the layout passes a custom property that a media query switches between `3rem` and `4rem` rather
   than a constant.
+- **The height and the text are coupled, and only the text is writer-facing.** The heights above
+  were chosen for a message of the current length, and that message is a `vars.json` value a writer
+  is meant to change without a code review. `3rem` holds two lines of `text-sm`, `4rem` holds three,
+  and a long enough message overflows. No gate sees this, because the text lives in JSON and the
+  height lives in TSX. The constraint is therefore stated in the [README](README.md#announcement-banner)
+  next to the key, as a budget of roughly 140 characters for `announcementText` plus
+  `announcementLinkText`. A character gate was considered and rejected: any threshold would be a
+  guess at Aeonik's metrics, and a gate that fires on a message which actually renders fine is worse
+  than the prose. Measuring the rendered bar and writing `--fd-banner-height` from a
+  `ResizeObserver` would remove the coupling properly; it needs a client component and was out of
+  scope here.
+- **`announcementId` is constrained by a pattern in the schema.** Banner writes it into the
+  element's `id` and into a generated `.<key> #<id> { display: none }` rule. The class half is
+  `nd-banner-<base32(id)>` and is always a legal identifier; the `#<id>` half is the raw value. A
+  space or a leading digit makes that selector match nothing, so closing the banner would look like
+  it worked and the banner would return on the next page load, silently. `content/vars.ts` requires
+  `^[A-Za-z][A-Za-z0-9_-]*$` so the failure happens at module load instead.
 
 ## Redirects
 
