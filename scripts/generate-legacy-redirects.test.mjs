@@ -3,15 +3,28 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
-import { SECTION_LANDINGS, build, indexBySlug, resolveTarget } from './lib/legacy-redirects.mjs';
+import {
+  MANUAL_DESTINATIONS,
+  SECTION_LANDINGS,
+  build,
+  collectValidUrls,
+  indexBySlug,
+  isAbsolute,
+  resolveTarget,
+  resolveUrl,
+} from './lib/legacy-redirects.mjs';
 import {
   docUrl,
   isExcludedSource,
   normaliseTitle,
+  parseRoutingFrontmatter,
   readGeneratedIndexUrls,
   reservedRouteReason,
 } from './lib/upstream-pages.mjs';
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 // --- canonical URL derivation (Docusaurus routing rules) ---------------------------------------
 
@@ -61,6 +74,18 @@ test('docUrl prefers a slug over an id when a page carries both', () => {
     docUrl({ source: 'a/b.mdx', frontmatter: { id: 'from-id', slug: '/from-slug' } }),
     '/from-slug',
   );
+});
+
+test('parseRoutingFrontmatter reads the single-line form and skips block scalars', () => {
+  assert.deepEqual(parseRoutingFrontmatter("---\nid: a\nslug: /b\ntitle: 'Page one'\n---\n"), {
+    id: 'a',
+    slug: '/b',
+    title: 'Page one',
+  });
+  // A block scalar puts the value on the next line, so capturing the indicator would index the
+  // page under the title ">". No title at all is the honest answer, and every caller handles it.
+  assert.deepEqual(parseRoutingFrontmatter('---\ntitle: >\n  A folded title\n---\n'), {});
+  assert.deepEqual(parseRoutingFrontmatter('---\ntitle: |-\n  A literal title\n---\n'), {});
 });
 
 test('isExcludedSource drops partials, generated references and the internal pattern guide', () => {
@@ -289,6 +314,40 @@ test('the title rule declines when two pages here carry the same title', () => {
   assert.equal(result.reason, 'destination-not-in-tree');
 });
 
+test('the title rule declines when the title was ambiguous upstream too', () => {
+  // Upstream had two pages titled "Common error messages" and only one was ported. The title no
+  // longer identifies a page, so it must decline rather than send both upstream URLs to the one
+  // page here — the mirror of the basename guard below.
+  const ctx = context({
+    '/docs/launch-arbitrum-chain/operate/error-index': 'Common error messages',
+  });
+  const result = resolveTarget({
+    source: '/run-arbitrum-node/error-index',
+    target: '/run-arbitrum-node/error-index',
+    upstreamTitle: 'Common error messages',
+    upstreamTitles: new Map([['common error messages', 2]]),
+    ...ctx,
+    upstreamSlugs: new Map([['errorindex', 2]]),
+  });
+  assert.equal(result.destination, undefined);
+  assert.equal(result.reason, 'ambiguous-upstream-slug');
+});
+
+test('the title rule still matches when the upstream title was unique', () => {
+  const ctx = context({
+    '/docs/launch-arbitrum-chain/operate/error-index': 'Common error messages',
+  });
+  const result = resolveTarget({
+    source: '/run-arbitrum-node/error-index',
+    target: '/run-arbitrum-node/error-index',
+    upstreamTitle: 'Common error messages',
+    upstreamTitles: new Map([['common error messages', 1]]),
+    ...ctx,
+  });
+  assert.equal(result.destination, '/docs/launch-arbitrum-chain/operate/error-index');
+  assert.equal(result.via, 'title');
+});
+
 test('the basename rule declines when the basename was ambiguous upstream too', () => {
   const ctx = context(
     { '/docs/stylus/gas-optimization': 'Gas optimization' },
@@ -324,6 +383,33 @@ test('every SECTION_LANDINGS value names a page under /docs', () => {
   for (const [source, landing] of SECTION_LANDINGS) {
     assert.ok(landing.startsWith('/docs/'), `${source} -> ${landing}`);
   }
+});
+
+/**
+ * The two hand-written destination maps, pinned against the real content tree.
+ *
+ * `build()` throws when an entry it *reaches* names a missing page, but it only reaches an entry
+ * whose source is in upstream's corpus that run. An entry orphaned by `pnpm move-doc` therefore
+ * rots silently into a redirect to a 404, and `redirects:check` is the only thing that would catch
+ * it — which runs nowhere automatically and needs a live site. This is the same guard CLAUDE.md
+ * requires of the drift allowlists, for the same reason: growing a hand-written list should be a
+ * reviewed act, and an entry that rots should fail the suite.
+ */
+test('every hand-written destination still names a live page in the content tree', () => {
+  const valid = collectValidUrls(path.join(repoRoot, 'content/docs'));
+  const missing = [];
+  for (const [name, map] of [
+    ['MANUAL_DESTINATIONS', MANUAL_DESTINATIONS],
+    ['SECTION_LANDINGS', SECTION_LANDINGS],
+  ]) {
+    for (const [source, destination] of map) {
+      if (isAbsolute(destination)) continue;
+      // A destination may carry an anchor; only the page part has to resolve.
+      const [page] = destination.split('#');
+      if (!resolveUrl(valid, page)) missing.push(`${name}: ${source} -> ${destination}`);
+    }
+  }
+  assert.deepEqual(missing, []);
 });
 
 test('a section landing catches a page this site never ported', () => {

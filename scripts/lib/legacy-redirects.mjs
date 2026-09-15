@@ -407,7 +407,13 @@ export function collectValidUrls(contentDir) {
   return urls;
 }
 
-/** Every routable page on this site as `{ url, file }`. The one walk of the content tree. */
+/**
+ * Every routable page on this site as `{ url, file }`.
+ *
+ * `build()` walks the tree twice through this, once for `collectValidUrls` and once for
+ * `indexByTitle`, which also reads every page file for its frontmatter. At 339 pages that is not
+ * worth caching; it is worth not believing it happens once.
+ */
 export function collectLocalPages(contentDir) {
   const pages = [];
   const walk = (dir, prefix) => {
@@ -505,6 +511,30 @@ export function indexBySlug(valid) {
  * Returns null when the tree is unavailable, which makes the fallback decline everything rather
  * than match unverified.
  */
+/**
+ * How many upstream pages carried each normalised title, from `deriveCanonicalPages`.
+ *
+ * The mirror of `countUpstreamSlugs`, for the same reason. The title rule assumes a title
+ * identifies a page; that holds only if the title was unique upstream too. If it was not, and
+ * exactly one page here carries it, every one of those upstream URLs would resolve to that single
+ * page with nothing in the output to say so. Upstream may well have folded two pages into one here,
+ * but that is a judgement, and this repo records judgements in `MANUAL_DESTINATIONS` rather than
+ * inferring them. So the rule declines, the basename gets its turn, and if that declines too the
+ * source lands in `redirects.legacy.todo.json`, where the tripwire makes someone decide.
+ *
+ * Zero collisions upstream today, so this changes no current output; the map is regenerated against
+ * a moving upstream, which is the point of the generator.
+ */
+export function countUpstreamTitles(canonicalPages) {
+  const counts = new Map();
+  for (const title of canonicalPages.values()) {
+    if (!title) continue;
+    const key = normaliseTitle(title);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
 export function countUpstreamSlugs(docsDir) {
   const counts = new Map();
   const walk = (dir) => {
@@ -567,8 +597,11 @@ export function candidateDestinations(destination) {
  *  2. Self-URL: the legacy path names a live page here under `/docs`. Serving our own copy beats
  *     following upstream anywhere else, and is the rule that resolves nearly every canonical URL.
  *  3. Section renames: whole sections that moved wholesale.
- *  4. Exact title: exactly one page here carries the upstream page's frontmatter title, verbatim.
- *     Ahead of the basename, because a title identifies a page and a basename only suggests one.
+ *  4. Exact title: exactly one page here carries the upstream page's frontmatter title, verbatim,
+ *     and exactly one page upstream carried it. Ahead of the basename, because a title identifies a
+ *     page and a basename only suggests one. `upstreamTitles` is omitted only by tests exercising
+ *     one rule in isolation; `build()` always has it, because a known `upstreamTitle` means the
+ *     upstream tree was read.
  *  5. Basename fallback: only when exactly one page here carries that slug *and* the basename was
  *     unique upstream too.
  *  6. `SECTION_LANDINGS`: the section the reader was heading for, for a page this site has not
@@ -598,6 +631,7 @@ function resolveMechanically({
   bySlug,
   byTitle,
   upstreamTitle,
+  upstreamTitles,
   upstreamSlugs,
 }) {
   const manual = MANUAL_DESTINATIONS.get(target.replace(/\/+$/, ''));
@@ -632,10 +666,14 @@ function resolveMechanically({
   // the page, and it beats a basename that merely looks similar. This is what keeps a
   // `configuration/…` how-to from being answered with the `features/…/choose-…` page that explains
   // why someone might want it. Two matches means the title is not identifying anything, so decline
-  // and let the basename try.
+  // and let the basename try. The title must have been unique upstream too, for the same reason the
+  // basename must be: if two upstream pages shared it, the path was doing the disambiguating and
+  // the title cannot.
   if (upstreamTitle && byTitle) {
-    const titled = byTitle.get(normaliseTitle(upstreamTitle)) ?? [];
-    if (titled.length === 1) return { destination: titled[0], via: 'title' };
+    const key = normaliseTitle(upstreamTitle);
+    const titled = byTitle.get(key) ?? [];
+    const uniqueUpstream = !upstreamTitles || (upstreamTitles.get(key) ?? 0) <= 1;
+    if (titled.length === 1 && uniqueUpstream) return { destination: titled[0], via: 'title' };
   }
 
   // Fall back to the basename, and accept it only when exactly one page carries that slug: two
@@ -714,6 +752,7 @@ export function build({ sourcePath, contentDir, upstreamDocsDir, sidebarsPath })
     ? deriveCanonicalPages({ docsDir: upstreamDocsDir, sidebarsPath })
     : new Map();
   const canonicalUrls = [...canonicalPages.keys()];
+  const upstreamTitles = countUpstreamTitles(canonicalPages);
 
   const bySource = new Map();
   for (const entry of legacy.redirects ?? []) {
@@ -767,6 +806,7 @@ export function build({ sourcePath, contentDir, upstreamDocsDir, sidebarsPath })
       bySlug,
       byTitle,
       upstreamTitle: canonicalPages.get(target.replace(/\/+$/, '')),
+      upstreamTitles,
       upstreamSlugs,
     });
     if (result.reason) {

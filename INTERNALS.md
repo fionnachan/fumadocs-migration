@@ -423,7 +423,12 @@ the end of upstream's own chain.
    suggests one. This site pairs a `features/…/choose-X` page answering "why would I want X" with
    a `configuration/…/X` how-to, and the two often share a basename or differ only by a `config-`
    prefix; the basename alone kept picking the "why" half, so a reader after a procedure landed on
-   a page that has none. Declines when two local pages share the title.
+   a page that has none. Declines when two local pages share the title, _and_ when two upstream
+   pages shared it, which is the same asymmetry rule 5 guards against: there the legacy path was
+   doing the disambiguating and the title cannot. Two upstream pages folded into one here may well
+   be deliberate, but that is a judgement, and judgements belong in `MANUAL_DESTINATIONS` rather
+   than being inferred from a title collision. Declining sends the source to the todo file, where
+   the tripwire makes someone decide.
 5. **Basename fallback** — accepted only when exactly one local page carries that slug _and_ the
    basename was unique upstream too. Where the legacy path was doing the disambiguating, the
    fallback cannot, and declines.
@@ -444,6 +449,13 @@ the icon and PDF files. `/docs` is checked against the content tree instead of b
 **The guiding rule: a redirect to a plausible-but-wrong page is worse than a 404.** It silently
 sends readers somewhere wrong, and `redirects:check` cannot catch it, because the destination
 exists.
+
+**`MANUAL_DESTINATIONS` and `SECTION_LANDINGS` are hand-written, so a test pins them against the
+content tree.** The generator throws when an entry it _reaches_ names a missing page, but it only
+reaches an entry whose source is in upstream's corpus on that run, so an entry orphaned by
+`pnpm move-doc` would otherwise rot silently into a redirect to a 404. `pnpm test` walks
+`content/docs` and asserts every non-external value in both maps still resolves — the same guard,
+for the same reason, as the one the drift allowlists carry.
 
 Anything unresolvable lands in `redirects.legacy.todo.json`. **That file reached `[]` on
 2026-08-31, stayed `[]` when canonical URLs were added on 2026-09-11, and is a tripwire, not a

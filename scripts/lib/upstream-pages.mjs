@@ -82,14 +82,23 @@ export function isCategoryIndex({ fileName, parentDir }) {
 /**
  * Minimal frontmatter read. `id` and `slug` are the only fields that move a page's URL; `title`
  * comes along because it is the strongest evidence available that two paths name the same page.
+ *
+ * Only the single-line form is read. A YAML block scalar (`title: >`, `title: |-`) puts the value
+ * on the following lines, so the capture would be the indicator itself and the page would be
+ * indexed under the title ">". Skipping it leaves the field absent instead, which every caller
+ * already handles: `indexByTitle` drops a page with no title and the title rule is not tried.
+ * No page in either tree uses one today; this keeps a junk key out of the index if one appears.
  */
+const BLOCK_SCALAR = /^[>|][-+]?\d*$|^[>|]\d*[-+]?$/;
+
 export function parseRoutingFrontmatter(text) {
   const block = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!block) return {};
   const out = {};
   for (const line of block[1].split('\n')) {
     const match = line.match(/^(id|slug|title):\s*(.+?)\s*$/);
-    if (match) out[match[1]] = match[2].replace(/^['"]|['"]$/g, '');
+    if (!match || BLOCK_SCALAR.test(match[2])) continue;
+    out[match[1]] = match[2].replace(/^['"]|['"]$/g, '');
   }
   return out;
 }
