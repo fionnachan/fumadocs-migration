@@ -184,12 +184,16 @@ export default defineConfig({
     rehypeCodeOptions: {
       ...rehypeCodeDefaultOptions,
       transformers: [...(rehypeCodeDefaultOptions.transformers ?? []), transformerTwoslash()],
-      // Shiki cannot lazy-load a language for a fenced block that appears *inside* a twoslash hover
-      // popup, so the ones a TypeScript popup can quote have to be preloaded or that page throws at
-      // render (a 500 `types:check` cannot see). This is a preload list, not an allowlist: `lazy`
-      // stays on by default, so shell, Rust, Solidity and the rest still load on demand as before.
-      // Prescribed by https://www.fumadocs.dev/docs/markdown/twoslash.
-      langs: ['js', 'jsx', 'ts', 'tsx'],
+      // No `langs` preload here despite https://www.fumadocs.dev/docs/markdown/twoslash saying one is
+      // needed for a fenced block quoted *inside* a twoslash hover popup: verified against this
+      // fumadocs-core (rehype-code) + fumadocs-twoslash pairing that it is not. The outer block's own
+      // language (`ts`/`tsx`) is already lazy-loaded before the twoslash transformer runs, and a
+      // language quoted inside a JSDoc comment popup self-heals — `codeToHast` throws `ShikiError`,
+      // fumadocs-twoslash catches it and queues `highlighter.loadLanguage(lang)` as a postprocess step
+      // that `rehype-code` awaits before returning. Reproduced in both `pnpm dev` and a production
+      // build: a `js` block and an unrelated, never-preloaded `python` block, both quoted inside a
+      // twoslash popup, render fully tokenized (keyword/string colors present) with no 500 and no
+      // console error. Do not re-add `langs` on the docs page's authority alone without re-testing.
     },
   },
 });
