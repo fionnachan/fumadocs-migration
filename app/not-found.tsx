@@ -12,9 +12,10 @@ import {
   Settings2,
 } from 'lucide-react';
 import type { Metadata } from 'next';
-import Link from 'next/link';
 
 import { NotFoundTracker } from '@/components/analytics/not-found-tracker';
+import { BrandButton } from '@/components/brand-button';
+import { HomeHeader } from '@/components/home-header';
 import { baseOptions } from '@/lib/layout.shared';
 import { docsRoute } from '@/lib/shared';
 
@@ -89,46 +90,45 @@ const sections = [
 
 export default function NotFound() {
   return (
-    <HomeLayout {...baseOptions()}>
+    <HomeLayout {...baseOptions()} slots={{ header: HomeHeader }}>
       <NotFoundTracker />
       {/* A div, not a <main>: HomeLayout's container already is the page's
           <main> landmark, and nesting one inside another is invalid HTML. */}
-      <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-4 py-16">
-        <div className="flex flex-col gap-3">
-          <p className="text-sm font-medium text-fd-muted-foreground">404</p>
-          <h1 className="text-3xl font-medium tracking-tight sm:text-4xl">Page not found</h1>
-          <p className="max-w-2xl text-fd-muted-foreground">
-            This page may have moved, been renamed, or never existed. Search the documentation, or
-            start from one of the sections below.
-          </p>
-        </div>
+      <div className="flex flex-1 flex-col bg-repeating-lines">
+        <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-4 py-16">
+          <div className="flex flex-col gap-3">
+            <p className="text-sm font-medium text-fd-muted-foreground">404</p>
+            <h1 className="text-3xl font-medium tracking-tight sm:text-4xl">Page not found</h1>
+            <p className="max-w-2xl text-fd-muted-foreground">
+              This page may have moved, been renamed, or never existed. Search the documentation, or
+              start from one of the sections below.
+            </p>
+          </div>
 
-        <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
-          {/* Opens the same dialog as the navbar trigger and Cmd/Ctrl+K: the
+          <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
+            {/* Opens the same dialog as the navbar trigger and Cmd/Ctrl+K: the
               Inkeep modal wired into RootProvider in app/layout.tsx. */}
-          <FullSearchTrigger className="w-full sm:w-80" />
-          <Link
-            href={docsRoute}
-            className="rounded-lg border px-4 py-2 text-sm font-medium transition-colors hover:bg-fd-accent hover:text-fd-accent-foreground"
-          >
-            Browse all docs
-          </Link>
-        </div>
+            <FullSearchTrigger className="w-full sm:w-80" />
+            <BrandButton href={docsRoute} mode="secondary">
+              Browse all docs
+            </BrandButton>
+          </div>
 
-        <section className="flex flex-col gap-4">
-          <h2 className="text-xl font-medium tracking-tight">Start somewhere else</h2>
-          <Cards>
-            {sections.map((section) => (
-              <Card
-                key={section.href}
-                icon={section.icon}
-                title={section.title}
-                description={section.description}
-                href={section.href}
-              />
-            ))}
-          </Cards>
-        </section>
+          <section className="flex flex-col gap-4">
+            <h2 className="text-xl font-medium tracking-tight">Start somewhere else</h2>
+            <Cards>
+              {sections.map((section) => (
+                <Card
+                  key={section.href}
+                  icon={section.icon}
+                  title={section.title}
+                  description={section.description}
+                  href={section.href}
+                />
+              ))}
+            </Cards>
+          </section>
+        </div>
       </div>
     </HomeLayout>
   );

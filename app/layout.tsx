@@ -45,7 +45,11 @@ export const metadata: Metadata = {
 // Aeonik is the Arbitrum brand typeface, self-hosted from arbitrum-docs.
 // Only 400 and 500 exist — there is no Bold or Black face. Heading weights are
 // clamped to 500 in global.css so nothing requests a weight the browser would
-// have to synthesize. Fallback stack copied from arbitrum-docs _variables.scss.
+// have to synthesize, and `font-synthesis: none` there makes any stray 600/700
+// resolve to the real 500 face. Fallback stack copied from arbitrum-docs
+// _variables.scss. The italic face comes from arbitrum-website (app/font/
+// Aeonik-Italic.woff2, same family): without it every <em> was a synthesised
+// slant, and with synthesis off it would render upright.
 const sans = localFont({
   variable: '--font-sans',
   display: 'swap',
@@ -53,6 +57,7 @@ const sans = localFont({
   src: [
     { path: '../public/fonts/aeonik-regular.woff2', weight: '400', style: 'normal' },
     { path: '../public/fonts/aeonik-medium.woff2', weight: '500', style: 'normal' },
+    { path: '../public/fonts/aeonik-italic.woff2', weight: '400', style: 'italic' },
   ],
 });
 
@@ -83,11 +88,27 @@ const code = JetBrains_Mono({
   display: 'swap',
 });
 
+// FK Screamer is the marketing site's display face (arbitrum-website app/fonts.ts), used there for
+// the hero headline and card titles. Here it is the home hero heading only, through the
+// `font-display` utility (`--font-display` in global.css). One upright weight exists, so nothing
+// else should ask for bold or italic. Shipped at the maintainer's direction on 2026-09-15; the
+// licence was granted for arbitrum.io and should be confirmed for this domain with the brand team.
+const displayFace = localFont({
+  variable: '--font-fk-screamer',
+  display: 'swap',
+  fallback: ['Impact', 'Haettenschweiler', 'Arial Narrow Bold', 'sans-serif'],
+  src: [{ path: '../public/fonts/fk-screamer-upright.otf', weight: '400', style: 'normal' }],
+});
+
 export default function Layout({ children }: { children: ReactNode }) {
   return (
     <html
       lang="en"
-      className={`${sans.variable} ${mono.variable} ${code.variable}`}
+      // Restores Next's pre-16 behaviour of forcing an instant jump on route transitions while
+      // global.css keeps `scroll-behavior: smooth` for in-page anchors. Without it every docs
+      // navigation from a scrolled position animates back to the top of the new page.
+      data-scroll-behavior="smooth"
+      className={`${sans.variable} ${mono.variable} ${code.variable} ${displayFace.variable}`}
       suppressHydrationWarning
     >
       <body className="flex flex-col min-h-screen font-sans" suppressHydrationWarning>
