@@ -267,7 +267,7 @@ Starting with ArbOS 51 Dia, Arbitrum chains have the option to use a native inte
 It is highly recommended that you work with a Rollup-as-a-Service (RaaS) provider to deploy a production chain.
 
 - `<include cwd>content/partials/launch-arbitrum-chain/_raas-providers-notice.mdx</include>`
-- used in 6 pages — tags: `launch-arbitrum-chain`, `raas`, `providers`, `notice`
+- used in 7 pages — tags: `launch-arbitrum-chain`, `raas`, `providers`, `notice`
 
 ### Size limit
 
