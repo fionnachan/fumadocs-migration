@@ -107,8 +107,12 @@
    `font-synthesis: none` matters more here than there: Aeonik ships 400 and 500 only, so any
    `font-weight: 600/700` that slips through (Fumadocs' `font-semibold` nav title, a `<b>` in
    content) now falls back to the real 500 face instead of a synthesised fake bold. */
-html {
-  scroll-behavior: smooth;
+/* Anchor jumps only: app/layout.tsx sets `data-scroll-behavior="smooth"` so Next scrolls new pages
+   instantly, and readers who asked for less motion get an instant jump everywhere. */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
 }
 
 body {

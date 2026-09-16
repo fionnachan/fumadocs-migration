@@ -104,6 +104,10 @@ export default function Layout({ children }: { children: ReactNode }) {
   return (
     <html
       lang="en"
+      // Restores Next's pre-16 behaviour of forcing an instant jump on route transitions while
+      // global.css keeps `scroll-behavior: smooth` for in-page anchors. Without it every docs
+      // navigation from a scrolled position animates back to the top of the new page.
+      data-scroll-behavior="smooth"
       className={`${sans.variable} ${mono.variable} ${code.variable} ${displayFace.variable}`}
       suppressHydrationWarning
     >
