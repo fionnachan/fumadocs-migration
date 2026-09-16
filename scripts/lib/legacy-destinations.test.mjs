@@ -151,6 +151,49 @@ test('never rewrites a URL quoted inside a `//` comment', () => {
   assert.match(next, /'\/docs\/stylus\/best-practices\/gas-optimization'\],/);
 });
 
+test('rewrites the value of an entry whose key contains a `//`, on one line', () => {
+  // `MANUAL_DESTINATIONS` records upstream's malformed sources verbatim, so a key can hold a
+  // doubled leading slash or a stray-slash absolute URL. Reading that as a comment marker made the
+  // entry's own value look commented out: the rewrite reported no change and the cross-check
+  // aborted the move blaming a reformat that never happened. The two live entries escape it only
+  // because Prettier wraps them; a shorter one sits on one line, which is this shape.
+  const source =
+    `export const MANUAL_DESTINATIONS = new Map([\n` +
+    `  ['//aep/fees', '/docs/costs/aep'],\n` +
+    `  ['/https://docs.arbitrum.foundation/aep', '/docs/costs/aep'],\n` +
+    `]);\n`;
+  const { source: next, changed } = rewriteDestinationMap(
+    source,
+    'MANUAL_DESTINATIONS',
+    '/docs/costs/aep',
+    '/docs/launch-arbitrum-chain/costs/aep',
+  );
+  assert.equal(changed, 2);
+  assert.doesNotMatch(next, /'\/docs\/costs\/aep'/);
+  assert.match(next, /\['\/\/aep\/fees', '\/docs\/launch-arbitrum-chain\/costs\/aep'\],/);
+  assert.match(next, /\['\/https:\/\/docs\.arbitrum\.foundation\/aep',/, 'key untouched');
+});
+
+test('still skips a value inside a commented-out entry', () => {
+  // The case the guard exists for: a whole entry commented out still reads as `'…'],`, so without
+  // the guard it would be rewritten, inflating the count the cross-check compares and aborting an
+  // otherwise fine move.
+  const source =
+    `export const MANUAL_DESTINATIONS = new Map([\n` +
+    `  // ['/retired', '/docs/costs/aep'],\n` +
+    `  ['/aep/fees', '/docs/costs/aep'],\n` +
+    `]);\n`;
+  const { source: next, changed } = rewriteDestinationMap(
+    source,
+    'MANUAL_DESTINATIONS',
+    '/docs/costs/aep',
+    '/docs/launch-arbitrum-chain/costs/aep',
+  );
+  assert.equal(changed, 1, 'only the live entry counts');
+  assert.match(next, /\/\/ \['\/retired', '\/docs\/costs\/aep'\],/, 'commented entry untouched');
+  assert.match(next, /\['\/aep\/fees', '\/docs\/launch-arbitrum-chain\/costs\/aep'\],/);
+});
+
 test('only touches the named map, never the other one', () => {
   // Both maps hold `/docs/...` values in identical syntax, so the range is the only thing keeping a
   // SECTION_LANDINGS retarget out of MANUAL_DESTINATIONS and vice versa.

@@ -115,16 +115,37 @@ export function rewriteDestinationMap(source, name, oldUrl, newUrl) {
 }
 
 /**
- * Whether `offset` in `body` sits after a `//` on its own line, i.e. inside a line comment.
+ * Whether `offset` in `body` sits after a `//` that opens a line comment, i.e. one outside a string
+ * literal.
  *
- * Good enough inside these two maps, which hold nothing but quoted URLs and prose comments: a `//`
- * there can only be a comment marker or the middle of an `https://` URL, and the latter is never at
- * the start of a line, so treating the rest of such a line as commented costs nothing — an absolute
- * destination is not a page on this site and is never a rewrite target anyway.
+ * The `//` has to be found by scanning, not by a plain `includes`, because a legacy *key* can
+ * contain one. `MANUAL_DESTINATIONS` records upstream's malformed sources verbatim, and two of them
+ * carry a `//`: a doubled leading slash (`'//launch-arbitrum-chain/…'`) and an absolute URL written
+ * with a stray leading slash (`'/https://docs.arbitrum.foundation/…'`). Read as a comment marker, a
+ * key like that makes the entry's own value look commented out, the rewrite reports no change, and
+ * the cross-check then aborts the move blaming a reformat that never happened. Both live entries
+ * are long enough that Prettier wraps the value onto its own line, which is the only reason the
+ * plain scan worked; a shorter one would sit on one line and break it.
+ *
+ * Only single-quoted strings are tracked, matching the rewrite itself: a double-quoted reformat
+ * makes the rewrite match nothing, which `assertLegacyDestinationsRewrite` turns into a loud abort
+ * rather than a silent miss.
  */
 function inLineComment(body, offset) {
   const lineStart = body.lastIndexOf('\n', offset) + 1;
-  return body.slice(lineStart, offset).includes('//');
+  let inString = false;
+  for (let i = lineStart; i < offset; i++) {
+    const ch = body[i];
+    if (inString) {
+      if (ch === '\\') i++;
+      else if (ch === "'") inString = false;
+    } else if (ch === "'") {
+      inString = true;
+    } else if (ch === '/' && body[i + 1] === '/') {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
