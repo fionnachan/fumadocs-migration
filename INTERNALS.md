@@ -449,10 +449,16 @@ three differences that come from the data:
   across; the closing quote sits immediately after the URL, so `/docs/get-started` cannot match
   inside `/docs/get-started/child`.
 - **It does not regenerate `redirects.legacy.mjs`, and must not.** Regenerating needs the sibling
-  `arbitrum-docs` checkout that `move-doc` deliberately does not require. It does not have to:
+  `arbitrum-docs` checkout that `move-doc` deliberately does not require. Readers do not need it:
   `move-doc` has already appended `oldUrl → newUrl` to `redirects.config.mjs`, and Next serves one
-  redirect per request, so a legacy URL still reaches the moved page in two hops. The step prints a
-  note saying to run `pnpm redirects:legacy` to collapse the hop back to one.
+  redirect per request, so a legacy URL still reaches the moved page in two hops. `redirects:check`
+  does need it. `redirects.legacy.mjs` still names the old URL as its destination, and the check
+  compares a destination against the routable pages without ever following a second hop, so every
+  legacy source that named the moved page reports `DEAD` until `pnpm redirects:legacy` is rerun.
+  That one-hop reading reaches the `AUTO-GENERATED` block too: an earlier move's redirect whose
+  destination is the page just moved now chains, reports `DEAD` alongside them, and regenerating the
+  legacy map does not fix that one. Retarget it to the new URL. The step prints a note saying all
+  of this.
 
 **This step is written to outlive the legacy redirect generator.** The derivation half of that
 system — everything that reads an upstream checkout (`scripts/lib/upstream-pages.mjs`,

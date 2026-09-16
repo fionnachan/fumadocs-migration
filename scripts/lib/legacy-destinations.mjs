@@ -38,10 +38,13 @@
  *
  * What this module does *not* do is regenerate `redirects.legacy.mjs`. That is generator output, and
  * regenerating it needs the sibling checkout this module refuses to depend on — a move would then
- * fail for anyone without one. It does not have to: `move-doc` appends `oldUrl -> newUrl` to
+ * fail for anyone without one. Readers do not need it: `move-doc` appends `oldUrl -> newUrl` to
  * `redirects.config.mjs`, and Next serves one redirect per request, so a legacy URL still reaches the
- * moved page in two hops. The note printed on the CLI says to run `pnpm redirects:legacy` to collapse
- * the hop back to one.
+ * moved page in two hops. `pnpm redirects:check` does need it. It compares a destination against
+ * the routable pages and never follows a second hop, so every legacy source still naming the moved page
+ * reports DEAD until `pnpm redirects:legacy` is rerun. The note printed on the CLI says so, and says
+ * the same one-hop reading makes an earlier move's chained redirect in `redirects.config.mjs` report
+ * DEAD as well, which regenerating does not fix.
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -254,8 +257,11 @@ export async function updateLegacyDestinations(repoRoot, oldUrl, newUrl, dryRun)
   }
   notes.push(
     `NOTE: redirects.legacy.mjs still sends those legacy URLs to '${oldUrl}', which now redirects on ` +
-      `to '${newUrl}' — correct, but one hop longer. Run \`pnpm redirects:legacy\` (needs a sibling ` +
-      `arbitrum-docs checkout) to collapse it.`,
+      `to '${newUrl}', correct for readers, but one hop longer, and \`pnpm redirects:check\` follows ` +
+      `only one hop, so it reports each of them DEAD until you run \`pnpm redirects:legacy\` (needs a ` +
+      `sibling arbitrum-docs checkout). An earlier move's redirect in redirects.config.mjs that ` +
+      `pointed at '${oldUrl}' now chains the same way and reports DEAD too; regenerating does not fix ` +
+      `that one, so retarget it to '${newUrl}'.`,
   );
 
   if (!dryRun) writeFileSync(legacyRedirectsPath, formatted);

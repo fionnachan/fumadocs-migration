@@ -249,8 +249,12 @@ without touching a file. One map it cannot fix is `VERSIONED` in `lib/versions.t
 moved has a version dropdown, retarget its key by hand.
 
 If it reports retargeting a legacy destination, run `pnpm redirects:legacy` afterwards, whenever you
-next have a sibling `arbitrum-docs` checkout. Nothing is broken until you do: the legacy URL still
-reaches the page through the redirect just written, one hop longer.
+next have a sibling `arbitrum-docs` checkout. Readers are fine until you do: the legacy URL still
+reaches the page through the redirect just written, one hop longer. `pnpm redirects:check` is not.
+It follows one hop only, so every legacy source still pointing at the old URL reports `DEAD` until
+you regenerate. An earlier move's redirect in `redirects.config.mjs` that pointed at the page you
+just moved reports `DEAD` for the same reason, and regenerating will not fix that one: point it at
+the new URL.
 
 **Never hand-edit `redirects.config.mjs`** — both blocks in it are generated.
 ([Details](INTERNALS.md#redirects).)

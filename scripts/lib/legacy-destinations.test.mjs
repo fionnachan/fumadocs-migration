@@ -294,6 +294,12 @@ test('updateLegacyDestinations writes the file and reports one note per map that
   assert.match(notes[0], /legacy-redirects\.mjs: retargeted 1 MANUAL_DESTINATIONS destination/);
   assert.match(notes[1], /NOTE: redirects\.legacy\.mjs/);
   assert.match(notes[1], /pnpm redirects:legacy/);
+  // The note has to name the gate it puts red, not just the extra hop: `redirects:check` follows
+  // one hop, so the orphaned legacy sources (and any earlier move's redirect that pointed at the
+  // moved page) report DEAD until the legacy map is regenerated.
+  assert.match(notes[1], /pnpm redirects:check/);
+  assert.match(notes[1], /DEAD/);
+  assert.match(notes[1], /redirects\.config\.mjs/);
 
   // Byte-for-byte the original with exactly one substitution: SECTION_RENAMES, the absolute
   // destination, and the Prettier layout of every other entry all survive untouched.
