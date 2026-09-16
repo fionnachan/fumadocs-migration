@@ -12,6 +12,9 @@
  * The `export const metadata = { … };` block every upstream page opens with. Non-greedy up to the
  * first `};`, which is upstream's own rule: the object is a flat pair of string literals, and a
  * nested object would be a shape this generator has never seen and should not guess at.
+ *
+ * A `};` inside a string value would truncate the capture. That is not a silent failure: the
+ * parser below then stops on an unterminated string and names the file.
  */
 const METADATA_PATTERN = /export\s+const\s+metadata\s*=\s*({[\s\S]*?});/;
 
@@ -21,13 +24,200 @@ const RELATIVE_LINK_PATTERN = /\[([^\]]+)\]\(\.\/([\w-]+)\)/g;
 /** The fence that opens the first Rust snippet, and the anchor for the banner. */
 const RUST_FENCE = '```rust';
 
+/** The only bare words the literal grammar accepts. Anything else identifier-shaped is a call. */
+const KEYWORDS = new Map([
+  ['true', true],
+  ['false', false],
+  ['null', null],
+]);
+
+/** The escape sequences a string value may use. A Map, so no prototype key resolves by accident. */
+const STRING_ESCAPES = new Map([
+  ["'", "'"],
+  ['"', '"'],
+  ['\\', '\\'],
+  ['/', '/'],
+  ['b', '\b'],
+  ['f', '\f'],
+  ['n', '\n'],
+  ['r', '\r'],
+  ['t', '\t'],
+]);
+
+/** Sticky, so each `exec` matches at the cursor or not at all. Reset `lastIndex` before every use. */
+const IDENTIFIER = /[A-Za-z_$][A-Za-z0-9_$]*/y;
+const NUMBER = /-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/y;
+
 /**
- * Evaluate the metadata object literal.
+ * Parse a JavaScript object literal without executing it.
  *
- * It is a JavaScript expression, not JSON — upstream wraps long descriptions across lines and
- * uses single quotes — so nothing short of evaluating it will do. The input is a file this
- * generator just cloned from a repository the docs team owns, over HTTPS, and the expression is
- * matched to start with `{`, so this is the same trust boundary as the rest of the clone.
+ * The grammar is deliberately smaller than JavaScript: an object or array of strings, numbers,
+ * `true`, `false` and `null`, with bare or quoted property names and an optional trailing comma.
+ * That is JSON plus the four things upstream's `metadata` blocks actually use — single quotes,
+ * unquoted keys, trailing commas, and values wrapped onto the next line — and nothing else.
+ * Every other token stops the run: an identifier that is not a keyword, a template literal, a
+ * parenthesis, an operator, a comment. There is no fallback to evaluation.
+ *
+ * This replaces a `new Function(\`return ${literal}\`)()`. The distinction matters because the
+ * literal comes out of a third-party repository that this generator clones unpinned, on a weekly
+ * cron in a job holding `contents: write`, and on a maintainer's own machine whenever they run
+ * `pnpm stylus:generate`. Cloning a repository copies bytes; evaluating one of them runs them, at
+ * whatever privilege the run has. Reading them as data is the whole point here.
+ *
+ * @param {string} text the literal, starting at `{` or `[`
+ * @param {string} context a path, for the error message
+ * @returns {unknown}
+ */
+export function parseObjectLiteral(text, context) {
+  let cursor = 0;
+
+  const fail = (message) => {
+    const line = text.slice(0, cursor).split('\n').length;
+    const near = JSON.stringify(text.slice(cursor, cursor + 24));
+    throw new Error(`${context}: ${message} (line ${line} of the literal, near ${near})`);
+  };
+
+  const skipSpace = () => {
+    while (cursor < text.length && /\s/.test(text[cursor])) cursor++;
+  };
+
+  const parseString = () => {
+    const quote = text[cursor++];
+    let out = '';
+    while (cursor < text.length) {
+      const char = text[cursor];
+      if (char === quote) {
+        cursor++;
+        return out;
+      }
+      if (char === '\n' || char === '\r') fail('a literal newline inside a quoted string');
+      if (char !== '\\') {
+        out += char;
+        cursor++;
+        continue;
+      }
+      cursor++;
+      const escape = text[cursor];
+      if (escape === undefined) fail('the literal ends inside an escape sequence');
+      if (escape === 'u' || escape === 'x') {
+        const width = escape === 'u' ? 4 : 2;
+        const digits = text.slice(cursor + 1, cursor + 1 + width);
+        if (!new RegExp(`^[0-9a-fA-F]{${width}}$`).test(digits)) {
+          fail(`a malformed \\${escape} escape`);
+        }
+        out += String.fromCharCode(parseInt(digits, 16));
+        cursor += 1 + width;
+        continue;
+      }
+      if (!STRING_ESCAPES.has(escape)) fail(`an unsupported escape sequence \`\\${escape}\``);
+      out += STRING_ESCAPES.get(escape);
+      cursor++;
+    }
+    return fail('an unterminated string');
+  };
+
+  const parsePropertyName = () => {
+    if (text[cursor] === "'" || text[cursor] === '"') return parseString();
+    IDENTIFIER.lastIndex = cursor;
+    const match = IDENTIFIER.exec(text);
+    if (!match) fail('expected a property name');
+    cursor = IDENTIFIER.lastIndex;
+    return match[0];
+  };
+
+  const parseObject = () => {
+    cursor++; // past `{`
+    // Null-prototype, so a `__proto__` or `constructor` key is an ordinary own property rather
+    // than a write to the prototype chain. The spread at the end hands back a plain object.
+    const result = Object.create(null);
+    skipSpace();
+    if (text[cursor] === '}') {
+      cursor++;
+      return { ...result };
+    }
+    for (;;) {
+      skipSpace();
+      const key = parsePropertyName();
+      if (key in result) fail(`a duplicate property \`${key}\``);
+      skipSpace();
+      if (text[cursor] !== ':') fail(`expected \`:\` after the property name \`${key}\``);
+      cursor++;
+      result[key] = parseValue();
+      skipSpace();
+      if (text[cursor] === ',') {
+        cursor++;
+        skipSpace();
+      } else if (text[cursor] !== '}') {
+        fail('expected `,` or `}` after a property value');
+      }
+      if (text[cursor] === '}') {
+        cursor++;
+        return { ...result };
+      }
+    }
+  };
+
+  const parseArray = () => {
+    cursor++; // past `[`
+    const result = [];
+    skipSpace();
+    if (text[cursor] === ']') {
+      cursor++;
+      return result;
+    }
+    for (;;) {
+      result.push(parseValue());
+      skipSpace();
+      if (text[cursor] === ',') {
+        cursor++;
+        skipSpace();
+      } else if (text[cursor] !== ']') {
+        fail('expected `,` or `]` after an array element');
+      }
+      if (text[cursor] === ']') {
+        cursor++;
+        return result;
+      }
+    }
+  };
+
+  function parseValue() {
+    skipSpace();
+    if (cursor >= text.length) fail('the literal ends where a value was expected');
+    const char = text[cursor];
+    if (char === '{') return parseObject();
+    if (char === '[') return parseArray();
+    if (char === "'" || char === '"') return parseString();
+    if (char === '-' || (char >= '0' && char <= '9')) {
+      NUMBER.lastIndex = cursor;
+      const match = NUMBER.exec(text);
+      if (!match) fail('a malformed number');
+      cursor = NUMBER.lastIndex;
+      return Number(match[0]);
+    }
+    IDENTIFIER.lastIndex = cursor;
+    const word = IDENTIFIER.exec(text);
+    if (word && KEYWORDS.has(word[0])) {
+      cursor = IDENTIFIER.lastIndex;
+      return KEYWORDS.get(word[0]);
+    }
+    return fail('expected a string, number, `true`, `false`, `null`, array or object');
+  }
+
+  const value = parseValue();
+  skipSpace();
+  if (cursor < text.length) fail('unexpected text after the end of the literal');
+  return value;
+}
+
+/**
+ * Read the metadata object literal.
+ *
+ * It is a JavaScript expression, not JSON — upstream wraps long descriptions across lines, mixes
+ * single and double quotes, and leaves a trailing comma — so `JSON.parse` will not do. It is read
+ * with {@link parseObjectLiteral}, which accepts exactly that grammar as **data** and throws on
+ * anything outside it. It is never evaluated: see that function for why the difference matters
+ * when the input is an unpinned third-party repository read on a weekly cron.
  *
  * @param {string} source the full text of an upstream `page.mdx`
  * @param {string} context a path, for the error message
@@ -39,12 +229,7 @@ export function parseMetadata(source, context) {
     throw new Error(`${context}: no \`export const metadata\` block; cannot build frontmatter`);
   }
 
-  let metadata;
-  try {
-    metadata = new Function(`return ${match[1]}`)();
-  } catch (error) {
-    throw new Error(`${context}: could not evaluate the metadata object: ${error.message}`);
-  }
+  const metadata = parseObjectLiteral(match[1], `${context}: could not read the metadata object`);
 
   for (const field of ['title', 'description']) {
     if (typeof metadata[field] !== 'string' || metadata[field].trim() === '') {

@@ -21,6 +21,7 @@ import {
   buildSectionMeta,
   insertNotForProductionBanner,
   parseMetadata,
+  parseObjectLiteral,
   renderFrontmatter,
   rewriteRelativeLinks,
   yamlScalar,
@@ -83,6 +84,105 @@ describe('parseMetadata', () => {
     // would surface as a build error on a page this generator wrote, far from the cause.
     const source = `export const metadata = { title: 'T' };\n`;
     assert.throws(() => parseMetadata(source, 'fixture'), /metadata\.description is missing/);
+  });
+
+  it('reads a block written the way upstream actually writes them', () => {
+    // Every shape present across the 36 `metadata` blocks in stylus-by-example at 4bd4fb0:
+    // double-quoted values beside single-quoted ones in the same block, the value wrapped onto
+    // the line below its key, a trailing comma, an apostrophe inside a double-quoted string, and
+    // a backtick and a `•` inside a single-quoted one. No block uses any escape sequence at all.
+    const source = `export const metadata = {
+  title: 'Bytes In, Bytes Out • Stylus by Example',
+  description:
+    "How to use Arbitrum's \`entrypoint\` function.",
+};
+
+# Heading
+`;
+    assert.deepEqual(parseMetadata(source, 'fixture'), {
+      title: 'Bytes In, Bytes Out • Stylus by Example',
+      description: "How to use Arbitrum's `entrypoint` function.",
+    });
+  });
+
+  it('reads a block with no indentation at all', () => {
+    // basic_examples/constructor/page.mdx upstream is written flush to the left margin.
+    const source = `export const metadata = {\ntitle: "Constructors",\ndescription:\n"How to define them.",\n};\n`;
+    assert.deepEqual(parseMetadata(source, 'fixture'), {
+      title: 'Constructors',
+      description: 'How to define them.',
+    });
+  });
+});
+
+describe('parseObjectLiteral', () => {
+  it('reads the grammar upstream uses: both quote styles, bare keys, a trailing comma', () => {
+    assert.deepEqual(parseObjectLiteral(`{ a: 'one', "b": "two", }`, 'fixture'), {
+      a: 'one',
+      b: 'two',
+    });
+  });
+
+  it('reads the JSON scalars and containers it also accepts', () => {
+    assert.deepEqual(
+      parseObjectLiteral(`{ n: -2.5e3, i: 0, t: true, f: false, z: null }`, 'fixture'),
+      { n: -2500, i: 0, t: true, f: false, z: null },
+    );
+    assert.deepEqual(parseObjectLiteral(`{ a: ['x', 1,], o: { k: 'v' } }`, 'fixture'), {
+      a: ['x', 1],
+      o: { k: 'v' },
+    });
+  });
+
+  it('reads the escape sequences a string value may carry', () => {
+    assert.deepEqual(parseObjectLiteral(`{ a: 'it\\'s', b: "\\u00e9\\n\\\\" }`, 'fixture'), {
+      a: "it's",
+      b: 'é\n\\',
+    });
+  });
+
+  // The point of the whole function: this used to be `new Function(\`return ${literal}\`)()`,
+  // which ran whatever an unpinned third-party repository put here, weekly in CI and on any
+  // maintainer's machine. Each case below is a payload that evaluation would have executed.
+  it('throws on an expression that would run code, rather than evaluating it', () => {
+    for (const literal of [
+      `{ title: (globalThis.x = 1, 'a') }`,
+      `{ title: (() => { return 1; })() }`,
+      `{ title: process.env.HOME }`,
+      '{ title: `template` }',
+      `{ title: require('fs') }`,
+    ]) {
+      assert.throws(() => parseObjectLiteral(literal, 'fixture'), /fixture:/, literal);
+    }
+    assert.equal(globalThis.x, undefined);
+  });
+
+  it('throws on anything else outside the grammar', () => {
+    for (const literal of [
+      `{ title: undefined }`, // an identifier that is not true/false/null
+      `{ title: 1 + 1 }`, // an operator
+      `{ /* c */ title: 1 }`, // a comment
+      `{ title: 'a', title: 'b' }`, // a duplicate key
+      `{ title: 'unterminated }`,
+      `{ title: 'a' } trailing`,
+      `{ title: '\nnewline' }`,
+      `{ title: '\\q' }`, // an escape the grammar does not define
+    ]) {
+      assert.throws(() => parseObjectLiteral(literal, 'fixture'), /fixture:/, literal);
+    }
+  });
+
+  it('names the file and the line, because the run stops on a page nobody has open', () => {
+    assert.throws(
+      () => parseObjectLiteral(`{\n  title: 'a',\n  description: oops,\n}`, 'src/app/x/page.mdx'),
+      /src\/app\/x\/page\.mdx: expected a string.*line 3/s,
+    );
+  });
+
+  it('keeps a `__proto__` key as an ordinary property instead of writing the prototype', () => {
+    const parsed = parseObjectLiteral(`{ "__proto__": { "polluted": true } }`, 'fixture');
+    assert.equal(Object.hasOwn(parsed, '__proto__'), true);
+    assert.equal({}.polluted, undefined);
   });
 });
 

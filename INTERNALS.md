@@ -1104,7 +1104,7 @@ They arrived here as a hand port of an arbitrum-docs pipeline
 that does not survive that repo being archived. Without the port, an edit upstream reached this
 site through nobody and nothing, and nobody would have been told.
 
-Five things about it are worth knowing:
+Six things about it are worth knowing:
 
 - **Nothing is pinned.** stylus-by-example publishes no releases and this site has always tracked
   its default branch, so the generator clones that. A pin would only be a second version number to
@@ -1137,6 +1137,14 @@ Five things about it are worth knowing:
 - **A relative link resolves against the section that publishes the slug**, and a slug this site
   does not publish stops the run. Upstream's version of that rule hardcodes `basic_examples`, which
   is only ever right because the one relative link in the published set happens to live there.
+- **The `metadata` export is parsed, never evaluated.** Upstream's `title` and `description` live
+  in a JavaScript object literal, not JSON, so `parseObjectLiteral` in
+  `scripts/lib/stylus-examples.mjs` reads a grammar of JSON plus the four things upstream actually
+  writes — single quotes, bare keys, trailing commas, a value wrapped onto the next line — and
+  throws on every other token, with no fallback. It replaced a `new Function(…)()`, which is a
+  different thing from cloning: a clone copies bytes, evaluating one runs it, unpinned, weekly, in
+  a job holding `contents: write`, and on any maintainer's machine that runs `pnpm
+stylus:generate`.
 - **`meta.json` is written without Prettier** (`format: false` on `writeOrCheck`).
   `.prettierignore` excludes `**/meta.json` because `stringifyMeta` writes one array entry per line
   and Prettier collapses a short array; formatting it here would make this generator and `pnpm
