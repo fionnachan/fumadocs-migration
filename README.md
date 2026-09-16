@@ -243,7 +243,14 @@ pnpm move-doc <from> <to>
 ```
 
 This rewrites inbound links, re-bases the moved page's own relative links and includes, updates
-`meta.json`, and writes the redirect for you.
+`meta.json`, writes the redirect, and retargets every hand-written map that names the page: the two
+upstream-drift maps and the two legacy-redirect destination maps. Add `--dry-run` to see all of it
+without touching a file. One map it cannot fix is `VERSIONED` in `lib/versions.ts` — if the page you
+moved has a version dropdown, retarget its key by hand.
+
+If it reports retargeting a legacy destination, run `pnpm redirects:legacy` afterwards, whenever you
+next have a sibling `arbitrum-docs` checkout. Nothing is broken until you do: the legacy URL still
+reaches the page through the redirect just written, one hop longer.
 
 **Never hand-edit `redirects.config.mjs`** — both blocks in it are generated.
 ([Details](INTERNALS.md#redirects).)

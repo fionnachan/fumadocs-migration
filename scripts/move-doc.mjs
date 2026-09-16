@@ -14,15 +14,18 @@
  *   5. retargets the moved path in `scripts/lib/tree-compare.mjs`'s `RENAME_MAP` and
  *      `scripts/data/upstream.config.json`'s `guttedAllowlist`, if either names it (see
  *      `scripts/lib/drift-maps.mjs`) — otherwise a move silently orphans a drift exemption, which
- *      `pnpm test` only catches in whatever unrelated PR happens to run next.
+ *      `pnpm test` only catches in whatever unrelated PR happens to run next;
+ *   6. retargets the moved page's *URL* in `scripts/lib/legacy-redirects.mjs`'s
+ *      `MANUAL_DESTINATIONS` and `SECTION_LANDINGS`, if either names it (see
+ *      `scripts/lib/legacy-destinations.mjs`) — otherwise a move leaves a legacy docs.arbitrum.io
+ *      URL pointing at a 404, with the same fails-in-someone-else's-PR delay.
  *
- * Step 5 runs last because it is the only step that can legitimately refuse: it verifies its own
- * rewrite and formats through Prettier before writing, and aborting there must not cost the redirect.
- * Two other hand-written maps of local paths are still on the mover: `MANUAL_DESTINATIONS` in
- * `scripts/lib/legacy-redirects.mjs` (as site URLs), where a stale entry at least fails `pnpm test`
- * in a later PR — tracked as FS-2697 — and `VERSIONED` in `lib/versions.ts` (keyed by canonical
- * slug), where nothing fails at all: `versioned-docs-check.mjs` always exits 0, so a moved versioned
- * page just loses its version dropdown. Retarget both by hand.
+ * Steps 5 and 6 run last, in that order, because they are the only steps that can legitimately
+ * refuse: each verifies its own rewrite and formats through Prettier before writing, and aborting
+ * there must not cost the redirect. One hand-written map is still on the mover: `VERSIONED` in
+ * `lib/versions.ts` (keyed by canonical slug), where nothing fails at all —
+ * `versioned-docs-check.mjs` always exits 0, so a moved versioned page just loses its version
+ * dropdown. Retarget that one by hand.
  *
  * `--dry-run` prints every change without touching the filesystem. Paths are repo-relative files under
  * `content/docs/` (not site URLs). After a real run, verify with `pnpm restructure` or `pnpm check-links`.
@@ -49,6 +52,7 @@ import {
   toPosix,
 } from './lib/doc-links.mjs';
 import { updateDriftMaps } from './lib/drift-maps.mjs';
+import { updateLegacyDestinations } from './lib/legacy-destinations.mjs';
 
 const REDIRECTS_START = '// AUTO-GENERATED REDIRECTS START';
 const REDIRECTS_END = '// AUTO-GENERATED REDIRECTS END';
@@ -340,6 +344,8 @@ async function main() {
     // Reported last, mirroring the order a real run applies the steps in.
     for (const n of await updateDriftMaps(repoRoot, docsRelFrom, docsRelTo, true))
       console.log(`  ${n}`);
+    for (const n of await updateLegacyDestinations(repoRoot, fromMeta.url, toMeta.url, true))
+      console.log(`  ${n}`);
     console.log('\n[dry-run] no files were changed.');
     return;
   }
@@ -376,6 +382,13 @@ async function main() {
   // redirect is appended means a failure here costs only this step, and it writes both maps or
   // neither. Everything before it has already landed, so the fix is to retarget the maps by hand.
   for (const n of await updateDriftMaps(repoRoot, docsRelFrom, docsRelTo, false))
+    console.log(`  ${n}`);
+
+  // Same reasoning, one step further out, and after the drift maps so their abort semantics are
+  // unchanged. This one works in site URLs rather than content-relative paths, because that is what
+  // the two legacy maps store, and it reads nothing but those two maps — deleting the legacy
+  // redirect *generator* (which needs a sibling arbitrum-docs checkout) leaves it working as is.
+  for (const n of await updateLegacyDestinations(repoRoot, fromMeta.url, toMeta.url, false))
     console.log(`  ${n}`);
 
   console.log('\nDone. Verify with `pnpm check-links` (or `pnpm restructure` runs it for you).');

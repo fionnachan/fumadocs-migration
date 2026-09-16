@@ -428,16 +428,44 @@ quietly:
   pass happens before the first write, and `move-doc` calls it after the redirect is appended, so a
   formatter or parse failure cannot cost the redirect or leave one map retargeted and the other not.
 
-**A move can still leave `MANUAL_DESTINATIONS` stale.** `scripts/lib/legacy-redirects.mjs` keeps a
-third hand-written map of local paths, as site URLs rather than content-relative paths, and
-`move-doc` does not touch it. Moving a page named there fails
+**The legacy destination overlay is retargeted the same way, one step later.**
+`scripts/lib/legacy-redirects.mjs` keeps two more hand-written maps naming this site's pages —
+`MANUAL_DESTINATIONS` and `SECTION_LANDINGS` — as **site URLs** (`/docs/…`, sometimes with an
+`#anchor`) rather than content-relative paths. `scripts/lib/legacy-destinations.mjs` retargets both,
+and `move-doc` calls it after the drift maps. Before this, moving a page named in either left a
+legacy `docs.arbitrum.io` URL pointing at a 404 until
 `scripts/generate-legacy-redirects.test.mjs` ("every hand-written destination still names a live
-page") in whatever PR runs `pnpm test` next, the same shape of failure this section exists to
-prevent. Retargeting it correctly also means regenerating `redirects.legacy.mjs`, which needs the
-sibling `arbitrum-docs` checkout that `move-doc` deliberately does not require, so it is tracked
-separately as FS-2697. Until then, after moving a page, grep `MANUAL_DESTINATIONS` for its old URL.
+page") failed in whatever PR ran `pnpm test` next.
 
-**And `VERSIONED` in `lib/versions.ts`, which is worse, because nothing catches it.** That registry
+It is a deliberate near-copy of `drift-maps.mjs` — same confinement to the named literal, same
+cross-check against the imported map, same abort-before-writing-anything, same Prettier pass — with
+three differences that come from the data:
+
+- **It works in URLs, so `move-doc` hands it `fromMeta.url`/`toMeta.url`.** A partial (no URL) and a
+  move that does not change the URL are both no-ops.
+- **It tells values from keys by position, not by a trailing `:`.** A `Map` entry is `[key, value]`,
+  so the value is the string the `]` follows: `'…'(?=\s*,?\s*\])`. Both Prettier layouts (one line,
+  and the value wrapped onto its own line) satisfy it. An `#anchor` on a destination is carried
+  across; the closing quote sits immediately after the URL, so `/docs/get-started` cannot match
+  inside `/docs/get-started/child`.
+- **It does not regenerate `redirects.legacy.mjs`, and must not.** Regenerating needs the sibling
+  `arbitrum-docs` checkout that `move-doc` deliberately does not require. It does not have to:
+  `move-doc` has already appended `oldUrl → newUrl` to `redirects.config.mjs`, and Next serves one
+  redirect per request, so a legacy URL still reaches the moved page in two hops. The step prints a
+  note saying to run `pnpm redirects:legacy` to collapse the hop back to one.
+
+**This step is written to outlive the legacy redirect generator.** The derivation half of that
+system — everything that reads an upstream checkout (`scripts/lib/upstream-pages.mjs`,
+`resolveUpstreamRepo`, `build`) — is scheduled for deletion once this repo replaces upstream and
+upstream is archived. The two maps and `resolveTarget`'s ordering are not: `docs.arbitrum.io` URLs
+have to keep resolving forever. So `legacy-destinations.mjs` imports those two named exports and
+rewrites the two literals that declare them, and reads nothing else: no `build()`, no
+`upstream.config.json`, no `vercel.json`, no checkout. Deleting the generator leaves it working
+unchanged. Should the maps ever move to a different module, the textual rewrite finds nothing and
+the cross-check throws, rather than the step silently skipping.
+
+**`VERSIONED` in `lib/versions.ts` is still on the mover, and it is worse, because nothing catches
+it.** That registry
 keys the partial versioning registry by canonical slug (`'run-a-node/start-here'`), `move-doc` does
 not touch it, and no gate asserts its keys name a live page: `scripts/versioned-docs-check.mjs` only
 warns about uncommitted edits to versioned documents and always exits 0. Moving a versioned page
@@ -525,10 +553,12 @@ exists.
 
 **`MANUAL_DESTINATIONS` and `SECTION_LANDINGS` are hand-written, so a test pins them against the
 content tree.** The generator throws when an entry it _reaches_ names a missing page, but it only
-reaches an entry whose source is in upstream's corpus on that run, so an entry orphaned by
-`pnpm move-doc` would otherwise rot silently into a redirect to a 404. `pnpm test` walks
-`content/docs` and asserts every non-external value in both maps still resolves — the same guard,
-for the same reason, as the one the drift allowlists carry.
+reaches an entry whose source is in upstream's corpus on that run, so an orphaned entry would
+otherwise rot silently into a redirect to a 404. `pnpm test` walks `content/docs` and asserts every
+non-external value in both maps still resolves — the same guard, for the same reason, as the one the
+drift allowlists carry. `pnpm move-doc` now retargets both maps in the same run as the move (see
+[Moved pages](#redirects)), so the test guards against a hand edit and against a page that leaves
+the tree some other way, not against the mover.
 
 Anything unresolvable lands in `redirects.legacy.todo.json`. **That file reached `[]` on
 2026-08-31, stayed `[]` when canonical URLs were added on 2026-09-11, and is a tripwire, not a
