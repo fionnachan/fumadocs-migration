@@ -1043,8 +1043,9 @@ weekly refresh PR is where that gets noticed instead.
 
 `stylus:check` is out of CI for the same reason, more sharply: it clones a third-party repository's
 default branch with no pin at all, so a red gate would mean "someone edited stylus-by-example". The
-`stylus` job in the weekly refresh does it instead. See
-[Stylus by Example](#stylus-by-example).
+`stylus` job in the weekly refresh does it instead, and because the PR that job opens receives no
+CI of its own, that job also runs every gate on this list against the tree it is about to propose.
+See [Stylus by Example](#stylus-by-example).
 
 When `contracts:check`, `cli:check` or `stylus:check` fails it prints a line-level diff, so a reviewer can see
 whether a value moved or only the formatting did. That diff is a real one, computed over a longest common
@@ -1103,7 +1104,7 @@ They arrived here as a hand port of an arbitrum-docs pipeline
 that does not survive that repo being archived. Without the port, an edit upstream reached this
 site through nobody and nothing, and nobody would have been told.
 
-Four things about it are worth knowing:
+Five things about it are worth knowing:
 
 - **Nothing is pinned.** stylus-by-example publishes no releases and this site has always tracked
   its default branch, so the generator clones that. A pin would only be a second version number to
@@ -1115,6 +1116,19 @@ Four things about it are worth knowing:
   another step in `refresh`, for the reason `drift` is independent too: a failure here must not
   hide a Nitro pin bump, and nineteen pages of changed prose in the same PR as a regenerated
   address table is a PR nobody reviews.
+- **That job runs the blocking gates itself**, between the generator and the pull request, and
+  that is not belt-and-braces. A pull request opened with `GITHUB_TOKEN` triggers no workflow
+  runs — GitHub's own rule, so a workflow cannot recurse — and `ci.yml` fires only on
+  push/pull_request against `main`, so **nothing checks the PR this job opens**; its checks tab
+  arrives empty, which reads as green. The payload is prose and frontmatter from a repository this
+  project neither controls nor pins, which makes it the automated PR most in need of checking, so
+  the job runs `ci.yml`'s `Gates` list step for step against the regenerated tree and fails the
+  weekly run rather than shipping a PR nothing has verified. **Keep the two lists in sync**: a
+  gate added to `ci.yml` and not there is a gate that PR does not get. The alternative, a PAT or
+  GitHub App token on `create-pull-request` so `ci.yml` runs for real, needs a secret nobody has
+  provisioned. The sibling `refresh` job has the same no-CI shape and no gates of its own; its
+  payload is generator output over pinned inputs, so the exposure is smaller, but it is the same
+  gap and worth closing separately.
 - **The published set is an allowlist**, in `scripts/data/stylus-examples.data.mjs`, and that list
   doubles as the `meta.json` order, which is why it is alphabetical rather than in upstream's
   sidebar order. Upstream publishes sixteen more examples than these. Every run **names the ones it

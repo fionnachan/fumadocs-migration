@@ -121,6 +121,9 @@ jobs:
   # No pin: stylus-by-example publishes no releases and this site has always tracked its default
   # branch, so the generator clones that. See the header of scripts/generate-stylus-examples.mjs
   # for why `stylus:check` is deliberately not a CI gate.
+  #
+  # It runs the blocking gates itself, between the generator and the PR, because a PR opened with
+  # GITHUB_TOKEN triggers no workflow runs and so receives no CI. See the comment on those steps.
   stylus:
     name: Refresh Stylus by Example
     runs-on: ubuntu-latest
@@ -148,6 +151,63 @@ jobs:
       - name: Regenerate the Stylus by Example pages
         run: pnpm stylus:generate
 
+      # Everything from here to the create-pull-request step is `ci.yml`'s `Gates` job, step for
+      # step and in the same order, run against the regenerated tree.
+      #
+      # It is here because the pull request this job opens gets no CI at all. GitHub raises no
+      # workflow run for an event created with `GITHUB_TOKEN` (its own rule, so a workflow cannot
+      # recurse), and `ci.yml` triggers only on push/pull_request against `main`, which a push to
+      # `automated/stylus-by-example` is not. The PR therefore arrives with an empty checks tab,
+      # which reads as green. Its payload is nineteen pages of prose, frontmatter and MDX written
+      # in a repository this project neither controls nor pins, so it is the automated PR that
+      # most needs checking, and these gates are exactly the ones that would catch an upstream
+      # edit breaking this site.
+      #
+      # Running them here fails the weekly run instead of shipping an unverified PR, and needs no
+      # new secret. The alternative — a PAT or GitHub App token on create-pull-request, which
+      # would make `ci.yml` run for real — is a secret nobody has provisioned.
+      #
+      # Keep this list in sync with the `Gates` job in ci.yml: a gate added there and not here is
+      # a gate this PR does not get. `build` is not here for the reason it does not block there.
+      - name: Type check (regenerates .source/, then tsc)
+        run: pnpm types:check
+
+      - name: Script test suites
+        run: pnpm test
+
+      - name: Global variables resolve
+        run: pnpm vars:check
+
+      - name: Navigation integrity
+        run: pnpm nav:check
+
+      - name: Partials resolve and stay unrouted
+        run: pnpm partials:check
+
+      - name: Archived page registry
+        run: node scripts/versioned-docs-check.mjs
+
+      - name: Glossary references resolve
+        run: pnpm references:check
+
+      - name: FAQ structured-data ids resolve
+        run: pnpm faq:check
+
+      - name: No remote markdown images
+        run: pnpm images:presence
+
+      - name: Internal links
+        run: pnpm check-links
+
+      - name: Generated contract addresses are current
+        run: pnpm contracts:check
+
+      - name: Formatting
+        run: pnpm format:check
+
+      - name: MDX structural lint
+        run: pnpm content:lint
+
       # zizmor: ignore[superfluous-actions]
       # Same reasoning as the `refresh` job: create-pull-request owns the branch/commit/push
       # plumbing and no-ops when nothing changed, which is the normal outcome of a weekly run.
@@ -172,6 +232,12 @@ jobs:
             Reproduce locally with `pnpm stylus:generate`. Check the run log for upstream
             examples this site does not publish — that list is the only notice anyone gets
             that a new example exists.
+
+            **The checks tab on this PR is empty and that is expected.** A pull request opened
+            with `GITHUB_TOKEN` triggers no workflow runs, so `ci.yml` never sees this branch.
+            Every blocking gate ran inside the `stylus` job against this exact tree before the
+            PR was opened, and the run had to be green to get here:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
   # Removed at cutover (plan M-52): once arbitrum-docs is frozen there is nothing to drift from.
   drift:
