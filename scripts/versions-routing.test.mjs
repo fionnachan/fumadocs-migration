@@ -19,6 +19,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { archiveParams, isArchiveId } from '../lib/versions-constants.ts';
 import {
   ARCHIVE_ROOT,
   DOCS_ROOT,
@@ -28,6 +29,26 @@ import {
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const registry = parseVersionedRegistry(repoRoot);
+
+test('only registered archive ids are accepted by the legacy redirect', () => {
+  assert.equal(isArchiveId('run-a-node/start-here', 'v1'), true);
+  for (const id of ['latest', 'v99', '', '__proto__']) {
+    assert.equal(isArchiveId('run-a-node/start-here', id), false);
+  }
+  for (const slug of ['missing', 'constructor', '__proto__', 'toString']) {
+    assert.equal(isArchiveId(slug, 'v1'), false);
+  }
+});
+
+test('static params enumerate every archive without Latest or duplicate paths', () => {
+  const paths = archiveParams().map(({ slug }) => slug.join('/'));
+  const expected = registry.flatMap(({ slug, archives }) =>
+    archives.map(({ id }) => `${slug}/${id}`),
+  );
+  assert.deepEqual(paths, expected);
+  assert.equal(new Set(paths).size, paths.length);
+  assert.ok(paths.every((slug) => !slug.endsWith('/latest')));
+});
 
 /** Absolute path of the file serving `<slug>`, or `null` when no page does. */
 function livePageFile(slug) {

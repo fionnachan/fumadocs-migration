@@ -43,11 +43,22 @@ export const isCheckMode = () => process.argv.includes('--check');
  * does not honour, so a generator that inherited the default config would reformat MDX in
  * a way `pnpm format:check` never asked for.
  *
+ * `format: false` skips Prettier entirely, for a file whose canonical shape is one Prettier
+ * actively disagrees with. `meta.json` is the case that exists: `.prettierignore` excludes it
+ * because `stringifyMeta` writes one array entry per line and Prettier collapses a short array,
+ * so formatting it here would make the generator and `pnpm move-doc` undo each other on every
+ * run. A caller passing `false` owns the exact bytes, trailing newline included.
+ *
  * @returns {Promise<boolean>} true when the file was written and its content changed.
  */
-export async function writeOrCheck(filePath, content, { check, overrides = {} }) {
-  const config = await prettier.resolveConfig(filePath);
-  const formatted = await prettier.format(content, { ...config, filepath: filePath, ...overrides });
+export async function writeOrCheck(filePath, content, { check, overrides = {}, format = true }) {
+  const formatted = format
+    ? await prettier.format(content, {
+        ...(await prettier.resolveConfig(filePath)),
+        filepath: filePath,
+        ...overrides,
+      })
+    : content;
   const current = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf-8') : '';
 
   if (check) {

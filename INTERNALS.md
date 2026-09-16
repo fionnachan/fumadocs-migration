@@ -26,7 +26,8 @@ canonical for humans, and the one to edit first.**
 - [Remote images are never fetched at build](#remote-images-are-never-fetched-at-build)
 - [The Node runtime](#the-node-runtime)
 - [Analytics](#analytics)
-- [The gates](#the-gates)
+- [The gates](#the-gates) (including [Generated pages](#generated-pages) and
+  [Stylus by Example](#stylus-by-example))
 - [Upstream drift](#upstream-drift)
 - [What nothing catches](#what-nothing-catches)
 - [Static routing under `/docs`](#static-routing-under-docs)
@@ -343,6 +344,16 @@ the marker `{/* sync-with-var: latestNitroNodeImage */}`. Two weaker rules were 
 
 So do not put the marker on a page that states a Nitro version historically.
 
+The root `dependencies.json` is **not** part of that machinery. It is a verbatim snapshot of
+upstream `arbitrum-docs`' release ledger for five projects (`nitro`, `stylus-sdk`, `orbit-sdk`,
+`nitro-contracts`, `token-bridge-contracts`), salvaged under FS-2702 so the per-project detail
+survives that repo's archival. Nothing here reads it, its version numbers are frozen as of the
+copy, and `content/vars.json`'s `nitroVersionTag` is the live Nitro pin wherever the two
+disagree. Its own `_note` key says so in the file. What extending `check-nitro-release.mjs` to
+the other four projects would take is written up in that file's commit message; the short
+version is that the Docker-Hub tag resolution at the heart of the script is Nitro-specific and
+does not generalize.
+
 ### Announcement banner
 
 `app/layout.tsx` renders Fumadocs' `Banner` above everything else in `RootProvider`, which puts it
@@ -433,14 +444,58 @@ quietly:
   pass happens before the first write, and `move-doc` calls it after the redirect is appended, so a
   formatter or parse failure cannot cost the redirect or leave one map retargeted and the other not.
 
-**A move can still leave `MANUAL_DESTINATIONS` stale.** `scripts/lib/legacy-redirects.mjs` keeps a
-third hand-written map of local paths, as site URLs rather than content-relative paths, and
-`move-doc` does not touch it. Moving a page named there fails
+**The legacy destination overlay is retargeted the same way, one step later.**
+`scripts/lib/legacy-redirects.mjs` keeps two more hand-written maps naming this site's pages —
+`MANUAL_DESTINATIONS` and `SECTION_LANDINGS` — as **site URLs** (`/docs/…`, sometimes with an
+`#anchor`) rather than content-relative paths. `scripts/lib/legacy-destinations.mjs` retargets both,
+and `move-doc` calls it after the drift maps. Before this, moving a page named in either left a
+legacy `docs.arbitrum.io` URL pointing at a 404 until
 `scripts/generate-legacy-redirects.test.mjs` ("every hand-written destination still names a live
-page") in whatever PR runs `pnpm test` next, the same shape of failure this section exists to
-prevent. Retargeting it correctly also means regenerating `redirects.legacy.mjs`, which needs the
-sibling `arbitrum-docs` checkout that `move-doc` deliberately does not require, so it is tracked
-separately as FS-2697. Until then, after moving a page, grep `MANUAL_DESTINATIONS` for its old URL.
+page") failed in whatever PR ran `pnpm test` next.
+
+It is a deliberate near-copy of `drift-maps.mjs` — same confinement to the named literal, same
+cross-check against the imported map, same abort-before-writing-anything, same Prettier pass — with
+three differences that come from the data:
+
+- **It works in URLs, so `move-doc` hands it `fromMeta.url`/`toMeta.url`.** A partial (no URL) and a
+  move that does not change the URL are both no-ops.
+- **It tells values from keys by position, not by a trailing `:`.** A `Map` entry is `[key, value]`,
+  so the value is the string the `]` follows: `'…'(?=\s*,?\s*\])`. Both Prettier layouts (one line,
+  and the value wrapped onto its own line) satisfy it. An `#anchor` on a destination is carried
+  across; the closing quote sits immediately after the URL, so `/docs/get-started` cannot match
+  inside `/docs/get-started/child`.
+- **It does not regenerate `redirects.legacy.mjs`, and must not.** Regenerating needs the sibling
+  `arbitrum-docs` checkout that `move-doc` deliberately does not require. Readers do not need it:
+  `move-doc` has already appended `oldUrl → newUrl` to `redirects.config.mjs`, and Next serves one
+  redirect per request, so a legacy URL still reaches the moved page in two hops. `redirects:check`
+  does need it. `redirects.legacy.mjs` still names the old URL as its destination, and the check
+  compares a destination against the routable pages without ever following a second hop, so every
+  legacy source that named the moved page reports `DEAD` until `pnpm redirects:legacy` is rerun.
+  That one-hop reading reaches the `AUTO-GENERATED` block too: an earlier move's redirect whose
+  destination is the page just moved now chains, reports `DEAD` alongside them, and regenerating the
+  legacy map does not fix that one. Retarget it to the new URL. The step prints a note saying all
+  of this.
+- **The chained `AUTO-GENERATED` entry gets its own note, and only when there is one.** The block
+  holds four entries in total, so a move of any other page has nothing chained to it: asserting the
+  chain unconditionally was false for 64 of the 68 pages the two maps name, and sent the mover
+  looking for a line that does not exist. `findChainedAutoRedirects` reads `redirects.config.mjs`
+  between the two markers, matches `source` then `destination` (the order `appendRedirect` writes
+  and Prettier preserves when it wraps), compares the destination for exact equality so a move of
+  `/docs/run-a-node` cannot claim the entry pointing at `/docs/run-a-node/run-batch-poster`, and
+  names the source URL(s) to retarget. The entry `move-doc` appended moments earlier cannot match
+  itself, because its destination is the _new_ URL. That note is **not** gated on either legacy map
+  having changed, unlike the `redirects.legacy.mjs` note above it: a chained entry is an earlier
+  move's business, not the maps', and a page no legacy map names would otherwise chain in silence.
+
+**This step is written to outlive the legacy redirect generator.** The derivation half of that
+system — everything that reads an upstream checkout (`scripts/lib/upstream-pages.mjs`,
+`resolveUpstreamRepo`, `build`) — is scheduled for deletion once this repo replaces upstream and
+upstream is archived. The two maps and `resolveTarget`'s ordering are not: `docs.arbitrum.io` URLs
+have to keep resolving forever. So `legacy-destinations.mjs` imports those two named exports and
+rewrites the two literals that declare them, and reads nothing else: no `build()`, no
+`upstream.config.json`, no `vercel.json`, no checkout. Deleting the generator leaves it working
+unchanged. Should the maps ever move to a different module, the textual rewrite finds nothing and
+the cross-check throws, rather than the step silently skipping.
 
 **And `VERSIONED` in `lib/versions-constants.ts`, which `move-doc` still does not touch — but which
 a gate now catches.** That registry keys partial versioning by canonical slug
@@ -532,10 +587,12 @@ exists.
 
 **`MANUAL_DESTINATIONS` and `SECTION_LANDINGS` are hand-written, so a test pins them against the
 content tree.** The generator throws when an entry it _reaches_ names a missing page, but it only
-reaches an entry whose source is in upstream's corpus on that run, so an entry orphaned by
-`pnpm move-doc` would otherwise rot silently into a redirect to a 404. `pnpm test` walks
-`content/docs` and asserts every non-external value in both maps still resolves — the same guard,
-for the same reason, as the one the drift allowlists carry.
+reaches an entry whose source is in upstream's corpus on that run, so an orphaned entry would
+otherwise rot silently into a redirect to a 404. `pnpm test` walks `content/docs` and asserts every
+non-external value in both maps still resolves — the same guard, for the same reason, as the one the
+drift allowlists carry. `pnpm move-doc` now retargets both maps in the same run as the move (see
+[Moved pages](#redirects)), so the test guards against a hand edit and against a page that leaves
+the tree some other way, not against the mover.
 
 Anything unresolvable lands in `redirects.legacy.todo.json`. **That file reached `[]` on
 2026-08-31, stayed `[]` when canonical URLs were added on 2026-09-11, and is a tripwire, not a
@@ -764,9 +821,12 @@ redirect.
 **Archives have no markdown mirror.** `/docs/<slug>/v1.md`, and `Accept: text/markdown` on an
 archive URL, both 404, because `llms.mdx/` derives from the routed `docs` collection and the
 archives are not in it. That is a deliberate 404 rather than a silent fallback: serving a reader the
-_live_ markdown at an archive URL would answer the wrong question. Archives are likewise absent from
+_live_ markdown at an archive URL would answer the wrong question. This also applies to legacy
+`?v=v1` requests with `Accept: text/markdown`: the redirect preserves the archive choice and the
+destination returns 404. Archive pages omit Copy Markdown and View as Markdown, while retaining
+the GitHub link to the archive file. Archives are likewise absent from
 `sitemap.xml`, `llms.txt`, `llms-full.txt` and the `og/` route, asserted after the change rather than
-assumed — the sitemap has 349 entries (348 pages plus `/`) and no `/v1`.
+assumed — the sitemap has 350 entries (349 pages plus `/`) and no `/v1`.
 
 `scripts/lib/versions-registry.mjs` text-parses `VERSIONED` out of `lib/versions-constants.ts`
 rather than importing it, because no plain-node script can import `lib/source` — neither the
@@ -825,6 +885,21 @@ a page section, so its labels nest under that section's heading rather than comp
 screen reader's heading list. Tree nodes are focusable, with Enter/Space to inspect and the arrow
 keys to expand or collapse, and wheel zoom needs a modifier key so scrolling past the diagram does
 not trap the page.
+
+That snapshot has a generator: `pnpm edge-challenge:fetch`
+(`scripts/fetch-edge-challenge-data.mjs`). It reads every `EdgeAdded` / `EdgeBisected` /
+`EdgeConfirmedByOneStepProof` log the BoLD `ChallengeManager` contract has emitted on Arbitrum
+Sepolia, backfills the `EdgeAdded` event for any edge only ever referenced (never directly logged)
+by a later event, resolves the staker address behind each `EdgeAdded` transaction, and overwrites
+`public/data/edge-challenge-flow.json`. **Nothing runs it automatically** — not the build, not CI,
+not `upstream-refresh.yml`. Run it by hand when the rendered flow looks out of date, review the
+diff, and commit it deliberately. It has **no `--check` mode**, unlike `contracts:check` or
+`cli:check`: those compare against a pinned, deterministic input, while this one's source is live
+chain state, so a second run legitimately returns a superset of the first. There is no "stale" to
+detect here, only "older", and a check that goes red the moment anyone opens a challenge on Sepolia
+is not something to gate a build on. The script was ported from upstream `arbitrum-docs` under
+FS-2702, before that repo is archived, because the decoding and backfill logic is not recoverable
+from the committed JSON.
 
 **FlowChart.** The Timeboost centralized auction diagram (`components/mdx/CentralizedAuction/`),
 registered under the name the MDX already used. The artwork is a 2300-line inline SVG exported from
@@ -1024,7 +1099,8 @@ is gone: the build no longer touches the network for images (see
 this job into `Gates` is now possible and wants its own change, not least because a full build is
 the slowest job here.
 
-**Run by hand only:** `cli:check`, `redirects:legacy`, and the network mode of `images:check`.
+**Run by hand only:** `cli:check`, `stylus:check`, `redirects:legacy`, and the network mode of
+`images:check`.
 `images:check` reaches out to third-party hosts, so its result depends on somebody else's uptime;
 its offline sibling `images:presence` does run in CI. `drift` is worth running by hand for a local
 check but is no longer manual-only: the `drift` job below runs it weekly. `redirects:check` is no
@@ -1089,7 +1165,13 @@ a moving upstream, the Nitro tag pinned in `content/vars.json` and whatever that
 says, so a red gate would mean "someone published a Nitro release", not "this PR is wrong". The
 weekly refresh PR is where that gets noticed instead.
 
-When `contracts:check` or `cli:check` fails it prints a line-level diff, so a reviewer can see
+`stylus:check` is out of CI for the same reason, more sharply: it clones a third-party repository's
+default branch with no pin at all, so a red gate would mean "someone edited stylus-by-example". The
+`stylus` job in the weekly refresh does it instead, and because the PR that job opens receives no
+CI of its own, that job also runs every gate on this list against the tree it is about to propose.
+See [Stylus by Example](#stylus-by-example).
+
+When `contracts:check`, `cli:check` or `stylus:check` fails it prints a line-level diff, so a reviewer can see
 whether a value moved or only the formatting did. That diff is a real one, computed over a longest common
 subsequence in `scripts/lib/line-diff.mjs`: comparing the two files by line index instead reported
 every line after an insertion as changed, which on this 112-line partial meant 53 lines for a
@@ -1097,12 +1179,13 @@ two-line edit and defeated the point of printing it.
 
 ### Generated pages
 
-Three things in `content/` are written by a generator and must never be hand-edited: the precompile
+Four things in `content/` are written by a generator and must never be hand-edited: the precompile
 tables, the contract-address partial (both under `content/partials/`, see
-[Partials](#partials)), and `content/docs/run-a-node/nitro/cli-flags-reference.mdx`.
+[Partials](#partials)), `content/docs/run-a-node/nitro/cli-flags-reference.mdx`, and the nineteen
+pages under `content/docs/stylus/stylus-by-example/`.
 
-The CLI flags page is the only generated file under `content/docs/`, so it is also the only one with
-frontmatter a writer owns. `pnpm cli:generate` replaces only the region between
+The CLI flags page is the only _partly_ generated file under `content/docs/`, so it is the only one
+with frontmatter a writer owns. `pnpm cli:generate` replaces only the region between
 `{/* GENERATED:START */}` and `{/* GENERATED:END */}`; the frontmatter and any prose outside those
 markers survive untouched.
 
@@ -1130,6 +1213,80 @@ flag the exclusion rules dropped, grouped by the rule that dropped it; without i
 only the per-rule counts. One rule matches on the flag's **description**, so a Nitro release that
 reworks a docstring can drop a flag off the page, and the counts are what make that visible in the
 weekly refresh PR's log.
+
+### Stylus by Example
+
+`content/docs/stylus/stylus-by-example/` is nineteen pages republished from
+[`offchainlabs/stylus-by-example`](https://github.com/offchainlabs/stylus-by-example), a live
+third-party repository. `pnpm stylus:generate` clones it and rewrites every page; `pnpm
+stylus:check` fails with a line diff when the committed tree has drifted from it. Unlike the CLI
+flags page these are generated whole, frontmatter included, so there is nothing on them a writer
+owns — a fix belongs upstream, or in `scripts/data/stylus-examples.data.mjs`.
+
+They arrived here as a hand port of an arbitrum-docs pipeline
+(`scripts/sync-stylus-content.js` plus a `stylus-content` job in `update-external-content.yml`)
+that does not survive that repo being archived. Without the port, an edit upstream reached this
+site through nobody and nothing, and nobody would have been told.
+
+Six things about it are worth knowing:
+
+- **Nothing is pinned.** stylus-by-example publishes no releases and this site has always tracked
+  its default branch, so the generator clones that. A pin would only be a second version number to
+  forget to bump. The cost is that `stylus:check` depends on the network _and_ on somebody else's
+  default branch, which is why **it is deliberately not a CI gate**: it would redden every open PR
+  the moment an unrelated repository edited a page. The `stylus` job in
+  [`upstream-refresh.yml`](.github/workflows/upstream-refresh.yml) runs it weekly instead, where a
+  change becomes a PR on `automated/stylus-by-example`. That is its own job on its own branch, not
+  another step in `refresh`, for the reason `drift` is independent too: a failure here must not
+  hide a Nitro pin bump, and nineteen pages of changed prose in the same PR as a regenerated
+  address table is a PR nobody reviews.
+- **That job runs the blocking gates itself**, between the generator and the pull request, and
+  that is not belt-and-braces. A pull request opened with `GITHUB_TOKEN` triggers no workflow
+  runs — GitHub's own rule, so a workflow cannot recurse — and `ci.yml` fires only on
+  push/pull_request against `main`, so **nothing checks the PR this job opens**; its checks tab
+  arrives empty, which reads as green. The payload is prose and frontmatter from a repository this
+  project neither controls nor pins, which makes it the automated PR most in need of checking, so
+  the job runs `ci.yml`'s `Gates` list step for step against the regenerated tree and fails the
+  weekly run rather than shipping a PR nothing has verified. **Keep the two lists in sync**: a
+  gate added to `ci.yml` and not there is a gate that PR does not get. The alternative, a PAT or
+  GitHub App token on `create-pull-request` so `ci.yml` runs for real, needs a secret nobody has
+  provisioned. The sibling `refresh` job has the same no-CI shape and no gates of its own; its
+  payload is generator output over pinned inputs, so the exposure is smaller, but it is the same
+  gap and worth closing separately.
+- **The published set is an allowlist**, in `scripts/data/stylus-examples.data.mjs`, and that list
+  doubles as the `meta.json` order. That order is **upstream's teaching sequence, not
+  alphabetical**: `hello_world`, then the primitives, then what builds on them, straight from the
+  `allowLists` block of arbitrum-docs `scripts/sync-stylus-content.js`. The hand port alphabetized
+  it, which opened a beginner's section on "ABI Decode" and pushed "Hello World" to tenth; the
+  parity this pipeline exists for is the reason it is back. Reordering that array is a rendered
+  change to the sidebar, not a tidy-up. The order of the two sections comes from the same place,
+  `basic_examples` before `applications`, and the parent
+  `content/docs/stylus/stylus-by-example/meta.json` is **hand-owned, not generated**, so it has to
+  be kept in step by hand. Upstream publishes sixteen more examples than these. Every run **names
+  the ones it skipped**, because that log line is the only notice anyone gets that a new example
+  exists; adding one is a deliberate act, since it is a new page on this site.
+- **A relative link resolves against the section that publishes the slug**, and a slug this site
+  does not publish stops the run. Upstream's version of that rule hardcodes `basic_examples`, which
+  is only ever right because the one relative link in the published set happens to live there.
+- **The `metadata` export is parsed, never evaluated.** Upstream's `title` and `description` live
+  in a JavaScript object literal, not JSON, so `parseObjectLiteral` in
+  `scripts/lib/stylus-examples.mjs` reads a grammar of JSON plus the four things upstream actually
+  writes — single quotes, bare keys, trailing commas, a value wrapped onto the next line — and
+  throws on every other token, with no fallback. It replaced a `new Function(…)()`, which is a
+  different thing from cloning: a clone copies bytes, evaluating one runs it, unpinned, weekly, in
+  a job holding `contents: write`, and on any maintainer's machine that runs `pnpm
+stylus:generate`.
+- **`meta.json` is written without Prettier** (`format: false` on `writeOrCheck`).
+  `.prettierignore` excludes `**/meta.json` because `stringifyMeta` writes one array entry per line
+  and Prettier collapses a short array; formatting it here would make this generator and `pnpm
+move-doc` undo each other on every run.
+
+Regenerating in September 2026 restored two things a human had changed on a generated page after
+the last sync: eleven blank lines inside Rust snippets, squeezed during the Fumadocs port, and the
+word "seamlessly" in the opening line of `primitive_data_types`, dropped in arbitrum-docs
+`2665b2643`. Both were edits to a file that carried a `DONT-EDIT-THIS-FOLDER` marker. **An
+editorial fix to one of these pages has to be made upstream** or it will not survive the next
+Monday.
 
 ## The local pre-commit hook
 
@@ -1281,9 +1438,10 @@ export function generateStaticParams(): { slug?: string[] }[] {
 }
 ```
 
-Measured on Next 16.3.4 (2026-09-16) with a full `pnpm build`: **351 prerendered `/docs` paths**,
-being 348 live pages plus the 3 archived versions, where the same build on the previous revision
-prerendered **zero**. Total prerendered routes went from 704 to 1,054.
+Measured on Next 16.3.4 (2026-09-16) with a full `pnpm build`: **352 prerendered `/docs` paths**,
+being 349 live pages plus the 3 archived versions, where the same build on the previous revision
+prerendered **zero**. The build after merging `fork/main` prerenders 1,057 routes in total; the original
+comparison build had 704 before this change.
 
 ### What was in the way
 
@@ -1365,20 +1523,28 @@ if build minutes ever become the constraint, this is where they went.
 
 **Docs pages are edge-cacheable now.** A prerendered docs page serves
 `cache-control: s-maxage=31536000` with `x-nextjs-cache: HIT`, where before it carried
-`private, no-cache, no-store, max-age=0, must-revalidate` and re-rendered on every request. That
-also removes the reason `Vary: Accept` was added to markdown negotiation in FS-2689 — the HTML is
-no longer the `no-store` half of that pair — but the header is still correct and still unconfirmed
-on Vercel's edge, so it stays until somebody checks it on a preview.
+`private, no-cache, no-store, max-age=0, must-revalidate` and re-rendered on every request. Both the
+HTML and negotiated markdown responses now carry `Vary: Accept`: both are cacheable, and a cache
+must distinguish their representations of the same URL. The markdown route also sets the header on its prerendered response, so it survives
+rewrite response handling; explicit `.md` requests share that response and header. Verified against `next start`; Vercel's edge keying remains
+unconfirmed and still needs a preview check.
+
+Next 16.3.4's App Router response writer overwrites a proxy's `Vary` header. The pnpm patch
+`patches/next@16.3.4.patch` changes that assignment to append in both distributed runtime templates,
+preserving `Accept` alongside Next's RSC headers. Keep the patch until an upgraded Next version
+passes `STATIC_DOCS_TEST_URL=http://localhost:3000 node --test scripts/static-docs-http.test.mjs`
+without it. That suite runs against `next start` in CI's Build job and also covers archive controls,
+legacy redirects, visible 404 bodies, and the deliberate archive markdown 404.
 
 Note that the route table prints `● /docs/[[...slug]]` with three sample paths and
-`[+348 more paths]`. That marker used to appear with `generateStaticParams` returning `[]` too, and
+`[+349 more paths]`. That marker used to appear with `generateStaticParams` returning `[]` too, and
 reading it as output is what produced the "339 docs pages prerendered" claim this section exists to
 undo. Count `.next/prerender-manifest.json`, or `find .next/server/app/docs -name '*.html'`.
 
 ### Two knobs that are legacy, and one that is gone
 
 `export const dynamic = 'force-dynamic'` came out with this change and must not come back: it would
-suppress all 351 prerenders on its own. `dynamicParams` is from the same legacy family — Next 16.0.0
+suppress all docs prerenders on its own. `dynamicParams` is from the same legacy family — Next 16.0.0
 removes `dynamic`, `dynamicParams`, `revalidate` and `fetchCache` from the route segment config when
 `cacheComponents` is enabled. `next.config.mjs` does not set `cacheComponents`, so the export is live
 today; enabling it is a migration in which this route has to be rebuilt and re-checked, because the

@@ -12,6 +12,9 @@ export async function GET(_req: Request, { params }: RouteContext<'/llms.mdx/doc
   return new Response(await getLLMText(page), {
     headers: {
       'Content-Type': 'text/markdown',
+      // This response also serves negotiated /docs URLs. Keep the variant marker on the
+      // prerendered response itself so it survives Next's rewrite response handling.
+      Vary: 'Accept',
     },
   });
 }

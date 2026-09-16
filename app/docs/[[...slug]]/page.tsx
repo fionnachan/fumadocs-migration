@@ -110,7 +110,8 @@ export default async function Page({ params }: { params: Promise<{ slug?: string
   // git history, see `hasFullGitHistory` in source.config.ts) renders no line at all rather than
   // a wrong one.
   const lastModified = archive ? archive.lastModified : page.data.lastModified;
-  const markdownUrl = getPageMarkdownUrl(page).url;
+  // Archives have no markdown mirror; never offer the live page's text as the archived body.
+  const markdownUrl = archive ? undefined : getPageMarkdownUrl(page).url;
   // For an archived version, point the "edit" link at the archive file (whose repo-relative path
   // depends on the storage strategy, so it comes from lib/versions.ts) rather than the live page.
   const repoPath = archive ? archiveRepoPath(archive) : `content/docs/${page.path}`;
@@ -131,7 +132,7 @@ export default async function Page({ params }: { params: Promise<{ slug?: string
         </p>
       ) : null}
       <div className="flex flex-row flex-wrap gap-2 items-center border-b pb-6">
-        <MarkdownCopyButton markdownUrl={markdownUrl} />
+        {markdownUrl ? <MarkdownCopyButton markdownUrl={markdownUrl} /> : null}
         <ViewOptionsPopover
           markdownUrl={markdownUrl}
           githubUrl={`https://github.com/${gitConfig.user}/${gitConfig.repo}/blob/${gitConfig.branch}/${repoPath}`}
@@ -161,7 +162,7 @@ export default async function Page({ params }: { params: Promise<{ slug?: string
 //
 // Both exports are load-bearing, and for two different tickets:
 //
-//   - `generateStaticParams` returning real params prerenders all 347 docs pages plus the 3
+//   - `generateStaticParams` returning real params prerenders all live docs pages plus their
 //     archives (FS-2698). This became possible only when `?v=` moved off `searchParams` and onto a
 //     path suffix in the same change: a page that awaits `searchParams` is dynamic by definition,
 //     and a dynamic route prerenders nothing whatever it returns here.

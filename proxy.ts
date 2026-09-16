@@ -180,7 +180,7 @@ export default function proxy(request: NextRequest, event: NextFetchEvent) {
 
   // 0. Legacy `?v=<id>`: archived versions moved from a query string onto a path suffix
   //    (`/docs/<slug>/v1`, FS-2698), because reading `?v=` from `searchParams` made every one of
-  //    the 347 docs pages render on demand. A redirect rather than a rewrite, so a link somebody
+  //    the docs pages render on demand. A redirect rather than a rewrite, so a link somebody
   //    already shared lands on the URL that is canonical now.
   //
   //    An id naming no registered archive — `latest`, a typo, an archive that has since been
@@ -222,8 +222,9 @@ export default function proxy(request: NextRequest, event: NextFetchEvent) {
   // bodies, and since FS-2689 the `/llms.mdx/**` route it rewrites onto is prerendered with
   // `cache-control: s-maxage=31536000`. Verified correct under `next start`, where the cache keys
   // on the rewritten path; Vercel's edge keying for a proxy rewrite is a different code path and is
-  // unconfirmed. The `.md` suffix above is a distinct URL and the HTML below is `no-store`, so
-  // neither needs it. See INTERNALS.md, "Known trade-off: no static prerendering".
+  // unconfirmed. The HTML response below is now cacheable too, so both representations must
+  // vary on Accept. The `.md` suffix above is a distinct URL and needs no negotiation header.
+  // See INTERNALS.md, "Static routing under /docs".
   if (isMarkdownPreferred(request)) {
     const negResult = rewriteDocs(request.nextUrl.pathname);
     if (negResult) {
@@ -233,5 +234,9 @@ export default function proxy(request: NextRequest, event: NextFetchEvent) {
     }
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next();
+  if (path === docsRoute || path.startsWith(`${docsRoute}/`)) {
+    response.headers.append('Vary', 'Accept');
+  }
+  return response;
 }

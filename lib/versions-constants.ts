@@ -74,6 +74,8 @@ export function canonicalSlug(slug: string[] | undefined): string {
  * carries `dynamicParams = false`.
  */
 export function isArchiveId(slug: string, id: string): boolean {
+  // The proxy passes user-controlled slugs, including Object.prototype property names.
+  if (!Object.hasOwn(VERSIONED, slug)) return false;
   return VERSIONED[slug]?.some((source) => source.id === id && source.archivePath) ?? false;
 }
 

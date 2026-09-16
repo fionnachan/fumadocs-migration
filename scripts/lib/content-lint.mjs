@@ -21,8 +21,15 @@
  *       spans only: a `<Var>` inside a four-space-indented block or a double-backtick span is not
  *       flagged. Widening A6 alone would make it disagree with A1..A5 about what "code" is, so the
  *       two move together or not at all. Neither form appears in `content/`.
+ *   A7  A JSX/component `src` pointing at a local (site-relative) image with no file under
+ *       `public/`. `<ImageZoom src="/img/…">` is a plain `<img>`, so this is the one image path
+ *       nothing else validates: `pnpm images:presence` only blocks a *remote* src on *markdown*
+ *       syntax, `remarkImageOptions.useImport` only fails the build on a *local* src on *markdown*
+ *       syntax, and `check-links` walks MDX links, not component props. A dead `src` here renders a
+ *       broken `<img>` and every gate stays green (FS-2700). Restricted to common image extensions
+ *       so a `src` pointing at a route rather than an asset is never mistaken for a missing file.
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { toPosix, walk } from './partials.mjs';
@@ -144,6 +151,42 @@ export function lintSource(source) {
 }
 
 /**
+ * A JSX element's `src` attribute, when it is a local (site-relative) path to a common image
+ * format. Mirrors `extractRemoteImages`' `JSX_SRC` in `remote-images.mjs` (any element, either
+ * quote style, tolerant of a `{'…'}` wrapper), restricted by extension rather than by an
+ * element allowlist so a new image-taking component needs no update here — the allowlist would
+ * only need to grow, never shrink, and a missed entry would silently exempt a component.
+ *
+ * Markdown-syntax local images are deliberately not this function's business:
+ * `remarkImageOptions.useImport` already fails the build on those.
+ */
+const JSX_LOCAL_IMAGE_SRC = /<([A-Za-z][\w.]*)\b[^>]*?\bsrc\s*=\s*["'{]\s*["']?(\/[^"'\s{}]+)/g;
+const LOCAL_IMAGE_EXT = /\.(?:png|jpe?g|svg|gif|webp|avif)(?:[?#][^"'\s{}]*)?$/i;
+
+export function extractLocalImageSrcs(source) {
+  const text = stripCode(source);
+  const found = [];
+  for (const m of text.matchAll(JSX_LOCAL_IMAGE_SRC)) {
+    if (!LOCAL_IMAGE_EXT.test(m[2])) continue;
+    found.push({ element: m[1], src: m[2], line: lineOf(text, m.index) });
+  }
+  return found;
+}
+
+/**
+ * A7 findings for one file's source: every local image `src` with no counterpart under
+ * `public/`. Needs `repoRoot` to resolve the file on disk, which is why this lives beside
+ * `lintContent` rather than inside the pure, fs-free `lintSource`.
+ */
+function lintLocalImages(repoRoot, source) {
+  return extractLocalImageSrcs(source).flatMap(({ element, src, line }) => {
+    const clean = src.split(/[?#]/)[0];
+    if (existsSync(path.join(repoRoot, 'public', clean))) return [];
+    return [{ rule: 'A7', line, message: `${element} src="${src}" has no file at public${clean}` }];
+  });
+}
+
+/**
  * Lint every MDX file under `content/`, newest-defect-first by rule then path.
  *
  * Pass `files` (absolute or repo-root-relative paths) to lint only those files instead of
@@ -158,7 +201,11 @@ export function lintContent(repoRoot, { dir = 'content', files } = {}) {
     : walk(path.join(repoRoot, dir), isMdx);
   for (const abs of targets) {
     const rel = toPosix(path.relative(repoRoot, abs));
-    for (const f of lintSource(readFileSync(abs, 'utf8'))) out.push({ rel, ...f });
+    const source = readFileSync(abs, 'utf8');
+    const findings = [...lintSource(source), ...lintLocalImages(repoRoot, source)].sort(
+      (a, b) => a.line - b.line || a.rule.localeCompare(b.rule),
+    );
+    for (const f of findings) out.push({ rel, ...f });
   }
   return out;
 }

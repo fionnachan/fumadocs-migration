@@ -161,7 +161,7 @@ jobs:
       # redirects:check needs a running site: it reads `/llms.txt`, the router's own page list.
       # Reusing the build above is why it lives here; the step costs about three seconds.
       # Deliberately a local server, not a Vercel preview — see INTERNALS.md#redirects.
-      - name: Redirects resolve against the built site
+      - name: Redirects and static docs routing against the built site
         run: |
           set -euo pipefail
           # `npx next start`, not `pnpm start`: `$!` would be the pnpm wrapper, and killing that
@@ -184,3 +184,4 @@ jobs:
             exit 1
           fi
           pnpm redirects:check
+          STATIC_DOCS_TEST_URL=http://localhost:3000 node --test scripts/static-docs-http.test.mjs

@@ -243,7 +243,19 @@ pnpm move-doc <from> <to>
 ```
 
 This rewrites inbound links, re-bases the moved page's own relative links and includes, updates
-`meta.json`, and writes the redirect for you.
+`meta.json`, writes the redirect, and retargets every hand-written map that names the page: the two
+upstream-drift maps and the two legacy-redirect destination maps. Add `--dry-run` to see all of it
+without touching a file. One map it cannot fix is `VERSIONED` in `lib/versions.ts` — if the page you
+moved has a version dropdown, retarget its key by hand.
+
+If it reports retargeting a legacy destination, run `pnpm redirects:legacy` afterwards, whenever you
+next have a sibling `arbitrum-docs` checkout. Readers are fine until you do: the legacy URL still
+reaches the page through the redirect just written, one hop longer. `pnpm redirects:check` is not.
+It follows one hop only, so every legacy source still pointing at the old URL reports `DEAD` until
+you regenerate. If an earlier move's redirect in `redirects.config.mjs`
+pointed at the page you just moved, `move-doc` prints a second note naming it: it reports `DEAD` for
+the same reason, and regenerating will not fix that one, so point it at the new URL. No such note
+means there is no such entry.
 
 **Never hand-edit `redirects.config.mjs`** — both blocks in it are generated.
 ([Details](INTERNALS.md#redirects).)
@@ -278,5 +290,8 @@ Redirect and precompile tooling runs by hand only — see
 - Theme tokens are `--color-fd-*` (Fumadocs). Never `--ifm-*` (legacy Docusaurus).
 - Route constants live in `lib/shared.ts` — reference these rather than hardcoding paths.
 - Never hand-edit generated files: `.source/`, `CATALOG.md`, `manifest.json`,
-  `redirects.config.mjs`, `redirects.legacy.mjs`.
+  `redirects.config.mjs`, `redirects.legacy.mjs`, and every page under
+  `content/docs/stylus/stylus-by-example/` (republished from
+  [`offchainlabs/stylus-by-example`](https://github.com/offchainlabs/stylus-by-example) by
+  `pnpm stylus:generate` — fix those upstream, or they are overwritten the next Monday).
 - Fumadocs reference: <https://www.fumadocs.dev/llms.txt>
