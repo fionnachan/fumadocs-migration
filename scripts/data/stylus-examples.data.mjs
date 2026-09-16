@@ -40,38 +40,47 @@ export const frontmatterDefaults = {
 /**
  * The published set, one entry per directory under `outputDir`.
  *
- * `pages` is an allowlist and doubles as the `meta.json` order, which is why it is alphabetical
- * here and not in upstream's sidebar order: the committed `meta.json` files are alphabetical, and
- * the generator has to reproduce them rather than reorder the sidebar. Upstream publishes far
- * more examples than these; the generator reports the ones it skipped on every run, so a new
- * upstream page shows up in the weekly refresh log instead of vanishing silently. Adding one here
- * is a deliberate act — it is a new page on this site.
+ * `pages` is an allowlist and doubles as the `meta.json` order, so it is **upstream's teaching
+ * sequence, not alphabetical**: `hello_world` first, then the primitives, then the language
+ * features that build on them. That sequence is the `allowLists` block of arbitrum-docs
+ * `scripts/sync-stylus-content.js`, and it is what drove the Docusaurus sidebar before this site
+ * existed. The hand port alphabetized it, which opened a beginner's section on "ABI Decode" and
+ * pushed "Hello World" to tenth; restoring it is the parity this pipeline exists for. Sorting
+ * this list is a change to the rendered sidebar, not a tidy-up.
+ *
+ * The order of the sections themselves comes from the same place (upstream's `output.sections`):
+ * `basic_examples` before `applications`. The parent `content/docs/stylus/stylus-by-example/
+ * meta.json` is hand-owned rather than generated, so that one has to be kept in step by hand.
+ *
+ * Upstream publishes far more examples than these; the generator reports the ones it skipped on
+ * every run, so a new upstream page shows up in the weekly refresh log instead of vanishing
+ * silently. Adding one here is a deliberate act — it is a new page on this site.
  */
 export const sections = [
   {
     dir: 'basic_examples',
     title: 'Basic_examples',
     pages: [
-      'abi_decode',
-      'abi_encode',
-      'bytes_in_bytes_out',
+      'hello_world',
+      'primitive_data_types',
+      'variables',
       'constants',
+      'function',
       'errors',
       'events',
-      'function',
-      'function_selector',
-      'hashing',
-      'hello_world',
       'inheritance',
-      'primitive_data_types',
-      'sending_ether',
-      'variables',
       'vm_affordances',
+      'sending_ether',
+      'function_selector',
+      'abi_encode',
+      'abi_decode',
+      'hashing',
+      'bytes_in_bytes_out',
     ],
   },
   {
     dir: 'applications',
     title: 'Applications',
-    pages: ['erc20', 'erc721', 'multi_call', 'vending_machine'],
+    pages: ['erc20', 'erc721', 'vending_machine', 'multi_call'],
   },
 ];

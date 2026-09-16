@@ -1130,10 +1130,17 @@ Six things about it are worth knowing:
   payload is generator output over pinned inputs, so the exposure is smaller, but it is the same
   gap and worth closing separately.
 - **The published set is an allowlist**, in `scripts/data/stylus-examples.data.mjs`, and that list
-  doubles as the `meta.json` order, which is why it is alphabetical rather than in upstream's
-  sidebar order. Upstream publishes sixteen more examples than these. Every run **names the ones it
-  skipped**, because that log line is the only notice anyone gets that a new example exists;
-  adding one is a deliberate act, since it is a new page on this site.
+  doubles as the `meta.json` order. That order is **upstream's teaching sequence, not
+  alphabetical**: `hello_world`, then the primitives, then what builds on them, straight from the
+  `allowLists` block of arbitrum-docs `scripts/sync-stylus-content.js`. The hand port alphabetized
+  it, which opened a beginner's section on "ABI Decode" and pushed "Hello World" to tenth; the
+  parity this pipeline exists for is the reason it is back. Reordering that array is a rendered
+  change to the sidebar, not a tidy-up. The order of the two sections comes from the same place,
+  `basic_examples` before `applications`, and the parent
+  `content/docs/stylus/stylus-by-example/meta.json` is **hand-owned, not generated**, so it has to
+  be kept in step by hand. Upstream publishes sixteen more examples than these. Every run **names
+  the ones it skipped**, because that log line is the only notice anyone gets that a new example
+  exists; adding one is a deliberate act, since it is a new page on this site.
 - **A relative link resolves against the section that publishes the slug**, and a slug this site
   does not publish stops the run. Upstream's version of that rule hardcodes `basic_examples`, which
   is only ever right because the one relative link in the published set happens to live there.
