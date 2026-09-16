@@ -116,50 +116,16 @@ export default async function Page({
   );
 }
 
-// This route cannot be prerendered, and the reason is in the page above: it
-// `await`s `searchParams` to read `?v=` (partial versioning). A page that reads
-// searchParams is dynamic by definition, so `generateStaticParams` has nothing
-// to prerender no matter what it returns.
+// This route is dynamic because the page `await`s `searchParams` to read `?v=`, so
+// `generateStaticParams` has nothing to prerender whatever it returns and returns [] rather than
+// 347 params for zero output. `force-dynamic` is load-bearing, not decoration: without it Next
+// prerenders a fallback shell for the route, the searchParams access poisons it, and every docs
+// page serves that shell as a 500 with digest DYNAMIC_SERVER_USAGE.
 //
-// Measured on Next 16.3.4 (2026-09-15), full `next build`:
-//
-//   `source.generateParams()`, searchParams present -> 0 pages prerendered
-//   `source.generateParams()`, searchParams removed -> 347 pages prerendered
-//
-// So this returns [] rather than enumerating 347 params that would produce no
-// output. It is no longer the Next 16.2.6 prerender-crash workaround it was
-// written as: that crash does not reproduce on 16.3.4, which is why FS-2689
-// dropped `--experimental-build-mode=compile` from the build script.
-//
-// `force-dynamic` below is load-bearing, not decoration. Without it, a full
-// build with no static params makes Next prerender a fallback shell for the
-// route; the searchParams access poisons that shell, and every docs page then
-// serves it as a 500 with digest DYNAMIC_SERVER_USAGE. Compile mode used to
-// hide this by never prerendering anything at all. Declaring the route dynamic,
-// which is simply true, skips the fallback shell. It costs no caching: the
-// response already carries `private, no-cache, no-store` either way.
-//
-// To actually prerender these pages, `?v=` has to stop coming from
-// searchParams. That is a change to the versioning URL contract rather than to
-// this file, and it is FS-2698.
-//
-// **These two exports come out together when FS-2698 lands.** Once the route no
-// longer reads searchParams, `force-dynamic` becomes a lie that would suppress
-// prerendering on its own, and the empty return becomes the only thing standing
-// between the build and 347 static pages. Removing one without the other leaves
-// the route dynamic for a reason nobody will be able to find.
-//
-// **This declaration only applies while Cache Components is off.** Next 16.0.0
-// removed `dynamic`, `dynamicParams`, `revalidate` and `fetchCache` from the
-// route segment config when `cacheComponents` is enabled
-// (node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/
-// 02-route-segment-config/index.md, "Version History"), and the migration guide
-// lists `dynamic = 'force-dynamic'` under "Not needed. All pages are dynamic by
-// default." `next.config.mjs` does not set `cacheComponents`, so the export is
-// live today. Turning it on is a migration of its own, not a flag flip: the
-// export stops applying, and an unsuspended `searchParams` read is an error
-// under that model rather than a silent fallback-shell poisoning. Re-verify
-// this route's build output and status codes as part of that work.
+// Both exports come out together when FS-2698 moves `?v=` off searchParams; either one left alone
+// still suppresses all 347 pages. `force-dynamic` also stops applying if Cache Components is ever
+// enabled. Measurements and the full reasoning are in INTERNALS.md, "Known trade-off: no static
+// prerendering".
 export const dynamic = 'force-dynamic';
 
 export async function generateStaticParams() {
