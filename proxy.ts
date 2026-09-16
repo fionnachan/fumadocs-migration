@@ -8,6 +8,11 @@ import {
   pathInfo,
 } from '@/lib/llms-tracking';
 import { docsContentRoute, docsRoute, getSiteUrl } from '@/lib/shared';
+// `lib/versions-constants` and not `lib/versions`: the latter imports the generated
+// `collections/server` index, which statically imports every compiled MDX module and would take the
+// traced proxy closure from 1.7 MB to 28 MB, with a 26.6 MB chunk parsed on every cold start
+// (measured, see INTERNALS, "Static routing under /docs").
+import { VERSION_PARAM, isArchiveId } from '@/lib/versions-constants';
 import { redirects } from '@/redirects.config.mjs';
 
 // `lib/llms-tracking.ts` keeps its own copies of these two constants so it stays import-free and
@@ -173,7 +178,30 @@ export default function proxy(request: NextRequest, event: NextFetchEvent) {
     return NextResponse.next();
   }
 
-  // 0. `.md` on a legacy URL: redirect to the destination's `.md`. Must precede the suffix
+  // 0. Legacy `?v=<id>`: archived versions moved from a query string onto a path suffix
+  //    (`/docs/<slug>/v1`, FS-2698), because reading `?v=` from `searchParams` made every one of
+  //    the docs pages render on demand. A redirect rather than a rewrite, so a link somebody
+  //    already shared lands on the URL that is canonical now.
+  //
+  //    An id naming no registered archive — `latest`, a typo, an archive that has since been
+  //    retired — is dropped instead of being put on the path. The docs route carries
+  //    `dynamicParams = false` now, so `/docs/<slug>/nonsense` would 404, where the contract has
+  //    always been that an unknown version falls back to Latest. Deleting the param is also what
+  //    stops this redirect looping back into itself.
+  //
+  //    `.md` paths are left alone: archives have no markdown mirror, `/docs/<slug>.md/v1` is not a
+  //    path, and the suffix rewrite below already ignores the query string exactly as it does today.
+  const requestedVersion = request.nextUrl.searchParams.get(VERSION_PARAM);
+  if (requestedVersion && path.startsWith(`${docsRoute}/`) && !path.endsWith('.md')) {
+    const target = new URL(request.nextUrl);
+    target.searchParams.delete(VERSION_PARAM);
+    if (isArchiveId(path.slice(docsRoute.length + 1), requestedVersion)) {
+      target.pathname = `${path}/${requestedVersion}`;
+    }
+    return NextResponse.redirect(target, 308);
+  }
+
+  // 1. `.md` on a legacy URL: redirect to the destination's `.md`. Must precede the suffix
   //    rewrite, which only recognises paths already under `/docs`.
   if (path.endsWith('.md') && !path.startsWith(`${docsRoute}/`)) {
     const destination = legacyDestinations.get(path.slice(0, -'.md'.length));
@@ -182,20 +210,21 @@ export default function proxy(request: NextRequest, event: NextFetchEvent) {
     }
   }
 
-  // 1. Explicit `.md` suffix: rewrite to the markdown route.
+  // 2. Explicit `.md` suffix: rewrite to the markdown route.
   const suffixResult = rewriteSuffix(request.nextUrl.pathname);
   if (suffixResult) {
     return NextResponse.rewrite(new URL(suffixResult, request.nextUrl));
   }
 
-  // 2. Content negotiation: `Accept: text/markdown` rewrites to the .md route.
+  // 3. Content negotiation: `Accept: text/markdown` rewrites to the .md route.
   //
   // `Vary: Accept` because this is the one branch where a single URL answers with two different
   // bodies, and since FS-2689 the `/llms.mdx/**` route it rewrites onto is prerendered with
   // `cache-control: s-maxage=31536000`. Verified correct under `next start`, where the cache keys
   // on the rewritten path; Vercel's edge keying for a proxy rewrite is a different code path and is
-  // unconfirmed. The `.md` suffix above is a distinct URL and the HTML below is `no-store`, so
-  // neither needs it. See INTERNALS.md, "Known trade-off: no static prerendering".
+  // unconfirmed. The HTML response below is now cacheable too, so both representations must
+  // vary on Accept. The `.md` suffix above is a distinct URL and needs no negotiation header.
+  // See INTERNALS.md, "Static routing under /docs".
   if (isMarkdownPreferred(request)) {
     const negResult = rewriteDocs(request.nextUrl.pathname);
     if (negResult) {
@@ -205,5 +234,9 @@ export default function proxy(request: NextRequest, event: NextFetchEvent) {
     }
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next();
+  if (path === docsRoute || path.startsWith(`${docsRoute}/`)) {
+    response.headers.append('Vary', 'Accept');
+  }
+  return response;
 }

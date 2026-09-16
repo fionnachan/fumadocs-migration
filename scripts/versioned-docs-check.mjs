@@ -1,6 +1,7 @@
 /**
  * versioned-docs-check — build-time advisory for the partial page versioning registry
- * (lib/versions.ts, see .claude/docs/superpowers/specs/2026-07-17-partial-versioning-design.md).
+ * (`VERSIONED` in lib/versions-constants.ts, see
+ * .claude/docs/superpowers/specs/2026-07-17-partial-versioning-design.md).
  *
  * The versioning registry pins a hand-picked set of documents: each versioned live page and each
  * archived snapshot. Editing any of them affects versioned content (a live page diverging from its
@@ -8,48 +9,17 @@
  * script surfaces a loud, impossible-to-miss WARNING — never an error — when any registered
  * document has uncommitted git changes (working tree + staged, vs HEAD).
  *
- * Warning only: always exits 0 so it never blocks `pnpm build`.
+ * Warning only: always exits 0 so it never blocks `pnpm build`. The registry invariants that *do*
+ * have to hold — every key naming a live page, every archive id free of a colliding child page —
+ * are asserted in scripts/versions-routing.test.mjs, which fails.
  *
  *   node scripts/versioned-docs-check.mjs
  */
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
+
+import { VERSIONS_FILE, pinnedDocuments } from './lib/versions-registry.mjs';
 
 const repoRoot = process.cwd();
-
-/** Keep in sync with lib/versions.ts. */
-const VERSIONS_FILE = 'lib/versions.ts';
-const ARCHIVE_ROOT = 'content/_versions';
-const DOCS_ROOT = 'content/docs';
-
-/**
- * Parse the `VERSIONED` registry out of lib/versions.ts as text (the module imports the generated
- * `collections/server` and cannot be cheaply required from a plain script). Returns the set of
- * repo-relative document paths the registry pins: every archived snapshot plus every versioned live
- * page. Live paths are `content/docs/<slug>.mdx`; archives are `<id>/<slug>.mdx`.
- */
-function collectVersionedDocs() {
-  const src = readFileSync(path.join(repoRoot, VERSIONS_FILE), 'utf8');
-  const objStart = src.indexOf('const VERSIONED');
-  if (objStart === -1) return [];
-
-  const docs = new Set();
-  // Each entry looks like:  'slug/here': [ { id: 'latest' }, { id: 'v1', archivePath: '...' } ],
-  const entryRe = /'([^']+)':\s*\[([\s\S]*?)\]/g;
-  let entry;
-  while ((entry = entryRe.exec(src.slice(objStart))) !== null) {
-    const slug = entry[1];
-    const block = entry[2];
-    const archivePaths = [...block.matchAll(/archivePath:\s*'([^']+)'/g)].map((m) => m[1]);
-
-    for (const archivePath of archivePaths) {
-      docs.add(path.posix.join(ARCHIVE_ROOT, archivePath));
-      docs.add(path.posix.join(DOCS_ROOT, `${slug}.mdx`));
-    }
-  }
-  return [...docs];
-}
 
 /**
  * Repo-relative paths (from `docs`) that have uncommitted changes vs HEAD, or `null` when git is
@@ -110,7 +80,7 @@ function printWarning(modified) {
   console.warn('');
 }
 
-const docs = collectVersionedDocs();
+const docs = pinnedDocuments(repoRoot);
 const modified = modifiedDocs(docs);
 if (modified && modified.length > 0) {
   printWarning(modified);
