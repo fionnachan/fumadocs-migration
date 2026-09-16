@@ -5,6 +5,7 @@
     "deploying-token-bridge",
     "token-bridge-troubleshooting",
     "canonical-factory-contracts",
+    "custom-genesis-state",
     "..."
   ]
 }
