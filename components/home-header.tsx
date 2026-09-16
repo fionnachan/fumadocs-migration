@@ -21,8 +21,9 @@ import { Fragment, useRef, useState } from 'react';
  * This slot renders the same `links` the notebook way: identical DOM shape to
  * `fumadocs-ui/layouts/notebook/slots/header` (`[data-header-body]`, title left, search in the
  * middle, links then controls on the right), so the navbar CSS in `app/global.css` keyed on
- * `[data-header-body]` applies to both. The `id` stays `nd-nav` because Fumadocs' own styles and
- * the docs layout's `--fd-docs-row-1` sticky offsets key on `nd-subnav`, which this is not.
+ * `[data-header-body]` applies to both. The popover logic below is copied from that file at
+ * fumadocs-ui 16.15.9; re-diff it on a bump. The `id` stays `nd-nav` because Fumadocs' own styles
+ * and the docs layout's `--fd-docs-row-1` sticky offsets key on `nd-subnav`, which this is not.
  *
  * Same popover behaviour as the notebook header: hover with a short delay opens, a freeze window
  * after each change stops the popover from fighting Radix's own click handling, and touch closes
@@ -138,8 +139,10 @@ function NavbarLinkItemMenu({ item }: { item: Extract<LinkItemType, { type: 'men
         )}
         <ChevronDown className="size-3" />
       </PopoverTrigger>
+      {/* Opaque for the same reason as MobileMenu below: on the landing page this opens over the
+          hero gradient, where Fumadocs' translucent default leaves grey labels on blurred blue. */}
       <PopoverContent
-        className="flex flex-col p-1 text-start text-fd-muted-foreground"
+        className="flex flex-col p-1 text-start text-fd-muted-foreground !bg-fd-popover"
         onPointerEnter={onPointerEnter}
         onPointerLeave={onPointerLeave}
       >
