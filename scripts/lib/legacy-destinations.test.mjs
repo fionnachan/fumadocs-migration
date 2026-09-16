@@ -7,6 +7,10 @@ import { pathToFileURL } from 'node:url';
 
 import {
   LEGACY_REDIRECTS_PATH,
+  REDIRECTS_CONFIG_PATH,
+  REDIRECTS_END,
+  REDIRECTS_START,
+  findChainedAutoRedirects,
   pageOf,
   rewriteDestinationMap,
   updateLegacyDestinations,
@@ -269,8 +273,31 @@ test('the textual rewrite matches the parsed maps for every real destination', a
 
 // --- updateLegacyDestinations (file I/O) -----------------------------------------------------------
 
+/**
+ * A `redirects.config.mjs` holding `entries` inside the `AUTO-GENERATED` markers, in either shape
+ * the real file contains: `wrapped` is what Prettier produces once an entry outgrows the print
+ * width (every committed entry today), and the flat form is what `appendRedirect` writes. One entry
+ * is placed *outside* the block, below the end marker, standing in for the legacy spread and any
+ * hand-written redirect: those are not `move-doc`'s to retarget and must never be named.
+ */
+function redirectsConfigSource(entries, { wrapped = true, outside = [] } = {}) {
+  const flat = ([source, destination]) =>
+    `  { source: '${source}', destination: '${destination}', permanent: true },`;
+  const wrap = ([source, destination]) =>
+    `  {\n    source: '${source}',\n    destination: '${destination}',\n    permanent: true,\n  },`;
+  const render = (list) => list.map(wrapped ? wrap : flat).join('\n');
+  return (
+    `export const redirects = [\n` +
+    `  ${REDIRECTS_START}\n` +
+    `${render(entries)}\n` +
+    `  ${REDIRECTS_END}\n` +
+    `${outside.length ? render(outside) + '\n' : ''}` +
+    `];\n`
+  );
+}
+
 /** A throwaway repo holding just `scripts/lib/legacy-redirects.mjs` and a Prettier config. */
-function fixtureRepo(t, { quote = "'" } = {}) {
+function fixtureRepo(t, { quote = "'", redirects = null } = {}) {
   const root = mkdtempSync(path.join(tmpdir(), 'legacy-destinations-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const abs = path.join(root, LEGACY_REDIRECTS_PATH);
@@ -282,7 +309,9 @@ function fixtureRepo(t, { quote = "'" } = {}) {
     '{"singleQuote": true, "trailingComma": "all", "printWidth": 100}',
   );
   writeFileSync(abs, fixtureSource({ quote }));
-  return { root, abs };
+  const redirectsAbs = path.join(root, REDIRECTS_CONFIG_PATH);
+  if (redirects !== null) writeFileSync(redirectsAbs, redirects);
+  return { root, abs, redirectsAbs };
 }
 
 test('updateLegacyDestinations writes the file and reports one note per map that changed', async (t) => {
@@ -295,11 +324,14 @@ test('updateLegacyDestinations writes the file and reports one note per map that
   assert.match(notes[1], /NOTE: redirects\.legacy\.mjs/);
   assert.match(notes[1], /pnpm redirects:legacy/);
   // The note has to name the gate it puts red, not just the extra hop: `redirects:check` follows
-  // one hop, so the orphaned legacy sources (and any earlier move's redirect that pointed at the
-  // moved page) report DEAD until the legacy map is regenerated.
+  // one hop, so the orphaned legacy sources report DEAD until the legacy map is regenerated.
   assert.match(notes[1], /pnpm redirects:check/);
   assert.match(notes[1], /DEAD/);
-  assert.match(notes[1], /redirects\.config\.mjs/);
+  // ...and it must not also claim an earlier move's redirect chained onto this page. This fixture
+  // has no `redirects.config.mjs` at all, so there is no such entry, and asserting one anyway sent
+  // the mover hunting for a line that is not there on 64 of the 68 pages the two maps name.
+  assert.doesNotMatch(notes[1], /redirects\.config\.mjs/);
+  assert.doesNotMatch(notes[1], /AUTO-GENERATED/);
 
   // Byte-for-byte the original with exactly one substitution: SECTION_RENAMES, the absolute
   // destination, and the Prettier layout of every other entry all survive untouched.
@@ -367,6 +399,104 @@ test('updateLegacyDestinations is a no-op for a partial (no URL) or a URL-preser
   assert.deepEqual(await updateLegacyDestinations(root, '/docs/a', null, false), []);
   assert.deepEqual(await updateLegacyDestinations(root, '/docs/a', '/docs/a', false), []);
   assert.equal(readFileSync(abs, 'utf8'), before);
+});
+
+// --- the chained AUTO-GENERATED redirect note ------------------------------------------------------
+
+test('findChainedAutoRedirects names only the AUTO-GENERATED entries pointing at the moved page', (t) => {
+  const { root } = fixtureRepo(t, {
+    redirects: redirectsConfigSource(
+      [
+        ['/docs/old/batch-poster', '/docs/run-a-node/run-batch-poster'],
+        ['/docs/old/node', '/docs/run-a-node'],
+        ['/docs/old/other', '/docs/somewhere-else'],
+      ],
+      { outside: [['/docs/legacy/node', '/docs/run-a-node']] },
+    ),
+  });
+
+  assert.deepEqual(findChainedAutoRedirects(root, '/docs/run-a-node/run-batch-poster'), [
+    '/docs/old/batch-poster',
+  ]);
+  // The closing quote is not what does the work here: the comparison is exact, so the entry
+  // pointing at the child page cannot be claimed by a move of the parent.
+  assert.deepEqual(findChainedAutoRedirects(root, '/docs/run-a-node'), ['/docs/old/node']);
+  assert.deepEqual(findChainedAutoRedirects(root, '/docs/run-a-nod'), []);
+  assert.deepEqual(findChainedAutoRedirects(root, '/docs/never-moved'), []);
+});
+
+test('findChainedAutoRedirects reads the flat shape move-doc writes as well as the wrapped one', (t) => {
+  const entries = [['/docs/old/node', '/docs/run-a-node']];
+  const wrapped = fixtureRepo(t, { redirects: redirectsConfigSource(entries) });
+  const flat = fixtureRepo(t, { redirects: redirectsConfigSource(entries, { wrapped: false }) });
+
+  assert.deepEqual(findChainedAutoRedirects(wrapped.root, '/docs/run-a-node'), ['/docs/old/node']);
+  assert.deepEqual(findChainedAutoRedirects(flat.root, '/docs/run-a-node'), ['/docs/old/node']);
+});
+
+test('findChainedAutoRedirects is empty when the file is absent or the markers are gone', (t) => {
+  const none = fixtureRepo(t);
+  assert.deepEqual(findChainedAutoRedirects(none.root, '/docs/run-a-node'), []);
+
+  const unmarked = fixtureRepo(t, {
+    redirects:
+      "export const redirects = [\n  { source: '/a', destination: '/docs/run-a-node' },\n];\n",
+  });
+  assert.deepEqual(findChainedAutoRedirects(unmarked.root, '/docs/run-a-node'), []);
+});
+
+test('updateLegacyDestinations adds a second note naming the chained AUTO-GENERATED sources', async (t) => {
+  const { root } = fixtureRepo(t, {
+    redirects: redirectsConfigSource([
+      ['/docs/old/get-started', '/docs/get-started'],
+      ['/docs/older/get-started', '/docs/get-started'],
+      ['/docs/old/other', '/docs/somewhere-else'],
+    ]),
+  });
+
+  const notes = await updateLegacyDestinations(root, '/docs/get-started', '/docs/welcome', false);
+
+  assert.equal(notes.length, 3, JSON.stringify(notes));
+  assert.match(notes[0], /retargeted 1 MANUAL_DESTINATIONS destination/);
+  assert.match(notes[1], /NOTE: redirects\.legacy\.mjs/);
+  // Naming the sources is the point: "there is a chained entry" without saying which one leaves
+  // the mover grepping a file whose other entries look identical.
+  assert.match(notes[2], /AUTO-GENERATED block in redirects\.config\.mjs has 2 redirect\(s\)/);
+  assert.match(notes[2], /'\/docs\/old\/get-started', '\/docs\/older\/get-started'/);
+  assert.doesNotMatch(notes[2], /somewhere-else/);
+  assert.match(notes[2], /DEAD/);
+  assert.match(notes[2], /retarget them to '\/docs\/welcome'/);
+});
+
+test('the chained note is not gated on either legacy map having changed', async (t) => {
+  // A page no legacy map names, moved twice. The first move left an AUTO-GENERATED entry pointing
+  // at it; this move chains that entry. Nothing else reports it, so the note has to survive the
+  // "no map changed" early return.
+  const { root, abs } = fixtureRepo(t, {
+    redirects: redirectsConfigSource([['/docs/old/unrelated', '/docs/unrelated']]),
+  });
+  const before = readFileSync(abs, 'utf8');
+
+  const notes = await updateLegacyDestinations(root, '/docs/unrelated', '/docs/unrelated-2', false);
+
+  assert.equal(notes.length, 1, JSON.stringify(notes));
+  assert.match(notes[0], /AUTO-GENERATED block in redirects\.config\.mjs has 1 redirect\(s\)/);
+  assert.match(notes[0], /'\/docs\/old\/unrelated'/);
+  assert.doesNotMatch(notes[0], /redirects\.legacy\.mjs still sends/);
+  assert.equal(readFileSync(abs, 'utf8'), before, 'a map no-op must still not reformat the file');
+});
+
+test('a dry run reports the chained note without writing anything', async (t) => {
+  const { root, abs } = fixtureRepo(t, {
+    redirects: redirectsConfigSource([['/docs/old/get-started', '/docs/get-started']]),
+  });
+  const before = readFileSync(abs, 'utf8');
+
+  const notes = await updateLegacyDestinations(root, '/docs/get-started', '/docs/welcome', true);
+
+  assert.equal(notes.length, 3, JSON.stringify(notes));
+  assert.match(notes[2], /AUTO-GENERATED block/);
+  assert.equal(readFileSync(abs, 'utf8'), before, 'dry-run must not write');
 });
 
 // --- a missed textual match is loud, not silent ----------------------------------------------------

@@ -52,10 +52,12 @@ import {
   toPosix,
 } from './lib/doc-links.mjs';
 import { updateDriftMaps } from './lib/drift-maps.mjs';
-import { updateLegacyDestinations } from './lib/legacy-destinations.mjs';
-
-const REDIRECTS_START = '// AUTO-GENERATED REDIRECTS START';
-const REDIRECTS_END = '// AUTO-GENERATED REDIRECTS END';
+import {
+  REDIRECTS_CONFIG_PATH,
+  REDIRECTS_END,
+  REDIRECTS_START,
+  updateLegacyDestinations,
+} from './lib/legacy-destinations.mjs';
 
 function parseArgs(argv) {
   const positional = argv.filter((a) => !a.startsWith('--'));
@@ -370,7 +372,7 @@ async function main() {
   for (const n of updateMeta(fromAbs, toAbs, false)) console.log(`  ${n}`);
 
   // Redirect for the moved URL.
-  const redirectsPath = path.join(repoRoot, 'redirects.config.mjs');
+  const redirectsPath = path.join(repoRoot, REDIRECTS_CONFIG_PATH);
   if (fromMeta.url !== toMeta.url) {
     console.log(
       `  redirects.config.mjs: ${appendRedirect(redirectsPath, fromMeta.url, toMeta.url, false)} ${fromMeta.url} -> ${toMeta.url}`,
@@ -386,8 +388,10 @@ async function main() {
 
   // Same reasoning, one step further out, and after the drift maps so their abort semantics are
   // unchanged. This one works in site URLs rather than content-relative paths, because that is what
-  // the two legacy maps store, and it reads nothing but those two maps — deleting the legacy
-  // redirect *generator* (which needs a sibling arbitrum-docs checkout) leaves it working as is.
+  // the two legacy maps store, and it writes nothing but those two maps — deleting the legacy
+  // redirect *generator* (which needs a sibling arbitrum-docs checkout) leaves it working as is. It
+  // also reads back the AUTO-GENERATED block appended just above, to report any earlier move's
+  // redirect this one has just turned into a two-hop chain.
   for (const n of await updateLegacyDestinations(repoRoot, fromMeta.url, toMeta.url, false))
     console.log(`  ${n}`);
 

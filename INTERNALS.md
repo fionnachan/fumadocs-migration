@@ -459,6 +459,17 @@ three differences that come from the data:
   destination is the page just moved now chains, reports `DEAD` alongside them, and regenerating the
   legacy map does not fix that one. Retarget it to the new URL. The step prints a note saying all
   of this.
+- **The chained `AUTO-GENERATED` entry gets its own note, and only when there is one.** The block
+  holds four entries in total, so a move of any other page has nothing chained to it: asserting the
+  chain unconditionally was false for 64 of the 68 pages the two maps name, and sent the mover
+  looking for a line that does not exist. `findChainedAutoRedirects` reads `redirects.config.mjs`
+  between the two markers, matches `source` then `destination` (the order `appendRedirect` writes
+  and Prettier preserves when it wraps), compares the destination for exact equality so a move of
+  `/docs/run-a-node` cannot claim the entry pointing at `/docs/run-a-node/run-batch-poster`, and
+  names the source URL(s) to retarget. The entry `move-doc` appended moments earlier cannot match
+  itself, because its destination is the _new_ URL. That note is **not** gated on either legacy map
+  having changed, unlike the `redirects.legacy.mjs` note above it: a chained entry is an earlier
+  move's business, not the maps', and a page no legacy map names would otherwise chain in silence.
 
 **This step is written to outlive the legacy redirect generator.** The derivation half of that
 system — everything that reads an upstream checkout (`scripts/lib/upstream-pages.mjs`,
