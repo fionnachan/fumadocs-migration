@@ -1,4 +1,5 @@
 {
+  "_note": "Verbatim snapshot of upstream arbitrum-docs' release ledger, copied under FS-2702 from OffchainLabs/arbitrum-docs at master 6a2738f (2026-09-15) before that repo is archived. NOTHING IN THIS REPO READS THIS FILE: it is preserved knowledge, not configuration, and every version below is frozen as of the copy. content/vars.json nitroVersionTag is the live Nitro pin, maintained by pnpm nitro:check-release, and wins wherever it disagrees with the nitro entry here. The docsPath fields describe upstream's docs/ tree, not this repo's content/docs/. INTERNALS.md covers this file beside the nitro:check-release discussion.",
   "projects": [
     {
       "id": "nitro",

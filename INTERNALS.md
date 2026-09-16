@@ -338,6 +338,16 @@ the marker `{/* sync-with-var: latestNitroNodeImage */}`. Two weaker rules were 
 
 So do not put the marker on a page that states a Nitro version historically.
 
+The root `dependencies.json` is **not** part of that machinery. It is a verbatim snapshot of
+upstream `arbitrum-docs`' release ledger for five projects (`nitro`, `stylus-sdk`, `orbit-sdk`,
+`nitro-contracts`, `token-bridge-contracts`), salvaged under FS-2702 so the per-project detail
+survives that repo's archival. Nothing here reads it, its version numbers are frozen as of the
+copy, and `content/vars.json`'s `nitroVersionTag` is the live Nitro pin wherever the two
+disagree. Its own `_note` key says so in the file. What extending `check-nitro-release.mjs` to
+the other four projects would take is written up in that file's commit message; the short
+version is that the Docker-Hub tag resolution at the heart of the script is Nitro-specific and
+does not generalize.
+
 ### Announcement banner
 
 `app/layout.tsx` renders Fumadocs' `Banner` above everything else in `RootProvider`, which puts it
@@ -775,6 +785,21 @@ a page section, so its labels nest under that section's heading rather than comp
 screen reader's heading list. Tree nodes are focusable, with Enter/Space to inspect and the arrow
 keys to expand or collapse, and wheel zoom needs a modifier key so scrolling past the diagram does
 not trap the page.
+
+That snapshot has a generator: `pnpm edge-challenge:fetch`
+(`scripts/fetch-edge-challenge-data.mjs`). It reads every `EdgeAdded` / `EdgeBisected` /
+`EdgeConfirmedByOneStepProof` log the BoLD `ChallengeManager` contract has emitted on Arbitrum
+Sepolia, backfills the `EdgeAdded` event for any edge only ever referenced (never directly logged)
+by a later event, resolves the staker address behind each `EdgeAdded` transaction, and overwrites
+`public/data/edge-challenge-flow.json`. **Nothing runs it automatically** — not the build, not CI,
+not `upstream-refresh.yml`. Run it by hand when the rendered flow looks out of date, review the
+diff, and commit it deliberately. It has **no `--check` mode**, unlike `contracts:check` or
+`cli:check`: those compare against a pinned, deterministic input, while this one's source is live
+chain state, so a second run legitimately returns a superset of the first. There is no "stale" to
+detect here, only "older", and a check that goes red the moment anyone opens a challenge on Sepolia
+is not something to gate a build on. The script was ported from upstream `arbitrum-docs` under
+FS-2702, before that repo is archived, because the decoding and backfill logic is not recoverable
+from the committed JSON.
 
 **FlowChart.** The Timeboost centralized auction diagram (`components/mdx/CentralizedAuction/`),
 registered under the name the MDX already used. The artwork is a 2300-line inline SVG exported from
