@@ -19,12 +19,13 @@ import { getSiteUrl, gitConfig, socialHandle } from '@/lib/shared';
 import { getPageImage, getPageMarkdownUrl, source } from '@/lib/source';
 import {
   LATEST_ID,
-  VERSION_PARAM,
+  archiveParams,
   archiveRepoPath,
   canonicalSlug,
-  getArchive,
   getVersions,
+  resolveArchiveSlug,
 } from '@/lib/versions';
+import type { VersionedEntry } from '@/lib/versions';
 
 /**
  * "September 11, 2026", matching upstream Docusaurus' `showLastUpdateTime` rendering.
@@ -46,26 +47,60 @@ function formatLastModified(date: Date): string {
   return lastModifiedFormat.format(date);
 }
 
-export default async function Page({
-  params,
-  searchParams,
-}: {
-  params: Promise<{ slug?: string[] }>;
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  const { slug } = await params;
-  const page = source.getPage(slug);
-  if (!page) notFound();
+interface ResolvedRequest {
+  /** Always the live page: the archive borrows its URL, its OG image and its relative-link base. */
+  page: (typeof source)['$inferPage'];
+  /** The archived version to render in the live page's place, or `undefined` for Latest. */
+  archive: VersionedEntry | undefined;
+  /** Version dropdown options, or `undefined` when the page is not versioned. */
+  versions: ReturnType<typeof getVersions>;
+  currentVersionId: string;
+}
 
-  // Partial versioning: only pages in the registry expose a version dropdown; unregistered
-  // pages render Latest exactly as before.
-  const slugKey = canonicalSlug(slug);
-  const versions = getVersions(slugKey);
-  const requested = (await searchParams)[VERSION_PARAM];
-  const requestedId = Array.isArray(requested) ? requested[0] : requested;
-  // Unknown/absent `?v=` falls back to Latest (no 404).
-  const archive = versions ? getArchive(slugKey, requestedId) : undefined;
-  const currentVersionId = archive ? requestedId! : LATEST_ID;
+/**
+ * Resolve a `/docs/**` path to the page to render, and to the archived version when the last
+ * segment names one (`/docs/run-a-node/start-here/v1`).
+ *
+ * **A real page always wins.** `/docs/a/b` is only reinterpreted as archive `b` of page `a` when no
+ * page exists at `a/b`, so an archive id can never shadow a child page; the collision is separately
+ * asserted away in `scripts/versions-routing.test.mjs`.
+ *
+ * Returns `undefined` for a path that is neither, which only `notFound()` can answer. With
+ * `dynamicParams = false` that is unreachable from a request — an unknown slug stops matching this
+ * route before rendering starts — so in practice it fires only at build time, for a `VERSIONED` key
+ * naming a page that no longer exists.
+ */
+function resolveRequest(slug: string[] | undefined): ResolvedRequest | undefined {
+  const page = source.getPage(slug);
+  if (page) {
+    return {
+      page,
+      archive: undefined,
+      versions: getVersions(canonicalSlug(slug)),
+      currentVersionId: LATEST_ID,
+    };
+  }
+
+  const resolved = resolveArchiveSlug(slug);
+  if (!resolved) return undefined;
+
+  const livePage = source.getPage(resolved.pageSlug);
+  if (!livePage) return undefined;
+
+  return {
+    page: livePage,
+    archive: resolved.entry,
+    versions: getVersions(canonicalSlug(resolved.pageSlug)),
+    currentVersionId: resolved.id,
+  };
+}
+
+export default async function Page({ params }: { params: Promise<{ slug?: string[] }> }) {
+  const { slug } = await params;
+  const resolved = resolveRequest(slug);
+  if (!resolved) notFound();
+
+  const { page, archive, versions, currentVersionId } = resolved;
 
   const MDX = archive ? archive.body : page.data.body;
   const title = archive ? archive.title : page.data.title;
@@ -102,7 +137,12 @@ export default async function Page({
           githubUrl={`https://github.com/${gitConfig.user}/${gitConfig.repo}/blob/${gitConfig.branch}/${repoPath}`}
         />
         <RequestUpdateLink pageUrl={page.url} />
-        {versions ? <VersionSwitcher options={versions} current={currentVersionId} /> : null}
+        {versions ? (
+          // `basePath` is the live page's URL, so the switcher can build both directions
+          // (`basePath` for Latest, `basePath/<id>` for an archive) without importing the registry
+          // into a client component or having to strip a version segment off `usePathname()`.
+          <VersionSwitcher options={versions} current={currentVersionId} basePath={page.url} />
+        ) : null}
       </div>
       <DocsBody>
         <MDX
@@ -116,20 +156,30 @@ export default async function Page({
   );
 }
 
-// This route is dynamic because the page `await`s `searchParams` to read `?v=`, so
-// `generateStaticParams` has nothing to prerender whatever it returns and returns [] rather than
-// 347 params for zero output. `force-dynamic` is load-bearing, not decoration: without it Next
-// prerenders a fallback shell for the route, the searchParams access poisons it, and every docs
-// page serves that shell as a 500 with digest DYNAMIC_SERVER_USAGE.
+// The docs route is statically routable: every live page and every archived version is enumerated
+// below, and `dynamicParams = false` makes a slug that is not in that list match no route at all.
 //
-// Both exports come out together when FS-2698 moves `?v=` off searchParams; either one left alone
-// still suppresses all 347 pages. `force-dynamic` also stops applying if Cache Components is ever
-// enabled. Measurements and the full reasoning are in INTERNALS.md, "Known trade-off: no static
-// prerendering".
-export const dynamic = 'force-dynamic';
+// Both exports are load-bearing, and for two different tickets:
+//
+//   - `generateStaticParams` returning real params prerenders all 347 docs pages plus the 3
+//     archives (FS-2698). This became possible only when `?v=` moved off `searchParams` and onto a
+//     path suffix in the same change: a page that awaits `searchParams` is dynamic by definition,
+//     and a dynamic route prerenders nothing whatever it returns here.
+//   - `dynamicParams = false` is what gives `/docs/<missing>` a server-rendered 404 body (FS-2688).
+//     An unknown slug stops matching this route, so the request lands on the internal `/_not-found`
+//     entry and `app/not-found.tsx` renders as an ordinary page with the status set before
+//     rendering starts. Left dynamic, the `notFound()` above throws mid-flight-render and Next
+//     replaces the whole response with its hardcoded empty `__next_error__` shell.
+//
+// The accepted cost is that a page added without a rebuild 404s rather than being merely stale, and
+// that a failed build takes *new* pages offline. Existing pages keep serving the last good build.
+// Full reasoning and measurements in INTERNALS.md, "Static routing under /docs".
+export const dynamicParams = false;
 
-export async function generateStaticParams() {
-  return [];
+export function generateStaticParams(): { slug?: string[] }[] {
+  // `.map(({ slug }) => ({ slug }))` drops the `lang` key fumadocs' return type declares but never
+  // populates without i18n, so the result matches this route's params exactly.
+  return [...source.generateParams().map(({ slug }) => ({ slug })), ...archiveParams()];
 }
 
 export async function generateMetadata({
@@ -138,21 +188,29 @@ export async function generateMetadata({
   params: Promise<{ slug?: string[] }>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  const page = source.getPage(slug);
-  if (!page) notFound();
+  const resolved = resolveRequest(slug);
+  if (!resolved) notFound();
 
+  const { page, archive } = resolved;
+  const title = archive ? archive.title : page.data.title;
+  const description = archive ? archive.description : page.data.description;
   const image = getPageImage(page).url;
 
   return {
-    title: page.data.title,
-    description: page.data.description,
+    title,
+    description,
     // Built absolute from `getSiteUrl()` rather than left relative for `metadataBase` to resolve,
     // so the value a wrong canonical would depend on is read through the one helper that refuses
-    // to guess it in production. `page.url` carries no query string, which is what we want: `?v=`
-    // selects an archived version of the same document, not a separate canonical page.
+    // to guess it in production. An archive canonicalizes to its live page: the two are versions of
+    // one document, not two documents, and the live one is the copy a reader should land on.
     alternates: {
       canonical: new URL(page.url, getSiteUrl()).toString(),
     },
+    // Archives are reachable from the version switcher and from nothing else. These are
+    // node-operator guides, so an outdated archive outranking its live page does not merely
+    // confuse: it gets stale operational instructions followed in production. `follow` stays on so
+    // the links out of an archive still count.
+    ...(archive ? { robots: { index: false, follow: true } } : {}),
     openGraph: {
       images: image,
     },
@@ -161,8 +219,8 @@ export async function generateMetadata({
     twitter: {
       card: 'summary_large_image',
       site: socialHandle,
-      title: page.data.title,
-      description: page.data.description,
+      title,
+      description,
       images: [image],
     },
   };

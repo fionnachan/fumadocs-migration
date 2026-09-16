@@ -29,7 +29,7 @@ canonical for humans, and the one to edit first.**
 - [The gates](#the-gates)
 - [Upstream drift](#upstream-drift)
 - [What nothing catches](#what-nothing-catches)
-- [Known trade-off: no static prerendering](#known-trade-off-no-static-prerendering)
+- [Static routing under `/docs`](#static-routing-under-docs)
 - [Design specs](#design-specs)
 
 ## What Fumadocs is
@@ -205,9 +205,14 @@ The machine-readable `dateTime` attribute on the `<time>` element always carries
 
 `generateMetadata` in `app/docs/[[...slug]]/page.tsx` emits the per-page title and description, an
 Open Graph image from the `og/` route, a canonical URL, and the Twitter card tags
-(`summary_large_image`, site `@arbitrum`). The canonical deliberately uses `page.url`, which
-carries no query string, so an archived `?v=` view canonicalizes to the live page rather than
-splitting it in two.
+(`summary_large_image`, site `@arbitrum`). The canonical deliberately uses `page.url`, the **live**
+page's URL, so an archived version at `/docs/<slug>/<id>` canonicalizes to the page it archives
+rather than splitting one document in two. An archive additionally carries
+`robots: { index: false, follow: true }`: these are node-operator guides, and an outdated archive
+outranking its live page does not merely confuse, it gets stale operational instructions followed in
+production. Archives are reachable from the version switcher and from nothing else — they are absent
+from the sitemap, from `llms.txt`, and from the `og/` and `llms.mdx/` routes, because none of those
+sees the non-routed `docsVersions` collection.
 
 **Every absolute URL a page publishes as metadata traces back to `getSiteUrl()` in
 `lib/shared.ts`, and that helper throws rather than guessing.** It returns `NEXT_PUBLIC_SITE_URL`, falls back to `http://localhost:3000`
@@ -224,10 +229,10 @@ the build evaluates, which makes it the gate that always fires, and it cannot im
 is no longer the _only_ thing that fires: before FS-2689 dropped
 `--experimental-build-mode=compile`, no page or layout module was evaluated at build time at all, so
 `getSiteUrl()`'s throw in `lib/shared.ts` never ran during a build and `next.config.mjs` was the sole
-enforcement point. Now that 703 routes prerender (see the
-[known trade-off](#known-trade-off-no-static-prerendering)), the root layout's module scope does run
-at build and would throw too. Keep both: the docs route itself still never prerenders, so the
-config-level check is what covers a build that touches no prerendered route. The rule used to be
+enforcement point. Now that every route prerenders (see [static routing](#static-routing-under-docs)),
+the root layout's module scope does run at build and would throw too. Keep both anyway: the
+config-level check is the one that fires before anything else is evaluated, and it is what would
+cover a build configuration that prerenders nothing. The rule used to be
 written out by hand in both files, which meant the copy with the tests was the backstop and the
 copy without them was the gate, one edit away from silently diverging. One module imported by both
 removes the question. A malformed value is caught in the same place and for the same reason: an
@@ -437,15 +442,17 @@ prevent. Retargeting it correctly also means regenerating `redirects.legacy.mjs`
 sibling `arbitrum-docs` checkout that `move-doc` deliberately does not require, so it is tracked
 separately as FS-2697. Until then, after moving a page, grep `MANUAL_DESTINATIONS` for its old URL.
 
-**And `VERSIONED` in `lib/versions.ts`, which is worse, because nothing catches it.** That registry
-keys the partial versioning registry by canonical slug (`'run-a-node/start-here'`), `move-doc` does
-not touch it, and no gate asserts its keys name a live page: `scripts/versioned-docs-check.mjs` only
-warns about uncommitted edits to versioned documents and always exits 0. Moving a versioned page
-therefore leaves a dead key, the page silently loses its version dropdown and its `?v=` archives
-become unreachable, and `pnpm test` stays green — measured, by moving `run-a-node/start-here.mdx`
-and watching 346/346 pass with `lib/versions.ts` untouched. Retargeting it is a judgement call
-(`archivePath` mirrors the old slug on every current entry but is not required to), so after moving
-a versioned page, retarget its `VERSIONED` key by hand.
+**And `VERSIONED` in `lib/versions-constants.ts`, which `move-doc` still does not touch — but which
+a gate now catches.** That registry keys partial versioning by canonical slug
+(`'run-a-node/start-here'`), and moving a versioned page leaves a dead key behind. It used to fail
+silently: the page lost its version dropdown, its archives became unreachable, and `pnpm test`
+stayed green, measured by moving `run-a-node/start-here.mdx` and watching 346/346 pass.
+`scripts/versions-routing.test.mjs` (FS-2698) closes that: it asserts every key names a live page,
+every `archivePath` names a real archive file, and no archive id collides with a child page. It had
+to, because an archive id is a routed path segment now and a dead key emits a static param the docs
+route cannot resolve. Retargeting the key is still a judgement call (`archivePath` mirrors the old
+slug on every current entry but is not required to), so after moving a versioned page, retarget its
+`VERSIONED` key by hand — `pnpm test` will tell you that you have to.
 
 **Legacy `docs.arbitrum.io` URLs.** `pnpm redirects:legacy` regenerates `redirects.legacy.mjs`.
 Legacy URLs were served at the site root (`/stylus/using-cli`) and this site serves docs under
@@ -717,13 +724,56 @@ is cheap to state and hard to break from a distance.
 ## Partial versioning
 
 Archived pages live in `content/_versions/<id>/…` — a separate, non-routed collection, outside
-`content/docs` for the same reason partials are. `lib/versions.ts` indexes them by path. Only
-hand-registered pages are versioned.
+`content/docs` for the same reason partials are. Only hand-registered pages are versioned; three
+pages with one archive each, today.
 
-`scripts/versioned-docs-check.mjs` text-parses `lib/versions.ts` rather than importing it, because
-no plain-node script can import `lib/source` — neither the `collections/*` alias nor TypeScript
-resolves. `redirects-check.mjs` hits the same wall, which is why it reads `/llms.txt` off a running
-site instead.
+**An archived version is a path, not a query string.**
+
+```
+/docs/run-a-node/start-here      Latest
+/docs/run-a-node/start-here/v1   the v1 archive
+```
+
+This changed in FS-2698. It used to be `?v=v1`, and reading that param from `searchParams` is what
+made all 348 docs pages render on demand — see [static routing](#static-routing-under-docs) for what
+that cost and what removing it bought. A path suffix also makes an archive a linkable, shareable
+document rather than a query string on a canonical that deliberately ignored it.
+
+The registry is split across two modules, and the split is load-bearing:
+
+- **`lib/versions-constants.ts`** holds `VERSIONED` (canonical slug → ordered versions) and the pure
+  functions over it: `isArchiveId`, `archiveParams`, `canonicalSlug`. **It imports nothing, and must
+  keep importing nothing**, because both `components/VersionSwitcher.tsx` (a `'use client'`
+  component) and `proxy.ts` read registry facts from it.
+- **`lib/versions.ts`** imports `collections/server` for the compiled archive bodies and adds the
+  lookups that need them: `getVersions`, `getArchive`, `archiveRepoPath`, and `resolveArchiveSlug`,
+  which is what reads `/docs/<slug>/<id>` as an archive.
+
+**A real page always wins over an archive id.** `app/docs/[[...slug]]/page.tsx` calls
+`source.getPage(slug)` first and only reinterprets the trailing segment when that returns nothing,
+so an archive can never shadow a child page — it can only be shadowed _by_ one, which
+`scripts/versions-routing.test.mjs` asserts cannot happen.
+
+**Legacy `?v=` URLs keep working**, redirected 308 from `proxy.ts`: `?v=v1` to the path form,
+anything else — `latest`, a typo, a retired archive — to the bare path, which renders Latest exactly
+as an unknown `?v=` always did. That fallback is the whole reason the proxy needs `isArchiveId`
+rather than blindly appending the segment: the docs route carries `dynamicParams = false`, so
+`/docs/<slug>/nonsense` would 404 where the contract says Latest. Other query parameters survive the
+redirect.
+
+**Archives have no markdown mirror.** `/docs/<slug>/v1.md`, and `Accept: text/markdown` on an
+archive URL, both 404, because `llms.mdx/` derives from the routed `docs` collection and the
+archives are not in it. That is a deliberate 404 rather than a silent fallback: serving a reader the
+_live_ markdown at an archive URL would answer the wrong question. Archives are likewise absent from
+`sitemap.xml`, `llms.txt`, `llms-full.txt` and the `og/` route, asserted after the change rather than
+assumed — the sitemap has 349 entries (348 pages plus `/`) and no `/v1`.
+
+`scripts/lib/versions-registry.mjs` text-parses `VERSIONED` out of `lib/versions-constants.ts`
+rather than importing it, because no plain-node script can import `lib/source` — neither the
+`collections/*` alias nor TypeScript resolves. `redirects-check.mjs` hits the same wall, which is
+why it reads `/llms.txt` off a running site instead. Two scripts consume that parse:
+`versioned-docs-check.mjs` (the uncommitted-edit advisory, always exits 0) and
+`versions-routing.test.mjs`, which does fail.
 
 ## Glossary and inline references
 
@@ -1218,103 +1268,125 @@ Every gate has a blind spot. These are the ones that have bitten:
 **Browse on `localhost:3000`, not `127.0.0.1`.** On `127.0.0.1` React does not hydrate and every
 component looks broken.
 
-## Known trade-off: no static prerendering
+## Static routing under `/docs`
 
-Docs pages are rendered on every request and nothing about them is prerendered. **The reason is
-`?v=`**, not a framework bug: `app/docs/[[...slug]]/page.tsx` `await`s `searchParams` to pick the
-archived version, and a page that reads searchParams is dynamic by definition. So
-`generateStaticParams` has nothing to prerender whatever it returns, and it returns `[]` rather than
-enumerating 347 params for zero output.
+Every docs page is prerendered at build time, and a slug that does not exist matches no route at
+all. Both facts come from one pair of exports in `app/docs/[[...slug]]/page.tsx`:
 
-Measured on Next 16.3.4 (2026-09-15) with a full `next build`, changing only whether the page takes
-`searchParams`:
+```ts
+export const dynamicParams = false;
 
-| Page signature                                    | Docs pages prerendered |
-| ------------------------------------------------- | ---------------------- |
-| `source.generateParams()`, `searchParams` present | 0                      |
-| `source.generateParams()`, `searchParams` removed | 347                    |
+export function generateStaticParams(): { slug?: string[] }[] {
+  return [...source.generateParams().map(({ slug }) => ({ slug })), ...archiveParams()];
+}
+```
 
-**This used to be attributed to a Next 16.2.6 prerender crash, and that attribution was wrong by the
-time it was read.** The crash does not reproduce on 16.3.4, so FS-2689 dropped
-`--experimental-build-mode=compile` from `build`. Dropping it restored prerendering for everything
-that _can_ prerender: 703 routes, being 348 `/og/docs/**` images, 348 `/llms.mdx/docs/**` paths, and
-the seven static routes. The og images are the material win, since each one is a satori render that
-previously happened on first request.
+Measured on Next 16.3.4 (2026-09-16) with a full `pnpm build`: **351 prerendered `/docs` paths**,
+being 348 live pages plus the 3 archived versions, where the same build on the previous revision
+prerendered **zero**. Total prerendered routes went from 704 to 1,054.
 
-**That win is bought with build time, and it is a real regression.** Measured on one machine
-(2026-09-15, Node 22.23.1, Next 16.3.4), `pnpm build` from a deleted `.next`, two runs each, a third
-contended run discarded:
+### What was in the way
 
-| Build                             | Wall clock     |
-| --------------------------------- | -------------- |
-| Before FS-2689 (compile mode)     | 24.7 s, 25.2 s |
-| After FS-2689 (full `next build`) | 35.6 s, 35.7 s |
+`?v=`. The page used to `await searchParams` to pick an archived version, and a page that reads
+searchParams is dynamic by definition, so `generateStaticParams` had nothing to prerender whatever
+it returned. It returned `[]`, paired with `export const dynamic = 'force-dynamic'`, because without
+that declaration Next prerendered a fallback shell for the dynamic route, the searchParams access
+poisoned the shell, and every docs page served it as a 500 with digest `DYNAMIC_SERVER_USAGE`.
 
-About +11 s, roughly +43%, for 348 satori renders and 348 markdown files that used to be produced on
-first request instead. Do not read the old "no regression" note in the FS-2689 PR body: that number
-was taken without controlling for cache warmth and points the wrong way. `.next` grows with it, from
-606 MB to 644 MB, all of it the new static output.
+FS-2698 moved archive selection off the query string and onto a path suffix
+(`/docs/run-a-node/start-here/v1`), which is what let all four of those pieces come out together.
+See [partial versioning](#partial-versioning) for the URL contract and the redirect that keeps old
+links working.
 
-Note also that the route table prints `● /docs/[[...slug]]` under "(SSG) prerendered as static HTML"
-even though the route prerenders nothing. That marker reflects the presence of
-`generateStaticParams`, not its output. Count `.next/prerender-manifest.json`, or
-`find .next/server/app/docs -name '*.html'`, rather than reading the table. The same output shape is
-what produced the "339 docs pages prerendered" misreading this section exists to undo.
+### The `/docs/*` 404 was the same bug
 
-**The prerendered routes are now edge-cacheable, and the docs pages are not.** A prerendered route
-serves `cache-control: s-maxage=31536000` with `x-nextjs-cache: HIT`, where compile mode sent no
-`Cache-Control` at all. That covers `/llms.txt`, `/llms-full.txt` and every `/llms.mdx/docs/**`
-path, which is the second real win here. Docs pages are unaffected and still carry
-`private, no-cache, no-store, max-age=0, must-revalidate`.
+`dynamicParams = false` is also the whole of FS-2688. Before it, `/docs/does-not-exist` returned a
+404 whose body was empty:
 
-That year-long `s-maxage` is why markdown negotiation now carries `Vary: Accept`. `proxy.ts` rewrites
-an `Accept: text/markdown` request for a docs URL onto that page's `/llms.mdx/**/content.md` path, so
-one URL can answer either with HTML or with a markdown body a shared cache will hold for a year.
-Under `next start` the cache keys on the rewritten path and the bare URL without the header still
-returns HTML, so nothing leaked locally either way; the header is what keeps that true on a cache
-that keys on the original URL instead. **Vercel's edge keying for a proxy rewrite is a different code
-path and has not been confirmed on a preview.** Confirm it by fetching one docs URL with and without
-the header against a preview deployment and checking that the bare one is still HTML.
+| Response               | Status | Bytes   | 404 copy in the HTML document |
+| ---------------------- | ------ | ------- | ----------------------------- |
+| `/docs/does-not-exist` | 404    | 229,789 | none (payload only)           |
+| `/does-not-exist`      | 404    | 82,426  | full page                     |
 
-**`export const dynamic = 'force-dynamic'` on the route is load-bearing.** Without it, a full build
-with no static params makes Next prerender a fallback shell for the dynamic route; the searchParams
-access poisons that shell, and every docs page then serves it as a 500 with digest
-`DYNAMIC_SERVER_USAGE`. Compile mode hid that by never prerendering anything. Do not remove the
-declaration while the page reads searchParams.
+The cause is generic App Router behaviour, not anything in this app: `notFound()` thrown from a
+**dynamically rendered** page outside a Suspense boundary cannot be delimited in the flight render,
+so it aborts the whole render and Next replaces the response via `getErrorRSCPayload`, whose seed
+data is a hardcoded `html#__next_error__` with an empty `<body>`. The 404 UI then arrives only after
+hydration, through the client-side `HTTPAccessFallbackBoundary`. A throwaway page whose entire body
+was `notFound()` reproduced it exactly.
 
-**It is also legacy, and only applies while Cache Components is off.** Next 16.0.0 removed
-`dynamic`, `dynamicParams`, `revalidate` and `fetchCache` from the route segment config when
-`cacheComponents` is enabled, and the migration guide lists `dynamic = 'force-dynamic'` as "not
-needed. All pages are dynamic by default." `next.config.mjs` does not set `cacheComponents`, so the
-export is live today. Enabling it is a migration rather than a flag flip, and this route has to be
-rebuilt and re-checked as part of it: the declaration stops applying, and an unsuspended
-`searchParams` read is an error under that model rather than the silent shell poisoning it is here.
-`connection()` from `next/server`, which the Next docs offer as the forward-looking replacement for
-`unstable_noStore`, is **not** a substitute and was measured rather than assumed. Swapping the
-declaration for `await connection()` in both the page and `generateMetadata` and rebuilding turns
-every docs page into a 500 with twelve `DYNAMIC_SERVER_USAGE` entries in the server log, and takes
-`/docs/does-not-exist` from 404 to 500 as well. The reason is structural: `connection()` is a
-render-time bailout, exactly what the `searchParams` read already is, so it cannot stop Next
-generating the fallback shell in the first place. Only the route-level declaration does.
+Three routes were measured and rejected before this one:
 
-**`force-dynamic` and the empty `generateStaticParams` come out together, not one at a time.** They
-are one workaround with two halves, exactly as `--experimental-build-mode=compile` and the empty
-return were before FS-2689 removed those together. Once FS-2698 stops the route reading
-`searchParams`, `force-dynamic` would suppress prerendering on its own, and the empty return would be
-the only thing standing between the build and 347 static pages. Splitting them leaves the route
-dynamic for a reason no longer written down anywhere.
+- **`app/global-not-found.tsx` behind `experimental.globalNotFound`** builds and takes over
+  `/does-not-exist`, and changes nothing under `/docs`. By design: `createNotFoundLoaderTree`
+  consults it only for a URL that matches no route, and the optional catch-all matches
+  `/docs/anything`.
+- **`generateMetadata` calling `notFound()`** is not the trigger; replacing it with `return {}` left
+  the shell in place.
+- **A Suspense boundary (`app/docs/loading.tsx`)** removes the shell and returns **200**, with the
+  404 copy still absent from the HTML. Strictly worse, and it matches Next's documented rule that a
+  status cannot change once streaming has started.
 
-Earlier revisions of this section described the behaviour as "ISR-on-first-request" with pages
-"cached at the edge, then served statically on subsequent hits". That was never true once `?v=`
-landed: the response carries `private, no-cache, no-store, max-age=0, must-revalidate`, before and
-after this change alike.
+What actually works is to stop the URL matching the route before rendering begins. `dynamicParams =
+false` does that with no proxy special case: an unknown slug lands on the internal `/_not-found`
+entry and `app/not-found.tsx` renders as an ordinary page, status set first. Verified after the
+change — `/docs/does-not-exist` is **byte-identical** to `/does-not-exist` (both 82,426 bytes, 404,
+full body in the document, no `__next_error__`), and so are `/docs/run-a-node/does-not-exist` and
+`/docs/run-a-node/start-here/v99`.
 
-To actually prerender docs pages, `?v=` has to stop coming from `searchParams`. That is **FS-2698**,
-a change to the versioning URL contract in
-[`2026-07-17-partial-versioning-design.md`](.claude/docs/superpowers/specs/2026-07-17-partial-versioning-design.md)
-rather than a change to the route file. It would also fix the empty-bodied 404 under `/docs/*`
-(FS-2688), because a statically routable docs route can carry `dynamicParams = false`, which turns an
-unknown slug into an unmatched URL that serves `app/not-found.tsx` in full.
+Do not reach for the proxy instead. Checking the slug there needs the slug set: importing
+`lib/source` into `proxy.ts` takes the traced proxy closure from 1.70 MB to 28.26 MB with a 26.6 MB
+chunk parsed on every cold start, because `.source/server.ts` statically imports 600-plus compiled
+MDX modules; a generated slug manifest is a feature with a freshness gate whose failure mode is
+404ing a live page. The proxy closure after this change is unchanged at **1.70 MB, largest chunk
+0.66 MB**, and the client chunk total is unchanged at 17 MB — worth re-measuring on any change to
+`lib/versions*`, because nothing gates it.
+
+### The cost, which is real
+
+**A page added without a rebuild 404s**, rather than being merely stale, and a failed Vercel build
+takes _new_ pages offline. That is inseparable from the fix: it is the same mechanism that makes the
+404 work. Existing pages are unaffected and keep serving the last good build. For a docs site that
+rebuilds on every content merge this is the right trade, but it is a conscious one.
+
+**Build time, and this one is not cheap.** Three interleaved cold builds each (2026-09-16, Node
+22.23.1, Next 16.3.4, `pnpm build` from a deleted `.next`, in two worktrees on the same machine, so
+both sides carry the same contention):
+
+| Build                  | Wall clock             | `.next` |
+| ---------------------- | ---------------------- | ------- |
+| Before (0 docs pages)  | 48.2 s, 44.8 s, 37.2 s | 653 MB  |
+| After (351 docs pages) | 78.5 s, 66.3 s, 68.3 s | 1.0 GB  |
+
+Roughly +25 s and +370 MB, on top of the +11 s FS-2689 already spent on the og images. The spread
+within each column is machine noise; the gap between them is not. What it buys is a CDN hit instead
+of a function invocation on every docs page view, which is the trade a docs site should want — but
+if build minutes ever become the constraint, this is where they went.
+
+**Docs pages are edge-cacheable now.** A prerendered docs page serves
+`cache-control: s-maxage=31536000` with `x-nextjs-cache: HIT`, where before it carried
+`private, no-cache, no-store, max-age=0, must-revalidate` and re-rendered on every request. That
+also removes the reason `Vary: Accept` was added to markdown negotiation in FS-2689 — the HTML is
+no longer the `no-store` half of that pair — but the header is still correct and still unconfirmed
+on Vercel's edge, so it stays until somebody checks it on a preview.
+
+Note that the route table prints `● /docs/[[...slug]]` with three sample paths and
+`[+348 more paths]`. That marker used to appear with `generateStaticParams` returning `[]` too, and
+reading it as output is what produced the "339 docs pages prerendered" claim this section exists to
+undo. Count `.next/prerender-manifest.json`, or `find .next/server/app/docs -name '*.html'`.
+
+### Two knobs that are legacy, and one that is gone
+
+`export const dynamic = 'force-dynamic'` came out with this change and must not come back: it would
+suppress all 351 prerenders on its own. `dynamicParams` is from the same legacy family — Next 16.0.0
+removes `dynamic`, `dynamicParams`, `revalidate` and `fetchCache` from the route segment config when
+`cacheComponents` is enabled. `next.config.mjs` does not set `cacheComponents`, so the export is live
+today; enabling it is a migration in which this route has to be rebuilt and re-checked, because the
+declaration stops applying and the `/docs/*` 404 regresses with it.
+
+Earlier revisions of this section described the old behaviour as "ISR-on-first-request" with pages
+"cached at the edge, then served statically on subsequent hits". That was never true while `?v=` was
+read from searchParams. It is true now, by prerendering rather than by ISR.
 
 ## Design specs
 

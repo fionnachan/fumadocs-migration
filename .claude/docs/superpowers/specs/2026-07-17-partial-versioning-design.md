@@ -4,6 +4,21 @@
 **Status:** Approved, in implementation
 **Branches:** `versioning-test` (option #1, sibling files), `versioning-folders` (option #2, subfolders)
 
+> **Amended 2026-09-16 by FS-2698.** The URL contract below is superseded: an archived version is
+> selected by a **path suffix** (`/docs/run-a-node/start-here/v1`), not by `?v=<id>`. Everything else
+> in this document still holds — the non-routed `docsVersions` collection, the registry shape, the
+> switcher, and the "unknown version falls back to Latest, never 404" rule, which legacy `?v=` links
+> keep via a 308 redirect in `proxy.ts`.
+>
+> The reason is not aesthetic. Reading `?v=` from `searchParams` made the docs route dynamic by
+> definition, which meant **no docs page could be prerendered at all** and `/docs/<missing>` served a
+> 404 with an empty body. The full reasoning and the measurements are in INTERNALS, "Static routing
+> under `/docs`" and "Partial versioning".
+>
+> One consequence for this spec's "Reader UX" section: archives now carry `noindex` plus a canonical
+> to the live page, because these are node-operator guides and a stale archive outranking its live
+> page gets outdated operational instructions followed in production.
+
 ## Goal
 
 Add per-page version selection to a **hand-picked set of pages**, not the whole doc set.
