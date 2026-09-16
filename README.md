@@ -290,5 +290,8 @@ Redirect and precompile tooling runs by hand only — see
 - Theme tokens are `--color-fd-*` (Fumadocs). Never `--ifm-*` (legacy Docusaurus).
 - Route constants live in `lib/shared.ts` — reference these rather than hardcoding paths.
 - Never hand-edit generated files: `.source/`, `CATALOG.md`, `manifest.json`,
-  `redirects.config.mjs`, `redirects.legacy.mjs`.
+  `redirects.config.mjs`, `redirects.legacy.mjs`, and every page under
+  `content/docs/stylus/stylus-by-example/` (republished from
+  [`offchainlabs/stylus-by-example`](https://github.com/offchainlabs/stylus-by-example) by
+  `pnpm stylus:generate` — fix those upstream, or they are overwritten the next Monday).
 - Fumadocs reference: <https://www.fumadocs.dev/llms.txt>

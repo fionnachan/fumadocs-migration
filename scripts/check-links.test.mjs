@@ -4,7 +4,42 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 
-import { resolvesToPublicAsset } from './lib/doc-links.mjs';
+import { extractRefs, resolvesToPublicAsset } from './lib/doc-links.mjs';
+
+test('link extraction preserves source ranges after Unicode frontmatter and prose', () => {
+  const source =
+    '---\ntitle: "🦀 [not a link](./metadata)"\n---\n\n' +
+    '🦀 [first](./first) and [second](./second).';
+  const refs = extractRefs(source);
+  assert.deepEqual(
+    refs.map((ref) => ref.rawUrl),
+    ['./first', './second'],
+  );
+  for (const ref of refs) {
+    assert.equal(source.slice(...ref.range), ref.rawUrl);
+  }
+});
+
+test('link extraction ignores nested fences and multi-backtick code spans', () => {
+  const source = [
+    '````markdown',
+    '```rust',
+    '```',
+    '[fenced](./fenced)',
+    '````',
+    '',
+    '``a `backtick` and [inline](./inline)``',
+    '',
+    '``a multiline',
+    '[multiline](./multiline) span``',
+    '',
+    '[prose](./prose)',
+  ].join('\n');
+  assert.deepEqual(
+    extractRefs(source).map((ref) => ref.rawUrl),
+    ['./prose'],
+  );
+});
 
 /** A throwaway repo root with a `public/` tree, so these tests never depend on repo state. */
 function fixture() {

@@ -26,7 +26,8 @@ canonical for humans, and the one to edit first.**
 - [Remote images are never fetched at build](#remote-images-are-never-fetched-at-build)
 - [The Node runtime](#the-node-runtime)
 - [Analytics](#analytics)
-- [The gates](#the-gates)
+- [The gates](#the-gates) (including [Generated pages](#generated-pages) and
+  [Stylus by Example](#stylus-by-example))
 - [Upstream drift](#upstream-drift)
 - [What nothing catches](#what-nothing-catches)
 - [Known trade-off: no static prerendering](#known-trade-off-no-static-prerendering)
@@ -1046,7 +1047,8 @@ is gone: the build no longer touches the network for images (see
 this job into `Gates` is now possible and wants its own change, not least because a full build is
 the slowest job here.
 
-**Run by hand only:** `cli:check`, `redirects:legacy`, and the network mode of `images:check`.
+**Run by hand only:** `cli:check`, `stylus:check`, `redirects:legacy`, and the network mode of
+`images:check`.
 `images:check` reaches out to third-party hosts, so its result depends on somebody else's uptime;
 its offline sibling `images:presence` does run in CI. `drift` is worth running by hand for a local
 check but is no longer manual-only: the `drift` job below runs it weekly. `redirects:check` is no
@@ -1111,7 +1113,13 @@ a moving upstream, the Nitro tag pinned in `content/vars.json` and whatever that
 says, so a red gate would mean "someone published a Nitro release", not "this PR is wrong". The
 weekly refresh PR is where that gets noticed instead.
 
-When `contracts:check` or `cli:check` fails it prints a line-level diff, so a reviewer can see
+`stylus:check` is out of CI for the same reason, more sharply: it clones a third-party repository's
+default branch with no pin at all, so a red gate would mean "someone edited stylus-by-example". The
+`stylus` job in the weekly refresh does it instead, and because the PR that job opens receives no
+CI of its own, that job also runs every gate on this list against the tree it is about to propose.
+See [Stylus by Example](#stylus-by-example).
+
+When `contracts:check`, `cli:check` or `stylus:check` fails it prints a line-level diff, so a reviewer can see
 whether a value moved or only the formatting did. That diff is a real one, computed over a longest common
 subsequence in `scripts/lib/line-diff.mjs`: comparing the two files by line index instead reported
 every line after an insertion as changed, which on this 112-line partial meant 53 lines for a
@@ -1119,12 +1127,13 @@ two-line edit and defeated the point of printing it.
 
 ### Generated pages
 
-Three things in `content/` are written by a generator and must never be hand-edited: the precompile
+Four things in `content/` are written by a generator and must never be hand-edited: the precompile
 tables, the contract-address partial (both under `content/partials/`, see
-[Partials](#partials)), and `content/docs/run-a-node/nitro/cli-flags-reference.mdx`.
+[Partials](#partials)), `content/docs/run-a-node/nitro/cli-flags-reference.mdx`, and the nineteen
+pages under `content/docs/stylus/stylus-by-example/`.
 
-The CLI flags page is the only generated file under `content/docs/`, so it is also the only one with
-frontmatter a writer owns. `pnpm cli:generate` replaces only the region between
+The CLI flags page is the only _partly_ generated file under `content/docs/`, so it is the only one
+with frontmatter a writer owns. `pnpm cli:generate` replaces only the region between
 `{/* GENERATED:START */}` and `{/* GENERATED:END */}`; the frontmatter and any prose outside those
 markers survive untouched.
 
@@ -1152,6 +1161,80 @@ flag the exclusion rules dropped, grouped by the rule that dropped it; without i
 only the per-rule counts. One rule matches on the flag's **description**, so a Nitro release that
 reworks a docstring can drop a flag off the page, and the counts are what make that visible in the
 weekly refresh PR's log.
+
+### Stylus by Example
+
+`content/docs/stylus/stylus-by-example/` is nineteen pages republished from
+[`offchainlabs/stylus-by-example`](https://github.com/offchainlabs/stylus-by-example), a live
+third-party repository. `pnpm stylus:generate` clones it and rewrites every page; `pnpm
+stylus:check` fails with a line diff when the committed tree has drifted from it. Unlike the CLI
+flags page these are generated whole, frontmatter included, so there is nothing on them a writer
+owns — a fix belongs upstream, or in `scripts/data/stylus-examples.data.mjs`.
+
+They arrived here as a hand port of an arbitrum-docs pipeline
+(`scripts/sync-stylus-content.js` plus a `stylus-content` job in `update-external-content.yml`)
+that does not survive that repo being archived. Without the port, an edit upstream reached this
+site through nobody and nothing, and nobody would have been told.
+
+Six things about it are worth knowing:
+
+- **Nothing is pinned.** stylus-by-example publishes no releases and this site has always tracked
+  its default branch, so the generator clones that. A pin would only be a second version number to
+  forget to bump. The cost is that `stylus:check` depends on the network _and_ on somebody else's
+  default branch, which is why **it is deliberately not a CI gate**: it would redden every open PR
+  the moment an unrelated repository edited a page. The `stylus` job in
+  [`upstream-refresh.yml`](.github/workflows/upstream-refresh.yml) runs it weekly instead, where a
+  change becomes a PR on `automated/stylus-by-example`. That is its own job on its own branch, not
+  another step in `refresh`, for the reason `drift` is independent too: a failure here must not
+  hide a Nitro pin bump, and nineteen pages of changed prose in the same PR as a regenerated
+  address table is a PR nobody reviews.
+- **That job runs the blocking gates itself**, between the generator and the pull request, and
+  that is not belt-and-braces. A pull request opened with `GITHUB_TOKEN` triggers no workflow
+  runs — GitHub's own rule, so a workflow cannot recurse — and `ci.yml` fires only on
+  push/pull_request against `main`, so **nothing checks the PR this job opens**; its checks tab
+  arrives empty, which reads as green. The payload is prose and frontmatter from a repository this
+  project neither controls nor pins, which makes it the automated PR most in need of checking, so
+  the job runs `ci.yml`'s `Gates` list step for step against the regenerated tree and fails the
+  weekly run rather than shipping a PR nothing has verified. **Keep the two lists in sync**: a
+  gate added to `ci.yml` and not there is a gate that PR does not get. The alternative, a PAT or
+  GitHub App token on `create-pull-request` so `ci.yml` runs for real, needs a secret nobody has
+  provisioned. The sibling `refresh` job has the same no-CI shape and no gates of its own; its
+  payload is generator output over pinned inputs, so the exposure is smaller, but it is the same
+  gap and worth closing separately.
+- **The published set is an allowlist**, in `scripts/data/stylus-examples.data.mjs`, and that list
+  doubles as the `meta.json` order. That order is **upstream's teaching sequence, not
+  alphabetical**: `hello_world`, then the primitives, then what builds on them, straight from the
+  `allowLists` block of arbitrum-docs `scripts/sync-stylus-content.js`. The hand port alphabetized
+  it, which opened a beginner's section on "ABI Decode" and pushed "Hello World" to tenth; the
+  parity this pipeline exists for is the reason it is back. Reordering that array is a rendered
+  change to the sidebar, not a tidy-up. The order of the two sections comes from the same place,
+  `basic_examples` before `applications`, and the parent
+  `content/docs/stylus/stylus-by-example/meta.json` is **hand-owned, not generated**, so it has to
+  be kept in step by hand. Upstream publishes sixteen more examples than these. Every run **names
+  the ones it skipped**, because that log line is the only notice anyone gets that a new example
+  exists; adding one is a deliberate act, since it is a new page on this site.
+- **A relative link resolves against the section that publishes the slug**, and a slug this site
+  does not publish stops the run. Upstream's version of that rule hardcodes `basic_examples`, which
+  is only ever right because the one relative link in the published set happens to live there.
+- **The `metadata` export is parsed, never evaluated.** Upstream's `title` and `description` live
+  in a JavaScript object literal, not JSON, so `parseObjectLiteral` in
+  `scripts/lib/stylus-examples.mjs` reads a grammar of JSON plus the four things upstream actually
+  writes — single quotes, bare keys, trailing commas, a value wrapped onto the next line — and
+  throws on every other token, with no fallback. It replaced a `new Function(…)()`, which is a
+  different thing from cloning: a clone copies bytes, evaluating one runs it, unpinned, weekly, in
+  a job holding `contents: write`, and on any maintainer's machine that runs `pnpm
+stylus:generate`.
+- **`meta.json` is written without Prettier** (`format: false` on `writeOrCheck`).
+  `.prettierignore` excludes `**/meta.json` because `stringifyMeta` writes one array entry per line
+  and Prettier collapses a short array; formatting it here would make this generator and `pnpm
+move-doc` undo each other on every run.
+
+Regenerating in September 2026 restored two things a human had changed on a generated page after
+the last sync: eleven blank lines inside Rust snippets, squeezed during the Fumadocs port, and the
+word "seamlessly" in the opening line of `primitive_data_types`, dropped in arbitrum-docs
+`2665b2643`. Both were edits to a file that carried a `DONT-EDIT-THIS-FOLDER` marker. **An
+editorial fix to one of these pages has to be made upstream** or it will not survive the next
+Monday.
 
 ## The local pre-commit hook
 
