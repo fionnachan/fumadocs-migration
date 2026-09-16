@@ -30,6 +30,8 @@
     "contracts:check": "node scripts/generate-contract-addresses.mjs --check",
     "cli:generate": "node scripts/generate-cli-reference.mjs",
     "cli:check": "node scripts/generate-cli-reference.mjs --check",
+    "stylus:generate": "node scripts/generate-stylus-examples.mjs",
+    "stylus:check": "node scripts/generate-stylus-examples.mjs --check",
     "references:check": "node scripts/references-check.mjs",
     "faq:check": "node scripts/faq-data-check.mjs",
     "redirects:legacy": "node scripts/generate-legacy-redirects.mjs",
