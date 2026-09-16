@@ -10,7 +10,19 @@
  *      with any `#anchor`/`?query`);
  *   2. moves the file (via `git mv`), recomputing the file's *own* relative links so they stay valid;
  *   3. updates the doc's entry in the surrounding `meta.json` navigation;
- *   4. records the old→new URL in `redirects.config.mjs`.
+ *   4. records the old→new URL in `redirects.config.mjs`;
+ *   5. retargets the moved path in `scripts/lib/tree-compare.mjs`'s `RENAME_MAP` and
+ *      `scripts/data/upstream.config.json`'s `guttedAllowlist`, if either names it (see
+ *      `scripts/lib/drift-maps.mjs`) — otherwise a move silently orphans a drift exemption, which
+ *      `pnpm test` only catches in whatever unrelated PR happens to run next.
+ *
+ * Step 5 runs last because it is the only step that can legitimately refuse: it verifies its own
+ * rewrite and formats through Prettier before writing, and aborting there must not cost the redirect.
+ * Two other hand-written maps of local paths are still on the mover: `MANUAL_DESTINATIONS` in
+ * `scripts/lib/legacy-redirects.mjs` (as site URLs), where a stale entry at least fails `pnpm test`
+ * in a later PR — tracked as FS-2697 — and `VERSIONED` in `lib/versions.ts` (keyed by canonical
+ * slug), where nothing fails at all: `versioned-docs-check.mjs` always exits 0, so a moved versioned
+ * page just loses its version dropdown. Retarget both by hand.
  *
  * `--dry-run` prints every change without touching the filesystem. Paths are repo-relative files under
  * `content/docs/` (not site URLs). After a real run, verify with `pnpm restructure` or `pnpm check-links`.
@@ -36,6 +48,7 @@ import {
   stringifyMeta,
   toPosix,
 } from './lib/doc-links.mjs';
+import { updateDriftMaps } from './lib/drift-maps.mjs';
 
 const REDIRECTS_START = '// AUTO-GENERATED REDIRECTS START';
 const REDIRECTS_END = '// AUTO-GENERATED REDIRECTS END';
@@ -254,7 +267,7 @@ function ambiguousPartialLinks(records) {
   });
 }
 
-function main() {
+async function main() {
   const { from, to, dryRun } = parseArgs(process.argv.slice(2));
   const repoRoot = process.cwd();
   const docsRoot = path.join(repoRoot, CONTENT_DIR);
@@ -272,6 +285,8 @@ function main() {
 
   const fromMeta = computeFileMeta(docsRoot, fromAbs);
   const toMeta = computeFileMeta(docsRoot, toAbs);
+  const docsRelFrom = toPosix(path.relative(docsRoot, fromAbs));
+  const docsRelTo = toPosix(path.relative(docsRoot, toAbs));
 
   const records = scanLinks(index);
   const { editsByFile, changes, unrenderable } = planMove(records, index, fromAbs, toAbs);
@@ -322,6 +337,9 @@ function main() {
         `  redirect: { source: '${fromMeta.url}', destination: '${toMeta.url}', permanent: true }`,
       );
     }
+    // Reported last, mirroring the order a real run applies the steps in.
+    for (const n of await updateDriftMaps(repoRoot, docsRelFrom, docsRelTo, true))
+      console.log(`  ${n}`);
     console.log('\n[dry-run] no files were changed.');
     return;
   }
@@ -353,6 +371,13 @@ function main() {
     );
   }
 
+  // Last on purpose. This step reads two files, verifies its own rewrite against the parsed
+  // RENAME_MAP, and runs both results through Prettier, any of which can throw; running it after the
+  // redirect is appended means a failure here costs only this step, and it writes both maps or
+  // neither. Everything before it has already landed, so the fix is to retarget the maps by hand.
+  for (const n of await updateDriftMaps(repoRoot, docsRelFrom, docsRelTo, false))
+    console.log(`  ${n}`);
+
   console.log('\nDone. Verify with `pnpm check-links` (or `pnpm restructure` runs it for you).');
 }
 
@@ -361,4 +386,4 @@ function exitErr(msg) {
   process.exit(1);
 }
 
-main();
+await main();
