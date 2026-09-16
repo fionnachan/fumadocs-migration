@@ -433,6 +433,16 @@ prevent. Retargeting it correctly also means regenerating `redirects.legacy.mjs`
 sibling `arbitrum-docs` checkout that `move-doc` deliberately does not require, so it is tracked
 separately as FS-2697. Until then, after moving a page, grep `MANUAL_DESTINATIONS` for its old URL.
 
+**And `VERSIONED` in `lib/versions.ts`, which is worse, because nothing catches it.** That registry
+keys the partial versioning registry by canonical slug (`'run-a-node/start-here'`), `move-doc` does
+not touch it, and no gate asserts its keys name a live page: `scripts/versioned-docs-check.mjs` only
+warns about uncommitted edits to versioned documents and always exits 0. Moving a versioned page
+therefore leaves a dead key, the page silently loses its version dropdown and its `?v=` archives
+become unreachable, and `pnpm test` stays green — measured, by moving `run-a-node/start-here.mdx`
+and watching 346/346 pass with `lib/versions.ts` untouched. Retargeting it is a judgement call
+(`archivePath` mirrors the old slug on every current entry but is not required to), so after moving
+a versioned page, retarget its `VERSIONED` key by hand.
+
 **Legacy `docs.arbitrum.io` URLs.** `pnpm redirects:legacy` regenerates `redirects.legacy.mjs`.
 Legacy URLs were served at the site root (`/stylus/using-cli`) and this site serves docs under
 `/docs`, so sources stay root-level (that is what real inbound links look like) and destinations

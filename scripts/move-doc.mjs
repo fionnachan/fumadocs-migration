@@ -18,9 +18,11 @@
  *
  * Step 5 runs last because it is the only step that can legitimately refuse: it verifies its own
  * rewrite and formats through Prettier before writing, and aborting there must not cost the redirect.
- * It does *not* touch `MANUAL_DESTINATIONS` in `scripts/lib/legacy-redirects.mjs`, a third
- * hand-written map of local paths (as site URLs); moving a page named there still needs a manual
- * edit. Tracked as FS-2697.
+ * Two other hand-written maps of local paths are still on the mover: `MANUAL_DESTINATIONS` in
+ * `scripts/lib/legacy-redirects.mjs` (as site URLs), where a stale entry at least fails `pnpm test`
+ * in a later PR — tracked as FS-2697 — and `VERSIONED` in `lib/versions.ts` (keyed by canonical
+ * slug), where nothing fails at all: `versioned-docs-check.mjs` always exits 0, so a moved versioned
+ * page just loses its version dropdown. Retarget both by hand.
  *
  * `--dry-run` prints every change without touching the filesystem. Paths are repo-relative files under
  * `content/docs/` (not site URLs). After a real run, verify with `pnpm restructure` or `pnpm check-links`.
