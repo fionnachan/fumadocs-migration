@@ -29,8 +29,12 @@ const PAGE_FRONTMATTER = [
 ].join('\n');
 
 /** A throwaway repo with just enough shape for move-doc.mjs to run: a docs tree, a RENAME_MAP that
- * targets the page under test, and a guttedAllowlist that also names it. */
-function fixtureRepo() {
+ * targets the page under test, and a guttedAllowlist that also names it.
+ *
+ * `doubleQuoted` writes the same map with double quotes, invisible to the single-quote-only textual
+ * rewrite, so the cross-check aborts the drift step. That is the only way to reach the failure path
+ * end to end. */
+function fixtureRepo({ doubleQuoted = false } = {}) {
   const root = mkdtempSync(path.join(tmpdir(), 'move-doc-e2e-'));
   // move-doc.mjs writes tree-compare.mjs/upstream.config.json back through Prettier, which resolves
   // config from the file's own location. Give the fixture its own, matching the real repo's style, so
@@ -49,10 +53,11 @@ function fixtureRepo() {
 
   const libDir = path.join(root, 'scripts', 'lib');
   mkdirSync(libDir, { recursive: true });
+  const q = doubleQuoted ? '"' : "'";
   const treeCompareSource =
     `export const RENAME_MAP = {\n` +
-    `  'upstream/old-name.mdx': 'example/old-name.mdx',\n` +
-    `  'upstream/unrelated.mdx': 'example/unrelated.mdx',\n` +
+    `  ${q}upstream/old-name.mdx${q}: ${q}example/old-name.mdx${q},\n` +
+    `  ${q}upstream/unrelated.mdx${q}: ${q}example/unrelated.mdx${q},\n` +
     `};\n`;
   writeFileSync(path.join(libDir, 'tree-compare.mjs'), treeCompareSource);
 
@@ -190,4 +195,39 @@ test('move-doc is a no-op on the drift maps for a page neither map names', (t) =
 
   assert.doesNotMatch(output, /RENAME_MAP/);
   assert.doesNotMatch(output, /guttedAllowlist/);
+});
+
+test('an aborted drift step still leaves the redirect behind, and writes neither map', (t) => {
+  // The drift step is deliberately last, because it is the one step that can refuse. Nothing else
+  // pins that ordering, so moving it back ahead of the redirect would silently cost a page its
+  // redirect on every abort. This is the regression test for the ordering, not just for the abort.
+  const { root, treeComparePath, upstreamConfigPath, fromRel, toRel } = fixtureRepo({
+    doubleQuoted: true,
+  });
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const beforeConfig = readFileSync(upstreamConfigPath, 'utf8');
+  const beforeTreeCompare = readFileSync(treeComparePath, 'utf8');
+
+  let failure;
+  try {
+    execFileSync('node', [MOVE_DOC, fromRel, toRel], { cwd: root, encoding: 'utf8' });
+  } catch (err) {
+    failure = err;
+  }
+  assert.ok(failure, 'move-doc must exit non-zero when the RENAME_MAP cross-check fails');
+  assert.equal(failure.status, 1);
+  assert.match(failure.stderr, /the parsed map names it 1 time\(s\)/);
+
+  // Neither map written: the step is all-or-nothing, and the config rewrite would have succeeded.
+  assert.equal(readFileSync(treeComparePath, 'utf8'), beforeTreeCompare);
+  assert.equal(readFileSync(upstreamConfigPath, 'utf8'), beforeConfig);
+
+  // Everything before the drift step landed, the redirect included.
+  assert.ok(existsSync(path.join(root, toRel)), 'the move itself still happened');
+  const redirects = readFileSync(path.join(root, 'redirects.config.mjs'), 'utf8');
+  assert.match(
+    redirects,
+    /source: '\/docs\/example\/old-name', destination: '\/docs\/example\/new-name'/,
+  );
 });

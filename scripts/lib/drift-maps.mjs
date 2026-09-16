@@ -72,6 +72,11 @@ function renameMapRange(source) {
  * followed by `:` — keys always are. That is enough to tell the two apart without parsing the module
  * as an AST, and it is the reason this only ever touches values.
  *
+ * A match inside a `//` comment is skipped. Half the entries in `RENAME_MAP` carry a comment
+ * explaining the rename, and those comments name paths; rewriting one turns a record of what
+ * happened into a false statement, and it also inflates `changed`, which then trips
+ * `assertRenameMapRewrite` into blaming a reformat and aborting an otherwise fine move.
+ *
  * @returns {{ source: string, changed: number }}
  */
 export function rewriteRenameMapSource(source, oldRel, newRel) {
@@ -80,11 +85,24 @@ export function rewriteRenameMapSource(source, oldRel, newRel) {
   const [from, to] = range;
   let changed = 0;
   const re = new RegExp(`'${escapeRegExp(oldRel)}'(?!\\s*:)`, 'g');
-  const body = source.slice(from, to).replace(re, () => {
+  const original = source.slice(from, to);
+  const body = original.replace(re, (match, offset) => {
+    if (inLineComment(original, offset)) return match;
     changed++;
     return `'${newRel}'`;
   });
   return { source: changed ? source.slice(0, from) + body + source.slice(to) : source, changed };
+}
+
+/**
+ * Whether `offset` in `body` sits after a `//` on its own line, i.e. inside a line comment.
+ *
+ * Good enough inside `RENAME_MAP`, which holds nothing but quoted file paths and `merge: true`: a
+ * `//` there can only be a comment marker, with no URL or regex literal for it to hide inside.
+ */
+function inLineComment(body, offset) {
+  const lineStart = body.lastIndexOf('\n', offset) + 1;
+  return body.slice(lineStart, offset).includes('//');
 }
 
 /**
@@ -118,7 +136,9 @@ export async function assertRenameMapRewrite(treeComparePath, oldRel, newRel, ch
         `the parsed map names it ${expected} time(s). The rewrite is textual and single-quote-only, so ` +
         `this usually means ${TREE_COMPARE_PATH} was reformatted (double quotes, a template literal, or ` +
         `a differently shaped declaration) and no longer matches. Retarget the entries by hand, then ` +
-        `teach rewriteRenameMapSource the new shape. No files were changed.`,
+        `teach rewriteRenameMapSource the new shape. Neither drift map was written; move-doc runs this ` +
+        `step last, so in a real run the file move, the link rewrites, meta.json and the redirect have ` +
+        `already landed.`,
     );
   }
   // A move onto a path another entry already targets leaves two upstream pages claiming one Tree B

@@ -99,6 +99,25 @@ test('reports zero changes and returns the source unchanged when nothing matches
   assert.equal(next, source);
 });
 
+test('never rewrites a path quoted inside a `//` comment in the RENAME_MAP literal', () => {
+  // Most entries in the real map carry a comment explaining the rename, and those comments name
+  // paths. Rewriting one rewrites history into a false statement, and it also inflates the change
+  // count, which makes assertRenameMapRewrite abort a perfectly good move while blaming a reformat.
+  const source =
+    `export const RENAME_MAP = {\n` +
+    `  // Ported under a new name; 'local/moved.mdx' was the name it landed under in wave 1.\n` +
+    `  'up/moved.mdx': 'local/moved.mdx',\n` +
+    `};\n`;
+  const { source: next, changed } = rewriteRenameMapSource(
+    source,
+    'local/moved.mdx',
+    'local/new.mdx',
+  );
+  assert.equal(changed, 1, 'only the value counts, not the mention in the comment');
+  assert.match(next, /'up\/moved\.mdx': 'local\/new\.mdx',/);
+  assert.match(next, /\/\/ Ported under a new name; 'local\/moved\.mdx' was the name/);
+});
+
 // --- rewriteUpstreamConfig ------------------------------------------------------------------------
 
 function configFixture() {
@@ -288,6 +307,9 @@ test('updateDriftMaps throws when a double-quoted RENAME_MAP makes the textual r
     (err) => {
       assert.match(err.message, /changed 0 value\(s\) but the parsed map names it 1 time\(s\)/);
       assert.match(err.message, /local\/moved\.mdx/, 'names the offending path');
+      // It must not read as "the move was rolled back": only the two maps went unwritten.
+      assert.match(err.message, /Neither drift map was written/);
+      assert.doesNotMatch(err.message, /No files were changed/);
       return true;
     },
   );
