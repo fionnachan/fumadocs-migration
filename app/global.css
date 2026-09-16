@@ -43,7 +43,10 @@
   /* Card hover on the site is `bg-black/10`; #e6e6e6 is that over white. */
   --color-fd-accent: #e6e6e6;
   --color-fd-accent-foreground: #000000;
-  --color-fd-ring: var(--color-arbitrum-cyan);
+  /* Focus ring stays brand blue in light (5.0:1 on white). The site's cyan is 1.6:1 there, under
+     the 3:1 non-text minimum, and Fumadocs paints `focus-visible:ring-fd-ring` on every button,
+     code block and the sidebar. `.dark` switches it to cyan, 13:1 on black. */
+  --color-fd-ring: var(--color-arbitrum-blue);
   --color-fd-overlay: rgb(5 22 61 / 0.5);
 
   /* Success/failure states. Fumadocs' preset ships no status colors, and interactive widgets need
