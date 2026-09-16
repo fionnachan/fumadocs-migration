@@ -154,7 +154,8 @@ export function buildIndex(repoRoot) {
  * original source for splicing.
  */
 function maskRegions(source) {
-  const chars = [...source];
+  // Regex indexes and string slices count UTF-16 code units, including both halves of an emoji.
+  const chars = source.split('');
   const blank = (s, e) => {
     for (let i = s; i < e; i++) if (chars[i] !== '\n') chars[i] = ' ';
   };
@@ -170,6 +171,7 @@ function maskRegions(source) {
   let offset = 0;
   let inFence = false;
   let fenceChar = '';
+  let fenceLength = 0;
   for (const line of lines) {
     const lineStart = offset;
     const lineEnd = offset + line.length;
@@ -177,17 +179,27 @@ function maskRegions(source) {
     if (!inFence && open && lineStart >= bodyStart) {
       inFence = true;
       fenceChar = open[1][0];
+      fenceLength = open[1].length;
       blank(lineStart, lineEnd);
     } else if (inFence) {
       blank(lineStart, lineEnd);
       const close = /^[ \t]*(`{3,}|~{3,})[ \t]*$/.exec(line);
-      if (close && close[1][0] === fenceChar) inFence = false;
+      if (close && close[1][0] === fenceChar && close[1].length >= fenceLength) inFence = false;
     }
     offset = lineEnd + 1;
   }
 
   let masked = chars.join('');
-  masked = masked.replace(/`[^`\n]*`/g, (m) => ' '.repeat(m.length));
+  // Code spans close with a run of the same number of backticks and may contain newlines or
+  // shorter runs. Pair whole runs so ``code with `ticks` `` is not mistaken for prose.
+  const runs = [...masked.matchAll(/`+/g)];
+  for (let i = 0; i < runs.length; i++) {
+    const close = runs.findIndex((run, j) => j > i && run[0].length === runs[i][0].length);
+    if (close === -1) continue;
+    blank(runs[i].index, runs[close].index + runs[close][0].length);
+    i = close;
+  }
+  masked = chars.join('');
   masked = masked.replace(/<!--[\s\S]*?-->/g, (m) => m.replace(/[^\n]/g, ' '));
   return masked;
 }

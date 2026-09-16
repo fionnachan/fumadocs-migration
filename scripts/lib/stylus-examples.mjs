@@ -7,6 +7,7 @@
  *
  * Ported from the content-transformation half of arbitrum-docs `scripts/sync-stylus-content.js`.
  */
+import { extractRefs } from './doc-links.mjs';
 
 /**
  * The `export const metadata = { … };` block every upstream page opens with. Non-greedy up to the
@@ -18,8 +19,8 @@
  */
 const METADATA_PATTERN = /export\s+const\s+metadata\s*=\s*({[\s\S]*?});/;
 
-/** A same-directory markdown link, e.g. `[ABI Encode](./abi_encode)`. */
-const RELATIVE_LINK_PATTERN = /\[([^\]]+)\]\(\.\/([\w-]+)\)/g;
+/** A same-directory markdown destination, e.g. `[ABI Encode](./abi_encode)`. */
+const RELATIVE_LINK_PATTERN = /^\.\/([\w-]+)$/;
 
 /** The fence that opens the first Rust snippet, and the anchor for the banner. */
 const RUST_FENCE = '```rust';
@@ -286,19 +287,29 @@ export function renderFrontmatter(metadata, defaults) {
  * @param {{ sections: Array<{ dir: string, pages: string[] }>, baseUrl: string, context: string }} options
  */
 export function rewriteRelativeLinks(content, { sections, baseUrl, context }) {
-  return content.replace(RELATIVE_LINK_PATTERN, (match, text, slug) => {
+  // The shared scanner excludes frontmatter and code. Work backwards through its original
+  // offsets so replacing one destination cannot shift any of the remaining destinations.
+  const links = extractRefs(content)
+    .filter((ref) => ref.surface === 'markdown' && RELATIVE_LINK_PATTERN.test(ref.rawUrl))
+    .sort((a, b) => b.range[0] - a.range[0]);
+  for (const {
+    rawUrl,
+    range: [start, end],
+  } of links) {
+    const slug = rawUrl.slice(2);
     const owners = sections.filter((section) => section.pages.includes(slug));
     if (owners.length !== 1) {
       throw new Error(
-        `${context}: the link \`${match}\` points at \`${slug}\`, which ` +
+        `${context}: the link \`${rawUrl}\` points at \`${slug}\`, which ` +
           (owners.length === 0
             ? 'this site does not publish. Add it to scripts/data/stylus-examples.data.mjs, or ' +
               'get the link changed upstream.'
             : `appears in ${owners.length} sections, so the destination is ambiguous.`),
       );
     }
-    return `[${text}](${baseUrl}/${owners[0].dir}/${slug})`;
-  });
+    content = content.slice(0, start) + `${baseUrl}/${owners[0].dir}/${slug}` + content.slice(end);
+  }
+  return content;
 }
 
 /**
@@ -351,7 +362,8 @@ export function buildPage({
   // Replacing the metadata export in place, rather than rebuilding the file around the body,
   // keeps everything upstream puts after it — the `{/* Begin Content */}` marker included —
   // exactly where upstream put it.
-  let content = source.replace(METADATA_PATTERN, `${frontmatter}\n\n${marker}`);
+  // A callback inserts literal text: a replacement string would expand `$1`, `$$`, etc.
+  let content = source.replace(METADATA_PATTERN, () => `${frontmatter}\n\n${marker}`);
   content = rewriteRelativeLinks(content, { sections, baseUrl, context });
 
   const banner = insertNotForProductionBanner(content, include);
