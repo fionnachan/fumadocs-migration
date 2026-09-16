@@ -189,10 +189,19 @@ export default function proxy(request: NextRequest, event: NextFetchEvent) {
   }
 
   // 2. Content negotiation: `Accept: text/markdown` rewrites to the .md route.
+  //
+  // `Vary: Accept` because this is the one branch where a single URL answers with two different
+  // bodies, and since FS-2689 the `/llms.mdx/**` route it rewrites onto is prerendered with
+  // `cache-control: s-maxage=31536000`. Verified correct under `next start`, where the cache keys
+  // on the rewritten path; Vercel's edge keying for a proxy rewrite is a different code path and is
+  // unconfirmed. The `.md` suffix above is a distinct URL and the HTML below is `no-store`, so
+  // neither needs it. See INTERNALS.md, "Known trade-off: no static prerendering".
   if (isMarkdownPreferred(request)) {
     const negResult = rewriteDocs(request.nextUrl.pathname);
     if (negResult) {
-      return NextResponse.rewrite(new URL(negResult, request.nextUrl));
+      const negotiated = NextResponse.rewrite(new URL(negResult, request.nextUrl));
+      negotiated.headers.append('Vary', 'Accept');
+      return negotiated;
     }
   }
 

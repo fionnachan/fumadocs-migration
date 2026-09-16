@@ -116,19 +116,18 @@ export default async function Page({
   );
 }
 
-// Defer page generation to first-request time (ISR).
+// This route is dynamic because the page `await`s `searchParams` to read `?v=`, so
+// `generateStaticParams` has nothing to prerender whatever it returns and returns [] rather than
+// 347 params for zero output. `force-dynamic` is load-bearing, not decoration: without it Next
+// prerenders a fallback shell for the route, the searchParams access poisons it, and every docs
+// page serves that shell as a 500 with digest DYNAMIC_SERVER_USAGE.
 //
-// `source.generateParams()` would return ~585 (195 pages × 3 locales) static
-// params, which `next build` parallel-prerenders. A race in Next 16.2.6's
-// prerender worker pool surfaces as non-deterministic `null.useContext`
-// crashes (see investigation 2026-05-22). Returning [] sidesteps the race:
-// pages are rendered on first request and cached at the edge, then served
-// statically on subsequent hits. The trade-off is +100-500ms latency on the
-// FIRST view of each page after a deploy — acceptable for a docs site.
-//
-// `dynamicParams` defaults to true for catchall routes, so all valid slugs
-// still render. Revisit when Next.js / Fumadocs fix the prerender race; the
-// fix is to restore `return source.generateParams()`.
+// Both exports come out together when FS-2698 moves `?v=` off searchParams; either one left alone
+// still suppresses all 347 pages. `force-dynamic` also stops applying if Cache Components is ever
+// enabled. Measurements and the full reasoning are in INTERNALS.md, "Known trade-off: no static
+// prerendering".
+export const dynamic = 'force-dynamic';
+
 export async function generateStaticParams() {
   return [];
 }
