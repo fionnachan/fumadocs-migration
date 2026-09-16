@@ -8,8 +8,61 @@ description: >-
   box-drawing diagram in an MDX page with a real image, author a new concept
   diagram for docs/how-arbitrum-works or similar, or build a diagram from the
   Arbitrum brand assets. Hand-authored lean vector SVG — not Mermaid, not a
-  full Excalidraw/draw.io pipeline.
+  full Excalidraw/draw.io pipeline. Salvaged verbatim from the old Docusaurus
+  repo: read the "Adapting this skill to this repo" section at the top before
+  following any path or command in the body, since it maps them onto this
+  repo's Fumadocs layout (public/img, components/mdx.tsx, content/docs).
 ---
+
+## Adapting this skill to this repo (read this first)
+
+**This file was salvaged verbatim.** It is a byte-for-byte copy of
+`.claude/skills/arbitrum-brand-svg-diagrams/SKILL.md` in the Docusaurus repo
+[`OffchainLabs/arbitrum-docs`](https://github.com/OffchainLabs/arbitrum-docs), taken from
+`master` at commit `6a2738f` (2026-09-15) under FS-2702, before that repo is archived. The
+body was left unedited on purpose: its value is the accumulated authoring knowledge (the
+WCAG contrast tables, the marker/arrowhead failure modes, the `round_arrows.py` authoring
+contract), and rewriting it risked losing exactly that detail.
+
+**The consequence: every filesystem path, command and component reference below describes
+the old Docusaurus tree, not this one.** This section is the translation layer. Where it
+and the body disagree, this section wins.
+
+| In the body below                                 | In this repo                                                                                                           |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `static/img/NAME.svg`                             | `public/img/NAME.svg`, referenced from MDX as `/img/NAME.svg`                                                          |
+| `static/data/`                                    | `public/data/`                                                                                                         |
+| `docs/**`, `docs/how-arbitrum-works/**`           | `content/docs/**`, `content/docs/how-arbitrum-works/**`                                                                |
+| `yarn build`                                      | `pnpm build`                                                                                                           |
+| `yarn svgo --config svgo.config.mjs <file>`       | `pnpm dlx svgo --config svgo.config.mjs <file>` — `svgo` is not a dependency here, so `pnpm svgo` will not resolve     |
+| `npx prettier --write docs/path/to/page.mdx`      | nothing. `.prettierignore` excludes `**/*.mdx`, so Prettier does not format MDX in this repo                           |
+| `markdownlint --config .markdownlint.json`        | `pnpm content:lint`. There is no markdownlint here                                                                     |
+| the `@mdx-js/mdx` compile check                   | `pnpm types:check`, then confirm the render at `http://localhost:3000` (not `127.0.0.1`, where React does not hydrate) |
+| `src/theme/MDXComponents.js`                      | `components/mdx.tsx`. `<ImageZoom>` and `<ImageWithCaption>` are still registered globally, still no import needed     |
+| `src/components/ImageCaptions/styles.module.scss` | `components/mdx/ImageZoom/styles.module.css`                                                                           |
+| `src/css/custom.css` and its `img-*px` classes    | no equivalent. Pages still pass `className="img-600px"` / `img-900px`, but nothing in this repo defines them           |
+| `var(--ifm-*)` theme tokens                       | `--color-fd-*` (Fumadocs). Never use `--ifm-*` here                                                                    |
+
+Four things in the body have **no** local equivalent at all:
+
+- **`docs/Offchain-pattern-guide.md`** was not ported. The nearest local guidance is the
+  "Style conventions" section of [`CONTRIBUTE.md`](../../../CONTRIBUTE.md), which links to
+  the upstream copy. There is also no editorial hook here that blocks an MDX write; the
+  only pre-commit hook is `.husky/pre-commit`, which runs Prettier and `pnpm content:lint`
+  on staged files.
+- **`src/css/partials/_misc-classes.scss`** and its `.ascii-diagram` class do not exist
+  here, so retiring an ASCII diagram orphans no local CSS.
+- **The `DrawioReactFlow` component** was not ported to this repo.
+- **The `git show origin/<branch>:static/img/…` reference branches** live in
+  `OffchainLabs/arbitrum-docs`, not in this repo's remotes. Clone that repo separately to
+  reach them, while it still exists.
+
+What still applies as written: the three helpers under
+`.claude/skills/arbitrum-brand-svg-diagrams/tools/` and the three SVGs under `assets/` are
+in this repo at exactly those paths, and the tools need only `python3`. `svgo.config.mjs`
+is here too, at the repo root. The companion hook `.claude/hooks/optimize-svg.sh` is
+present but **inert**: `svgo` is not a dependency and the hook is registered in no settings
+file, so nothing optimizes an SVG automatically. Run svgo by hand.
 
 # Arbitrum brand SVG diagrams
 
