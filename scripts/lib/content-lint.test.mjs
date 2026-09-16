@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 
-import { lintContent, lintSource, stripCode } from './content-lint.mjs';
+import { extractLocalImageSrcs, lintContent, lintSource, stripCode } from './content-lint.mjs';
 
 const rules = (src) => lintSource(src).map((f) => f.rule);
 
@@ -176,6 +176,90 @@ test('A6 checks fenced blocks inside a partial too', () => {
     found.map((f) => f.rule),
     ['A6'],
   );
+});
+
+test('extractLocalImageSrcs finds an ImageZoom local src', () => {
+  const found = extractLocalImageSrcs('<ImageZoom src="/img/a.png" alt="a" />');
+  assert.deepEqual(found, [{ element: 'ImageZoom', src: '/img/a.png', line: 1 }]);
+});
+
+test('extractLocalImageSrcs handles a multi-line JSX opening tag', () => {
+  // Line is where the tag opens, matching extractRemoteImages' own convention — not where `src=`
+  // itself sits, which for a multi-line tag is a line later.
+  const source = ['<ImageZoom', '  src="/img/a.svg"', '  alt="a"', '/>'].join('\n');
+  const found = extractLocalImageSrcs(source);
+  assert.deepEqual(found, [{ element: 'ImageZoom', src: '/img/a.svg', line: 1 }]);
+});
+
+test('extractLocalImageSrcs ignores a remote src', () => {
+  assert.deepEqual(extractLocalImageSrcs('<ImageZoom src="https://example.com/a.png" />'), []);
+});
+
+test('extractLocalImageSrcs ignores a local src with no image extension', () => {
+  assert.deepEqual(extractLocalImageSrcs('<a href="/docs/a">x</a>'), []);
+});
+
+test('extractLocalImageSrcs ignores a src inside a fenced code block', () => {
+  assert.deepEqual(extractLocalImageSrcs('```mdx\n<ImageZoom src="/img/a.png" />\n```'), []);
+});
+
+test('extractLocalImageSrcs accepts every common image extension', () => {
+  for (const ext of ['png', 'jpg', 'jpeg', 'svg', 'gif', 'webp', 'avif']) {
+    const found = extractLocalImageSrcs(`<ImageZoom src="/img/a.${ext}" />`);
+    assert.equal(found.length, 1, ext);
+  }
+});
+
+test('extractLocalImageSrcs strips a query string or fragment before matching the extension', () => {
+  assert.deepEqual(extractLocalImageSrcs('<ImageZoom src="/img/a.png?v=2" />'), [
+    { element: 'ImageZoom', src: '/img/a.png?v=2', line: 1 },
+  ]);
+});
+
+test('A7 fires when a local image src has no file under public/', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'content-lint-'));
+  try {
+    mkdirSync(path.join(root, 'content'), { recursive: true });
+    mkdirSync(path.join(root, 'public', 'img'), { recursive: true });
+    writeFileSync(path.join(root, 'public', 'img', 'present.png'), 'x');
+
+    const page = path.join(root, 'content', 'page.mdx');
+    writeFileSync(
+      page,
+      [
+        '<ImageZoom src="/img/present.png" alt="ok" />',
+        '<ImageZoom src="/img/missing.png" alt="broken" />',
+      ].join('\n'),
+    );
+
+    const found = lintContent(root);
+    assert.deepEqual(
+      found.map((f) => f.rule),
+      ['A7'],
+    );
+    assert.equal(found[0].line, 2);
+    assert.match(found[0].message, /missing\.png/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('A7 ignores a remote src and a non-image src', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'content-lint-'));
+  try {
+    mkdirSync(path.join(root, 'content'), { recursive: true });
+    const page = path.join(root, 'content', 'page.mdx');
+    writeFileSync(
+      page,
+      ['<ImageZoom src="https://example.com/a.png" />', '<a href="/docs/missing-page">x</a>'].join(
+        '\n',
+      ),
+    );
+
+    assert.deepEqual(lintContent(root), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('lintContent({ files }) lints only the given files, not the whole tree', () => {

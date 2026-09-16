@@ -339,6 +339,16 @@ the marker `{/* sync-with-var: latestNitroNodeImage */}`. Two weaker rules were 
 
 So do not put the marker on a page that states a Nitro version historically.
 
+The root `dependencies.json` is **not** part of that machinery. It is a verbatim snapshot of
+upstream `arbitrum-docs`' release ledger for five projects (`nitro`, `stylus-sdk`, `orbit-sdk`,
+`nitro-contracts`, `token-bridge-contracts`), salvaged under FS-2702 so the per-project detail
+survives that repo's archival. Nothing here reads it, its version numbers are frozen as of the
+copy, and `content/vars.json`'s `nitroVersionTag` is the live Nitro pin wherever the two
+disagree. Its own `_note` key says so in the file. What extending `check-nitro-release.mjs` to
+the other four projects would take is written up in that file's commit message; the short
+version is that the Docker-Hub tag resolution at the heart of the script is Nitro-specific and
+does not generalize.
+
 ### Announcement banner
 
 `app/layout.tsx` renders Fumadocs' `Banner` above everything else in `RootProvider`, which puts it
@@ -429,16 +439,61 @@ quietly:
   pass happens before the first write, and `move-doc` calls it after the redirect is appended, so a
   formatter or parse failure cannot cost the redirect or leave one map retargeted and the other not.
 
-**A move can still leave `MANUAL_DESTINATIONS` stale.** `scripts/lib/legacy-redirects.mjs` keeps a
-third hand-written map of local paths, as site URLs rather than content-relative paths, and
-`move-doc` does not touch it. Moving a page named there fails
+**The legacy destination overlay is retargeted the same way, one step later.**
+`scripts/lib/legacy-redirects.mjs` keeps two more hand-written maps naming this site's pages —
+`MANUAL_DESTINATIONS` and `SECTION_LANDINGS` — as **site URLs** (`/docs/…`, sometimes with an
+`#anchor`) rather than content-relative paths. `scripts/lib/legacy-destinations.mjs` retargets both,
+and `move-doc` calls it after the drift maps. Before this, moving a page named in either left a
+legacy `docs.arbitrum.io` URL pointing at a 404 until
 `scripts/generate-legacy-redirects.test.mjs` ("every hand-written destination still names a live
-page") in whatever PR runs `pnpm test` next, the same shape of failure this section exists to
-prevent. Retargeting it correctly also means regenerating `redirects.legacy.mjs`, which needs the
-sibling `arbitrum-docs` checkout that `move-doc` deliberately does not require, so it is tracked
-separately as FS-2697. Until then, after moving a page, grep `MANUAL_DESTINATIONS` for its old URL.
+page") failed in whatever PR ran `pnpm test` next.
 
-**And `VERSIONED` in `lib/versions.ts`, which is worse, because nothing catches it.** That registry
+It is a deliberate near-copy of `drift-maps.mjs` — same confinement to the named literal, same
+cross-check against the imported map, same abort-before-writing-anything, same Prettier pass — with
+three differences that come from the data:
+
+- **It works in URLs, so `move-doc` hands it `fromMeta.url`/`toMeta.url`.** A partial (no URL) and a
+  move that does not change the URL are both no-ops.
+- **It tells values from keys by position, not by a trailing `:`.** A `Map` entry is `[key, value]`,
+  so the value is the string the `]` follows: `'…'(?=\s*,?\s*\])`. Both Prettier layouts (one line,
+  and the value wrapped onto its own line) satisfy it. An `#anchor` on a destination is carried
+  across; the closing quote sits immediately after the URL, so `/docs/get-started` cannot match
+  inside `/docs/get-started/child`.
+- **It does not regenerate `redirects.legacy.mjs`, and must not.** Regenerating needs the sibling
+  `arbitrum-docs` checkout that `move-doc` deliberately does not require. Readers do not need it:
+  `move-doc` has already appended `oldUrl → newUrl` to `redirects.config.mjs`, and Next serves one
+  redirect per request, so a legacy URL still reaches the moved page in two hops. `redirects:check`
+  does need it. `redirects.legacy.mjs` still names the old URL as its destination, and the check
+  compares a destination against the routable pages without ever following a second hop, so every
+  legacy source that named the moved page reports `DEAD` until `pnpm redirects:legacy` is rerun.
+  That one-hop reading reaches the `AUTO-GENERATED` block too: an earlier move's redirect whose
+  destination is the page just moved now chains, reports `DEAD` alongside them, and regenerating the
+  legacy map does not fix that one. Retarget it to the new URL. The step prints a note saying all
+  of this.
+- **The chained `AUTO-GENERATED` entry gets its own note, and only when there is one.** The block
+  holds four entries in total, so a move of any other page has nothing chained to it: asserting the
+  chain unconditionally was false for 64 of the 68 pages the two maps name, and sent the mover
+  looking for a line that does not exist. `findChainedAutoRedirects` reads `redirects.config.mjs`
+  between the two markers, matches `source` then `destination` (the order `appendRedirect` writes
+  and Prettier preserves when it wraps), compares the destination for exact equality so a move of
+  `/docs/run-a-node` cannot claim the entry pointing at `/docs/run-a-node/run-batch-poster`, and
+  names the source URL(s) to retarget. The entry `move-doc` appended moments earlier cannot match
+  itself, because its destination is the _new_ URL. That note is **not** gated on either legacy map
+  having changed, unlike the `redirects.legacy.mjs` note above it: a chained entry is an earlier
+  move's business, not the maps', and a page no legacy map names would otherwise chain in silence.
+
+**This step is written to outlive the legacy redirect generator.** The derivation half of that
+system — everything that reads an upstream checkout (`scripts/lib/upstream-pages.mjs`,
+`resolveUpstreamRepo`, `build`) — is scheduled for deletion once this repo replaces upstream and
+upstream is archived. The two maps and `resolveTarget`'s ordering are not: `docs.arbitrum.io` URLs
+have to keep resolving forever. So `legacy-destinations.mjs` imports those two named exports and
+rewrites the two literals that declare them, and reads nothing else: no `build()`, no
+`upstream.config.json`, no `vercel.json`, no checkout. Deleting the generator leaves it working
+unchanged. Should the maps ever move to a different module, the textual rewrite finds nothing and
+the cross-check throws, rather than the step silently skipping.
+
+**`VERSIONED` in `lib/versions.ts` is still on the mover, and it is worse, because nothing catches
+it.** That registry
 keys the partial versioning registry by canonical slug (`'run-a-node/start-here'`), `move-doc` does
 not touch it, and no gate asserts its keys name a live page: `scripts/versioned-docs-check.mjs` only
 warns about uncommitted edits to versioned documents and always exits 0. Moving a versioned page
@@ -526,10 +581,12 @@ exists.
 
 **`MANUAL_DESTINATIONS` and `SECTION_LANDINGS` are hand-written, so a test pins them against the
 content tree.** The generator throws when an entry it _reaches_ names a missing page, but it only
-reaches an entry whose source is in upstream's corpus on that run, so an entry orphaned by
-`pnpm move-doc` would otherwise rot silently into a redirect to a 404. `pnpm test` walks
-`content/docs` and asserts every non-external value in both maps still resolves — the same guard,
-for the same reason, as the one the drift allowlists carry.
+reaches an entry whose source is in upstream's corpus on that run, so an orphaned entry would
+otherwise rot silently into a redirect to a 404. `pnpm test` walks `content/docs` and asserts every
+non-external value in both maps still resolves — the same guard, for the same reason, as the one the
+drift allowlists carry. `pnpm move-doc` now retargets both maps in the same run as the move (see
+[Moved pages](#redirects)), so the test guards against a hand edit and against a page that leaves
+the tree some other way, not against the mover.
 
 Anything unresolvable lands in `redirects.legacy.todo.json`. **That file reached `[]` on
 2026-08-31, stayed `[]` when canonical URLs were added on 2026-09-11, and is a tripwire, not a
@@ -776,6 +833,21 @@ a page section, so its labels nest under that section's heading rather than comp
 screen reader's heading list. Tree nodes are focusable, with Enter/Space to inspect and the arrow
 keys to expand or collapse, and wheel zoom needs a modifier key so scrolling past the diagram does
 not trap the page.
+
+That snapshot has a generator: `pnpm edge-challenge:fetch`
+(`scripts/fetch-edge-challenge-data.mjs`). It reads every `EdgeAdded` / `EdgeBisected` /
+`EdgeConfirmedByOneStepProof` log the BoLD `ChallengeManager` contract has emitted on Arbitrum
+Sepolia, backfills the `EdgeAdded` event for any edge only ever referenced (never directly logged)
+by a later event, resolves the staker address behind each `EdgeAdded` transaction, and overwrites
+`public/data/edge-challenge-flow.json`. **Nothing runs it automatically** — not the build, not CI,
+not `upstream-refresh.yml`. Run it by hand when the rendered flow looks out of date, review the
+diff, and commit it deliberately. It has **no `--check` mode**, unlike `contracts:check` or
+`cli:check`: those compare against a pinned, deterministic input, while this one's source is live
+chain state, so a second run legitimately returns a superset of the first. There is no "stale" to
+detect here, only "older", and a check that goes red the moment anyone opens a challenge on Sepolia
+is not something to gate a build on. The script was ported from upstream `arbitrum-docs` under
+FS-2702, before that repo is archived, because the decoding and backfill logic is not recoverable
+from the committed JSON.
 
 **FlowChart.** The Timeboost centralized auction diagram (`components/mdx/CentralizedAuction/`),
 registered under the name the MDX already used. The artwork is a 2300-line inline SVG exported from
