@@ -57,13 +57,39 @@ const sans = localFont({
   src: [
     { path: '../public/fonts/aeonik-regular.woff2', weight: '400', style: 'normal' },
     { path: '../public/fonts/aeonik-medium.woff2', weight: '500', style: 'normal' },
-    { path: '../public/fonts/aeonik-italic.woff2', weight: '400', style: 'italic' },
   ],
+});
+
+// The italic face, split out of `sans` above so it can opt out of preloading.
+//
+// `next/font` takes `preload` per declaration, not per `src` entry, so while the italic sat beside
+// the two uprights it was preloaded everywhere they were. At 48 KiB it was the largest single
+// preload on the site and the first request the browser made after the HTML, contending for
+// bandwidth with the body text that is the Largest Contentful Paint element on every docs page, to
+// serve the handful of `<em>` runs a given page contains. Splitting it costs one extra generated
+// family and the rule in `app/global.css` that points italic elements at it.
+//
+// Weight 400 only, as before: Aeonik has no italic at 500, and `font-synthesis: none` in global.css
+// means a bold italic resolves to this face rather than a synthesised slant.
+const sansItalic = localFont({
+  variable: '--font-sans-italic',
+  display: 'swap',
+  preload: false,
+  fallback: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'system-ui', 'sans-serif'],
+  src: [{ path: '../public/fonts/aeonik-italic.woff2', weight: '400', style: 'italic' }],
 });
 
 const mono = localFont({
   variable: '--font-mono',
   display: 'swap',
+  // Inline code, never the Largest Contentful Paint element on any page measured. A preload is a
+  // high-priority request, so leaving it on spent 35 KiB of bandwidth competing with the text and
+  // hero image that decide LCP. `display: swap` and the stack below render the text immediately, so
+  // the face arriving a beat later costs a swap, not a blank run. `preload` is per-declaration in
+  // `next/font`, not per `src` entry, which is why `sans` below keeps its preload: dropping it would
+  // take the body faces with it, and body text is the LCP element on every docs page.
+  // See INTERNALS.md "Page weight and what loads late".
+  preload: false,
   fallback: [
     'ui-monospace',
     'SF Mono',
@@ -86,6 +112,9 @@ const code = JetBrains_Mono({
   variable: '--font-code',
   subsets: ['latin'],
   display: 'swap',
+  // Fenced code blocks only. Same reasoning as `mono` above: 40 KiB of preload priority bought
+  // nothing, because no page's LCP element is set in this face.
+  preload: false,
 });
 
 // FK Screamer is the marketing site's display face (arbitrum-website app/fonts.ts), used there for
@@ -96,6 +125,11 @@ const code = JetBrains_Mono({
 const displayFace = localFont({
   variable: '--font-fk-screamer',
   display: 'swap',
+  // The home hero heading is the only thing set in this face, but the declaration lives in the root
+  // layout, so its preload went out on all 349 docs pages that never use it. The home hero's LCP
+  // element is the background image rather than the heading (measured), so dropping the preload
+  // costs a swap from Impact on one page and saves a request on every other.
+  preload: false,
   fallback: ['Impact', 'Haettenschweiler', 'Arial Narrow Bold', 'sans-serif'],
   src: [{ path: '../public/fonts/fk-screamer-upright.otf', weight: '400', style: 'normal' }],
 });
@@ -108,7 +142,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       // global.css keeps `scroll-behavior: smooth` for in-page anchors. Without it every docs
       // navigation from a scrolled position animates back to the top of the new page.
       data-scroll-behavior="smooth"
-      className={`${sans.variable} ${mono.variable} ${code.variable} ${displayFace.variable}`}
+      className={`${sans.variable} ${sansItalic.variable} ${mono.variable} ${code.variable} ${displayFace.variable}`}
       suppressHydrationWarning
     >
       <body className="flex flex-col min-h-screen font-sans" suppressHydrationWarning>

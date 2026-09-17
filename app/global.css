@@ -115,6 +115,22 @@
   }
 }
 
+/* Italic text uses the Aeonik italic face, which `app/layout.tsx` declares as its own `next/font`
+   family so it can skip preloading (FS-2715). Naming the family here is what re-attaches it: the
+   uprights on `--font-sans` no longer carry an italic `src`, so without this rule `font-style:
+   italic` plus `font-synthesis: none` below would render `<em>` upright. Kept to the elements the
+   browser italicises by default, plus Tailwind's `italic` utility, which sets `font-style` and
+   would otherwise hit the same wall. */
+em,
+i,
+cite,
+dfn,
+var,
+address,
+.italic {
+  font-family: var(--font-sans-italic), var(--font-sans);
+}
+
 body {
   font-synthesis: none;
   text-rendering: optimizeLegibility;
