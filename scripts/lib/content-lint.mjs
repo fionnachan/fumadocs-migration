@@ -38,14 +38,15 @@
  *
  *   A8  A link inside a heading. Fumadocs wraps every heading's content in its own `<a href="#slug">`
  *       anchor, so a heading that already contains a link renders `<a><a>…</a></a>`, which no HTML
- *       parser can represent. Covers a markdown inline link, a bare URL (GFM autolinks those), and a
- *       raw `<a>` element. A markdown *image* in a heading is fine and is not flagged: `<img>` nests
- *       inside an anchor legally.
+ *       parser can represent. Covers a markdown inline link, a reference link (`[text][ref]` and
+ *       `[text][]`), a bare URL or angle autolink (GFM anchors both), and a raw `<a>` element. A
+ *       markdown *image* in a heading is fine and is not flagged: `<img>` nests inside an anchor
+ *       legally, and nor is `[#custom-id]`, which is how a heading pins its slug.
  *   A9  A hand-written `<p>` whose children start on the next line. MDX parses a JSX element's
  *       children as *flow* content when they are on their own lines, so remark wraps the prose in a
  *       paragraph of its own and the element becomes `<p><p>…</p></p>`. Written inline
  *       (`<p>text</p>`) the children are phrasing content, remark adds nothing, and one paragraph is
- *       rendered — verified in the built HTML, so that form is not flagged. The generated precompile
+ *       rendered, verified in the built HTML, so that form is not flagged. The generated precompile
  *       partials use it (`content/partials/precompile-tables/_ArbAggregator.mdx`), and flagging it
  *       would make this rule demand an edit to a do-not-edit file for markup that renders correctly.
  *   A10 A `<tr>` sitting directly inside a `<table>`. The parser inserts the `<tbody>` the source
@@ -170,26 +171,37 @@ export function lintSource(source) {
     }
   }
 
-  // A8 — a link inside an ATX heading, which Fumadocs renders as an anchor inside its own anchor.
+  // A8: a link inside an ATX heading, which Fumadocs renders as an anchor inside its own anchor.
   //
   // Read the heading from the code-stripped text, so a heading shown inside a fence is skipped and
   // an inline code span in the heading (`### `https://x``) cannot be mistaken for an autolink.
+  //
+  // When a heading's slug is load-bearing, the escape hatch is Fumadocs' `[#custom-id]` syntax:
+  // drop the link, then pin the old anchor with `## Heading text [#old-slug]`. That form is a lone
+  // bracket pair, so no probe below fires on it, and there is a test pinning that.
+  //
+  // Known gap: a *shortcut* reference link (`[ref]` with its definition elsewhere in the file) is
+  // character-for-character the shape of `[#custom-id]` and cannot be told apart without resolving
+  // definitions, so it is not probed. The full and collapsed forms (`[text][ref]`, `[text][]`) are.
   for (const m of text.matchAll(/^#{1,6}[ \t]+([^\n]*)$/gm)) {
     const heading = m[1];
     const problems = [];
 
-    // An inline link, but not an image: `<img>` nests inside an anchor legally. The alternation in
-    // the label allows one level of nested brackets, which is what `[`#[storage]`](…)` needs.
-    if (/(?<!!)\[(?:[^[\]]|\[[^[\]]*\])*\]\([^)]*\)/.test(heading)) {
+    // An inline or reference link, but not an image: `<img>` nests inside an anchor legally. The
+    // alternation in the label allows one level of nested brackets, which is what
+    // `[`#[storage]`](…)` needs.
+    if (/(?<!!)\[(?:[^[\]]|\[[^[\]]*\])*\](?:\([^)]*\)|\[[^[\]]*\])/.test(heading)) {
       problems.push('a markdown link');
     }
     if (/<a[\s>]/i.test(heading)) problems.push('an <a> element');
 
     // Whatever is left once every link (and its destination) is removed. GFM turns a bare URL in
-    // text into an anchor, so it nests exactly the same way a written-out link does.
+    // text into an anchor, so it nests exactly the same way a written-out link does. The tag strip
+    // requires a real element name (letters, then an attribute list or the closer), so an angle
+    // autolink such as `<https://x>` is not mistaken for a tag and erased: its `:` ends the name.
     const withoutLinks = heading
-      .replace(/!?\[(?:[^[\]]|\[[^[\]]*\])*\]\([^)]*\)/g, ' ')
-      .replace(/<[^>]*>/g, ' ');
+      .replace(/!?\[(?:[^[\]]|\[[^[\]]*\])*\](?:\([^)]*\)|\[[^[\]]*\])/g, ' ')
+      .replace(/<\/?[A-Za-z][A-Za-z0-9.-]*(?:\s[^>]*)?\/?>/g, ' ');
     if (/(?:https?:\/\/|\bwww\.)\S/i.test(withoutLinks)) problems.push('a bare URL');
 
     if (problems.length) {
@@ -201,7 +213,7 @@ export function lintSource(source) {
     }
   }
 
-  // A9 — a hand-written <p> whose opening tag ends its line, so its children are flow content and
+  // A9: a hand-written <p> whose opening tag ends its line, so its children are flow content and
   // remark wraps them in a paragraph of its own. See the header comment for why the inline form
   // (`<p>text</p>`) is left alone.
   for (const m of text.matchAll(/<p\b[^>]*>[ \t]*(?=\r?\n)/g)) {
@@ -212,7 +224,7 @@ export function lintSource(source) {
     );
   }
 
-  // A10 — a <tr> that is a direct child of <table>, with no <thead>/<tbody>/<tfoot> between them.
+  // A10: a <tr> that is a direct child of <table>, with no <thead>/<tbody>/<tfoot> between them.
   // Tracked with a depth counter rather than a regex, because the sections may appear in any order
   // and a table may hold several of them.
   for (const table of text.matchAll(/<table[\s>][\s\S]*?<\/table>/g)) {

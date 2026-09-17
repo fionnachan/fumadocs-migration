@@ -292,7 +292,7 @@ test('lintContent({ files }) lints only the given files, not the whole tree', ()
 });
 
 // ---------------------------------------------------------------------------
-// A8, A9, A10 — HTML the browser's parser has to restructure, which makes the
+// A8, A9, A10: HTML the browser's parser has to restructure, which makes the
 // hydrated client tree differ from the server tree (React error #418, FS-2714).
 // ---------------------------------------------------------------------------
 
@@ -329,6 +329,23 @@ test('A8 fires on a raw <a> element in a heading', () => {
   assert.ok(found.some((f) => f.rule === 'A8' && /<a> element/.test(f.message)));
 });
 
+test('A8 fires on an angle autolink in a heading', () => {
+  const found = lintSource('## See <https://example.com>\n');
+  assert.deepEqual(
+    found.map((f) => f.rule),
+    ['A8'],
+  );
+  assert.match(found[0].message, /bare URL/);
+});
+
+test('A8 fires on a reference-style link in a heading', () => {
+  assert.deepEqual(rules('## See [the docs][ref]\n\n[ref]: https://example.com\n'), ['A8']);
+});
+
+test('A8 fires on a collapsed reference link in a heading', () => {
+  assert.deepEqual(rules('## See [the docs][]\n\n[the docs]: https://example.com\n'), ['A8']);
+});
+
 test('A8 does NOT fire on a plain heading, or on a link in body prose', () => {
   assert.deepEqual(rules('## Plain heading\n\nBody with a [link](https://example.com).\n'), []);
 });
@@ -341,8 +358,15 @@ test('A8 does NOT fire on a heading shown inside a fenced code block', () => {
   assert.deepEqual(rules('```md\n### [text](https://example.com)\n```\n'), []);
 });
 
-test('A8 does NOT fire on an image in a heading — <img> nests inside an anchor legally', () => {
+test('A8 does NOT fire on an image in a heading, since <img> nests inside an anchor legally', () => {
   assert.deepEqual(rules('## ![logo](/img/logo.png)\n'), []);
+});
+
+// Fumadocs' `[#custom-id]` pins a heading's slug and is the escape hatch when a slug is
+// load-bearing, so A8 has to stay silent on it. It is a lone bracket pair, which is also the
+// shape of a shortcut reference link, which is why that one form is out of A8's reach.
+test('A8 does NOT fire on a [#custom-id] slug override', () => {
+  assert.deepEqual(rules('## Heading text [#custom-id]\n'), []);
 });
 
 test('A9 fires on a <p> whose children start on the next line', () => {
