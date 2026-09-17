@@ -28,6 +28,31 @@
  *       syntax, and `check-links` walks MDX links, not component props. A dead `src` here renders a
  *       broken `<img>` and every gate stays green (FS-2700). Restricted to common image extensions
  *       so a `src` pointing at a route rather than an asset is never mistaken for a missing file.
+ *
+ * A8, A9 and A10 are one family: HTML the browser's parser has to restructure before it can build a
+ * tree. React then hydrates a client tree that does not match the server tree, throws error #418, and
+ * discards and re-renders the whole subtree. Eighteen of 350 routes did this and every gate stayed
+ * green, because each page still returns HTTP 200 and compiles (FS-2714). They are three ids rather
+ * than one because the report groups by id and each shape has its own fix; a single "invalid nesting"
+ * id would print one count covering three unrelated edits.
+ *
+ *   A8  A link inside a heading. Fumadocs wraps every heading's content in its own `<a href="#slug">`
+ *       anchor, so a heading that already contains a link renders `<a><a>…</a></a>`, which no HTML
+ *       parser can represent. Covers a markdown inline link, a reference link (`[text][ref]` and
+ *       `[text][]`), a bare URL or angle autolink (GFM anchors both), and a raw `<a>` element. A
+ *       markdown *image* in a heading is fine and is not flagged: `<img>` nests inside an anchor
+ *       legally, and nor is `[#custom-id]`, which is how a heading pins its slug.
+ *   A9  A hand-written `<p>` whose children start on the next line. MDX parses a JSX element's
+ *       children as *flow* content when they are on their own lines, so remark wraps the prose in a
+ *       paragraph of its own and the element becomes `<p><p>…</p></p>`. Written inline
+ *       (`<p>text</p>`) the children are phrasing content, remark adds nothing, and one paragraph is
+ *       rendered, verified in the built HTML, so that form is not flagged. The generated precompile
+ *       partials use it (`content/partials/precompile-tables/_ArbAggregator.mdx`), and flagging it
+ *       would make this rule demand an edit to a generated file (written by
+ *       generate-precompile-tables.mjs from fetched sources) for markup that renders correctly.
+ *   A10 A `<tr>` sitting directly inside a `<table>`. The parser inserts the `<tbody>` the source
+ *       omitted, so the client tree gains an element the server tree does not have. Put every row in
+ *       a `<thead>`, `<tbody>` or `<tfoot>`.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -144,6 +169,80 @@ export function lintSource(source) {
         m.index + vm.index,
         '<Var> inside an inline code span renders as a literal tag, not its value',
       );
+    }
+  }
+
+  // A8: a link inside an ATX heading, which Fumadocs renders as an anchor inside its own anchor.
+  //
+  // Read the heading from the code-stripped text, so a heading shown inside a fence is skipped and
+  // an inline code span in the heading (`### `https://x``) cannot be mistaken for an autolink.
+  //
+  // When a heading's slug is load-bearing, the escape hatch is Fumadocs' `[#custom-id]` syntax:
+  // drop the link, then pin the old anchor with `## Heading text [#old-slug]`. That form is a lone
+  // bracket pair, so no probe below fires on it, and there is a test pinning that.
+  //
+  // Known gap: a *shortcut* reference link (`[ref]` with its definition elsewhere in the file) is
+  // character-for-character the shape of `[#custom-id]` and cannot be told apart without resolving
+  // definitions, so it is not probed. The full and collapsed forms (`[text][ref]`, `[text][]`) are.
+  for (const m of text.matchAll(/^#{1,6}[ \t]+([^\n]*)$/gm)) {
+    const heading = m[1];
+    const problems = [];
+
+    // An inline or reference link, but not an image: `<img>` nests inside an anchor legally. The
+    // alternation in the label allows one level of nested brackets, which is what
+    // `[`#[storage]`](…)` needs.
+    if (/(?<!!)\[(?:[^[\]]|\[[^[\]]*\])*\](?:\([^)]*\)|\[[^[\]]*\])/.test(heading)) {
+      problems.push('a markdown link');
+    }
+    if (/<a[\s>]/i.test(heading)) problems.push('an <a> element');
+
+    // Whatever is left once every link (and its destination) is removed. GFM turns a bare URL in
+    // text into an anchor, so it nests exactly the same way a written-out link does. The tag strip
+    // requires a real element name (letters, then an attribute list or the closer), so an angle
+    // autolink such as `<https://x>` is not mistaken for a tag and erased: its `:` ends the name.
+    const withoutLinks = heading
+      .replace(/!?\[(?:[^[\]]|\[[^[\]]*\])*\](?:\([^)]*\)|\[[^[\]]*\])/g, ' ')
+      .replace(/<\/?[A-Za-z][A-Za-z0-9.-]*(?:\s[^>]*)?\/?>/g, ' ');
+    if (/(?:https?:\/\/|\bwww\.)\S/i.test(withoutLinks)) problems.push('a bare URL');
+
+    if (problems.length) {
+      add(
+        'A8',
+        m.index,
+        `heading contains ${problems.join(' + ')}; Fumadocs wraps heading content in its own anchor, so this nests <a> inside <a>`,
+      );
+    }
+  }
+
+  // A9: a hand-written <p> whose opening tag ends its line, so its children are flow content and
+  // remark wraps them in a paragraph of its own. See the header comment for why the inline form
+  // (`<p>text</p>`) is left alone.
+  for (const m of text.matchAll(/<p\b[^>]*>[ \t]*(?=\r?\n)/g)) {
+    add(
+      'A9',
+      m.index,
+      'hand-written <p> around block content; markdown wraps that prose in a paragraph already, so this renders <p> inside <p>',
+    );
+  }
+
+  // A10: a <tr> that is a direct child of <table>, with no <thead>/<tbody>/<tfoot> between them.
+  // Tracked with a depth counter rather than a regex, because the sections may appear in any order
+  // and a table may hold several of them.
+  for (const table of text.matchAll(/<table[\s>][\s\S]*?<\/table>/g)) {
+    let depth = 0;
+    for (const tok of table[0].matchAll(/<(\/?)(thead|tbody|tfoot|tr)\b/gi)) {
+      const [, closing, name] = tok;
+      if (name.toLowerCase() === 'tr') {
+        if (depth === 0 && !closing) {
+          add(
+            'A10',
+            table.index + tok.index,
+            '<tr> is a direct child of <table>; the browser inserts the missing <tbody>, so put every row in a <thead>, <tbody> or <tfoot>',
+          );
+        }
+        continue;
+      }
+      depth += closing ? -1 : 1;
     }
   }
 

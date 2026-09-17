@@ -118,18 +118,18 @@ pnpm references:check  # glossary ids + <Reference> targets
 pnpm check-links       # broken internal doc links and MDX fragments
 ```
 
-These seven are exactly what `.github/workflows/ci.yml`'s blocking `Gates` job runs (it also runs
-`versioned-docs-check.mjs`, which only matters if you touched `content/_versions/`). A green PR
+These seven are the ones a content change usually trips. `.github/workflows/ci.yml`'s blocking
+`Gates` job runs them alongside `versioned-docs-check.mjs`, `faq:check`, `images:presence`,
+`contracts:check`, `format:check` and `content:lint`. A green PR
 does not by itself mean the content renders correctly: `types:check` proves the frontmatter
 schema, not the render — it exits 0 on a page that serves a literal `:::` or the string
 `undefined`. **Always open a changed page on `http://localhost:3000` and confirm it looks right**,
 in light and dark mode if you touched styling.
 
-Two more checks report in CI without blocking merges yet — `pnpm format:check` and
-`pnpm content:lint` — because both still fail on pre-existing debt elsewhere in the repo. Run
-`pnpm format` on the files you touched and `pnpm content:lint` over the tree anyway, and read past
-the pre-existing findings to check you didn't add one; don't grow the backlog even though CI won't
-stop you.
+Two of those, `pnpm format:check` and `pnpm content:lint`, reported without blocking while they
+still failed on pre-existing debt. Both reached zero on 2026-09-15 and moved into `Gates`, so a
+finding in either now means your change introduced it. Run `pnpm format` on the files you touched
+and `pnpm content:lint` over the tree before you push.
 
 ## Document type conventions
 
@@ -167,6 +167,12 @@ predates them and gets brought up to spec incrementally, not all at once.
    task completion — don't bury the point.
 6. **American English, plain language, short sentences.** Address the reader as "you"; contractions
    are fine; avoid jargon your target reader won't recognize.
+7. **Never put a link in a heading.** Fumadocs wraps every heading in its own anchor, so a link
+   inside one renders an anchor inside an anchor and breaks React hydration on the page. Keep the
+   heading as plain text and put the link in the prose under it. `pnpm content:lint` rule A8 is a
+   blocking gate on this, alongside A9 (a hand-written `<p>` around block content) and A10 (a `<tr>`
+   outside a `<thead>`/`<tbody>`); see
+   [The content-lint rules](INTERNALS.md#the-content-lint-rules).
 
 The long version lives in [STYLE-GUIDE.md](STYLE-GUIDE.md), at the root of this repo: the
 plain-language rules in testable form, the words and phrases to replace or cut, the
