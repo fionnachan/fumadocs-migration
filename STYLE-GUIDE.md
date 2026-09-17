@@ -146,10 +146,10 @@ One spelling, one capitalization, across the whole site.
 **The Sequencer Coordination Manager row is unsettled, so do not act on it yet.** The Correct column
 records upstream's wording verbatim, `(SQM)` included, which is upstream's initialism and not an
 abbreviation of either expansion. Measured over `content/docs`, this repo's own pages say
-"Coordinator Manager" 18 times against "Coordination Manager" 3 times, one page is filed at
-`run-sequencer-coordination-manager.mdx` while its own title says Coordinator, and Nitro's flag
-family is `node.seq-coordinator.*`. Naming the tool is the docs owner's call and was requested in
-FS-2708, so leave both spellings alone until it lands.
+"Coordinator Manager" 18 times (15 capitalized, 3 lowercase) against "Coordination Manager" 3
+times, one page is filed at `run-sequencer-coordination-manager.mdx` while its own title says
+Coordinator, and Nitro's flag family is `node.seq-coordinator.*`. Naming the tool is the docs
+owner's call and was requested in FS-2708, so leave both spellings alone until it lands.
 
 ## What is not here
 
