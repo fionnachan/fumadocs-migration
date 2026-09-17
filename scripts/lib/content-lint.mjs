@@ -48,7 +48,8 @@
  *       (`<p>text</p>`) the children are phrasing content, remark adds nothing, and one paragraph is
  *       rendered, verified in the built HTML, so that form is not flagged. The generated precompile
  *       partials use it (`content/partials/precompile-tables/_ArbAggregator.mdx`), and flagging it
- *       would make this rule demand an edit to a do-not-edit file for markup that renders correctly.
+ *       would make this rule demand an edit to a generated file (written by
+ *       generate-precompile-tables.mjs from fetched sources) for markup that renders correctly.
  *   A10 A `<tr>` sitting directly inside a `<table>`. The parser inserts the `<tbody>` the source
  *       omitted, so the client tree gains an element the server tree does not have. Put every row in
  *       a `<thead>`, `<tbody>` or `<tfoot>`.

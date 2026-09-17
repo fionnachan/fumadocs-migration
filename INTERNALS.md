@@ -1350,12 +1350,14 @@ reader sees a flash and loses any client state in it.
   heading's slug untouched. Where a slug is load-bearing and the heading has to change anyway,
   `## Heading text [#old-slug]` keeps the old anchor. One shape stays out of reach: a shortcut
   reference link (`[ref]` alone) is indistinguishable from `[#custom-id]` without resolving link
-  definitions, and the tree holds no link definitions at all.
+  definitions. The tree holds one link definition today, an image reference in
+  `third-party-docs/Circle/usdc-paymaster-quickstart.mdx`, used in body prose and never in a heading.
 - **`A9`, a hand-written `<p>` around block content.** MDX parses a JSX element's children as flow
   content when they start on their own line, so remark wraps the prose in a paragraph and the
   element becomes `<p><p>…</p></p>`. Written inline, `<p>text</p>` renders one paragraph and is not
   flagged; the generated precompile partials use that form, and a rule that flagged it would demand
-  an edit to a do-not-edit file for markup that renders correctly.
+  an edit to a generated file (`generate-precompile-tables.mjs` writes them from fetched Solidity
+  sources) for markup that renders correctly.
 - **`A10`, a `<tr>` directly inside a `<table>`.** The parser inserts the `<tbody>` the source
   omitted, so the client tree gains an element the server tree does not have. Put every row inside a
   `<thead>`, `<tbody>` or `<tfoot>`. A raw table is still the right choice when it needs the
