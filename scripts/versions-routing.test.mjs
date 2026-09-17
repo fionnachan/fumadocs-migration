@@ -19,7 +19,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { archiveParams, isArchiveId } from '../lib/versions-constants.ts';
+import { archiveParams, isArchiveId, versionSources } from '../lib/versions-constants.ts';
 import {
   ARCHIVE_ROOT,
   DOCS_ROOT,
@@ -38,6 +38,24 @@ test('only registered archive ids are accepted by the legacy redirect', () => {
   for (const slug of ['missing', 'constructor', '__proto__', 'toString']) {
     assert.equal(isArchiveId(slug, 'v1'), false);
   }
+});
+
+/**
+ * The registry is a plain object literal and slugs come off the URL, so an `Object.prototype` key
+ * is a request anyone can send. Every registry lookup goes through `versionSources` for this
+ * reason: a plain `VERSIONED[slug]` answers `constructor` with a function, and the caller's
+ * `?.find`/`?.some`/`.map` then throws instead of short-circuiting, which is an unhandled HTTP 500
+ * where the answer is a 404 (`/docs/constructor/v1.md` and six sibling shapes, FS-2711 round 1).
+ * `getArchive` and `getVersions` in `lib/versions.ts` are the callers this pins; they cannot be
+ * imported under `node --test` themselves, because that module resolves `collections/server`
+ * through a tsconfig path alias.
+ */
+test('prototype keys are not registry entries', () => {
+  for (const slug of ['constructor', '__proto__', 'toString', 'valueOf', 'hasOwnProperty']) {
+    assert.equal(versionSources(slug), undefined, slug);
+  }
+  assert.equal(versionSources('missing'), undefined);
+  assert.ok(Array.isArray(versionSources('run-a-node/start-here')));
 });
 
 test('static params enumerate every archive without Latest or duplicate paths', () => {

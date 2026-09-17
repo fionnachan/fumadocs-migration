@@ -16,16 +16,21 @@ import { Feedback } from '@/components/feedback/client';
 import { getMDXComponents } from '@/components/mdx';
 import { onPageFeedbackAction } from '@/lib/posthog';
 import { getSiteUrl, gitConfig, socialHandle } from '@/lib/shared';
-import { getPageImage, getPageMarkdownUrl, source } from '@/lib/source';
+import {
+  getArchiveMarkdownUrl,
+  getPageImage,
+  getPageMarkdownUrl,
+  resolveDocsPath,
+  source,
+} from '@/lib/source';
 import {
   LATEST_ID,
   archiveParams,
   archiveRepoPath,
   canonicalSlug,
   getVersions,
-  resolveArchiveSlug,
 } from '@/lib/versions';
-import type { VersionedEntry } from '@/lib/versions';
+import type { ResolvedArchive } from '@/lib/versions';
 
 /**
  * "September 11, 2026", matching upstream Docusaurus' `showLastUpdateTime` rendering.
@@ -51,19 +56,18 @@ interface ResolvedRequest {
   /** Always the live page: the archive borrows its URL, its OG image and its relative-link base. */
   page: (typeof source)['$inferPage'];
   /** The archived version to render in the live page's place, or `undefined` for Latest. */
-  archive: VersionedEntry | undefined;
+  archive: ResolvedArchive | undefined;
   /** Version dropdown options, or `undefined` when the page is not versioned. */
   versions: ReturnType<typeof getVersions>;
   currentVersionId: string;
 }
 
 /**
- * Resolve a `/docs/**` path to the page to render, and to the archived version when the last
- * segment names one (`/docs/run-a-node/start-here/v1`).
+ * Resolve a `/docs/**` path to the page to render, to the archived version when the last segment
+ * names one (`/docs/run-a-node/start-here/v1`), and to the version dropdown around either.
  *
- * **A real page always wins.** `/docs/a/b` is only reinterpreted as archive `b` of page `a` when no
- * page exists at `a/b`, so an archive id can never shadow a child page; the collision is separately
- * asserted away in `scripts/versions-routing.test.mjs`.
+ * The page-or-archive half is `resolveDocsPath` in `lib/source.ts`, shared with the markdown route
+ * so the two cannot disagree about what a path means. Everything added here is display state.
  *
  * Returns `undefined` for a path that is neither, which only `notFound()` can answer. With
  * `dynamicParams = false` that is unreachable from a request (an unknown slug still matches this
@@ -71,27 +75,16 @@ interface ResolvedRequest {
  * practice it fires only at build time, for a `VERSIONED` key naming a page that no longer exists.
  */
 function resolveRequest(slug: string[] | undefined): ResolvedRequest | undefined {
-  const page = source.getPage(slug);
-  if (page) {
-    return {
-      page,
-      archive: undefined,
-      versions: getVersions(canonicalSlug(slug)),
-      currentVersionId: LATEST_ID,
-    };
-  }
-
-  const resolved = resolveArchiveSlug(slug);
+  const resolved = resolveDocsPath(slug);
   if (!resolved) return undefined;
 
-  const livePage = source.getPage(resolved.pageSlug);
-  if (!livePage) return undefined;
+  const { page, archive } = resolved;
 
   return {
-    page: livePage,
-    archive: resolved.entry,
-    versions: getVersions(canonicalSlug(resolved.pageSlug)),
-    currentVersionId: resolved.id,
+    page,
+    archive,
+    versions: getVersions(canonicalSlug(archive ? archive.pageSlug : slug)),
+    currentVersionId: archive ? archive.id : LATEST_ID,
   };
 }
 
@@ -102,19 +95,22 @@ export default async function Page({ params }: { params: Promise<{ slug?: string
 
   const { page, archive, versions, currentVersionId } = resolved;
 
-  const MDX = archive ? archive.body : page.data.body;
-  const title = archive ? archive.title : page.data.title;
-  const description = archive ? archive.description : page.data.description;
-  const toc = archive ? archive.toc : page.data.toc;
+  const MDX = archive ? archive.entry.body : page.data.body;
+  const title = archive ? archive.entry.title : page.data.title;
+  const description = archive ? archive.entry.description : page.data.description;
+  const toc = archive ? archive.entry.toc : page.data.toc;
   // An archived version carries the archive file's own date. `undefined` (a checkout without full
   // git history, see `hasFullGitHistory` in source.config.ts) renders no line at all rather than
   // a wrong one.
-  const lastModified = archive ? archive.lastModified : page.data.lastModified;
-  // Archives have no markdown mirror; never offer the live page's text as the archived body.
-  const markdownUrl = archive ? undefined : getPageMarkdownUrl(page).url;
+  const lastModified = archive ? archive.entry.lastModified : page.data.lastModified;
+  // Copy and "view as markdown" point at the version on screen. An archive has its own mirror
+  // (FS-2711); offering the live page's text under an archive URL is the mistake `?v=` used to make.
+  const markdownUrl = archive
+    ? getArchiveMarkdownUrl(page, archive.id).url
+    : getPageMarkdownUrl(page).url;
   // For an archived version, point the "edit" link at the archive file (whose repo-relative path
   // depends on the storage strategy, so it comes from lib/versions.ts) rather than the live page.
-  const repoPath = archive ? archiveRepoPath(archive) : `content/docs/${page.path}`;
+  const repoPath = archive ? archiveRepoPath(archive.entry) : `content/docs/${page.path}`;
 
   return (
     // Tighter content gutters. Fumadocs' notebook Container puts
@@ -132,7 +128,7 @@ export default async function Page({ params }: { params: Promise<{ slug?: string
         </p>
       ) : null}
       <div className="flex flex-row flex-wrap gap-2 items-center border-b pb-6">
-        {markdownUrl ? <MarkdownCopyButton markdownUrl={markdownUrl} /> : null}
+        <MarkdownCopyButton markdownUrl={markdownUrl} />
         <ViewOptionsPopover
           markdownUrl={markdownUrl}
           githubUrl={`https://github.com/${gitConfig.user}/${gitConfig.repo}/blob/${gitConfig.branch}/${repoPath}`}
@@ -195,8 +191,8 @@ export async function generateMetadata({
   if (!resolved) notFound();
 
   const { page, archive } = resolved;
-  const title = archive ? archive.title : page.data.title;
-  const description = archive ? archive.description : page.data.description;
+  const title = archive ? archive.entry.title : page.data.title;
+  const description = archive ? archive.entry.description : page.data.description;
   const image = getPageImage(page).url;
 
   return {

@@ -126,6 +126,14 @@ export const docsVersions = defineCollections({
   dir: 'content/_versions',
   files: ['**/*.mdx'],
   schema: arbitrumPageSchema,
+  postprocess: {
+    // The same flag the `docs` collection sets, and it has to be set twice: the option is per
+    // collection, so that one covers live pages only. It is what makes `getText('processed')`
+    // resolve on an archive, which is how an archive gets the markdown mirror every live page has
+    // (`/docs/<slug>/<id>.md` and the two other shapes, FS-2711). Drop it and those URLs fail at
+    // request time, a long way from here.
+    includeProcessedMarkdown: true,
+  },
   // An archived page carries its own date: the last time the archive file itself changed, not the
   // live page's. Same guard as the docs collection.
   lastModified,

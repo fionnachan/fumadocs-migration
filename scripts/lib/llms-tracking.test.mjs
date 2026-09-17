@@ -203,6 +203,22 @@ test('pathInfo: all three request shapes for one page agree on the tracked path'
   assert.equal(negotiated.trackedPath, direct.trackedPath);
 });
 
+test('pathInfo: all three archive shapes agree, and differ from the live page', () => {
+  // Archives are `/docs/<slug>/<id>` (FS-2698) and have their own markdown mirror (FS-2711). No
+  // branch in `pathInfo` knows that: the version id is just another path segment, so the three
+  // shapes normalise through the same rules the live ones do. This pins that, because the
+  // alternative (an archive read recorded under the live page's path) is invisible in PostHog.
+  const archive = '/docs/run-a-node/start-here/v1.md';
+  const direct = pathInfo(archive, '');
+  const mirror = pathInfo('/llms.mdx/docs/run-a-node/start-here/v1/content.md', '');
+  const negotiated = pathInfo('/docs/run-a-node/start-here/v1', 'text/markdown');
+
+  assert.deepEqual(direct, { kind: 'markdown-direct', trackedPath: archive, fileType: 'page' });
+  assert.equal(mirror.trackedPath, archive);
+  assert.equal(negotiated.trackedPath, archive);
+  assert.notEqual(archive, pathInfo('/docs/run-a-node/start-here.md', '').trackedPath);
+});
+
 // --- pathInfo: Accept negotiation --------------------------------------------------------------
 
 test('pathInfo: a clean /docs URL with Accept text/markdown is a negotiation', () => {

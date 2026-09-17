@@ -628,13 +628,22 @@ Single locale, no i18n. Pages live directly under `content/docs/…` and serve a
 no `[lang]` route segment and no locale middleware; `lib/i18n.ts` was deleted on 2026-08-18 along
 with the `ja` and `zh-CN` trees.
 
-`proxy.ts` does exactly three things:
+`proxy.ts` does exactly four things, in this order:
 
-1. **Request tracking** for markdown and `llms*.txt` fetches, production only (below).
-2. An explicit **bypass list** of routes served verbatim: `/_next/`, `/img/`, `/favicon.ico`,
+1. A 308 for the **legacy `?v=<id>`** archive selector, onto the path form FS-2698 introduced
+   (`/docs/<slug>/<id>`, and `/docs/<slug>/<id>.md` when the request carried the markdown suffix).
+   An id naming no registered archive has the param dropped and nothing else, because the contract
+   has always been that an unknown version falls back to Latest, and `dynamicParams = false` would
+   now 404 it. This runs **before** tracking, deliberately: a 308 delivers no markdown, the
+   reader's follow-up request is counted on its own, and counting the hop would file an archive
+   read under the live page's path.
+2. **Request tracking** for markdown and `llms*.txt` fetches, production only (below).
+3. An explicit **bypass list** of routes served verbatim: `/_next/`, `/img/`, `/favicon.ico`,
    `/icon.png`, `/apple-icon.png`, `/nitro-whitepaper.pdf`, `/audit-reports/`, `/data/`,
    `/.well-known/`, `/sitemap.xml`, `/robots.txt`, `/llms*`, `/og/`, `/api/`.
-3. `.md`-suffix rewrites plus `Accept: text/markdown` content negotiation to the markdown route.
+4. `.md`-suffix rewrites plus `Accept: text/markdown` content negotiation to the markdown route.
+   Both patterns are written over the whole path under `/docs`, which is why an archive needs no
+   rewrite of its own (see [Partial versioning](#partial-versioning)).
 
 **A new top-level route belongs in that bypass list**, or markdown negotiation will try to rewrite
 it. `proxy.ts` exports no `config.matcher`, and Next's proxy reference is explicit that without one
@@ -680,7 +689,8 @@ upstream's `middleware.ts` produced. The point is to answer "which pages are AI 
 crawlers actually reading", which server logs alone do not.
 
 **It runs before the bypass list**, because `/llms.txt`, `/llms-full.txt` and the `/llms.mdx/`
-mirrors are all in that list and are exactly the fetches worth counting.
+mirrors are all in that list and are exactly the fetches worth counting. It runs **after** the
+legacy `?v=` redirect, for the opposite reason: that branch answers with a 308 and no body.
 
 Four request shapes are tracked, and the classification lives in `lib/llms-tracking.ts`:
 
@@ -693,9 +703,16 @@ Four request shapes are tracked, and the classification lives in `lib/llms-track
 
 All three markdown shapes normalise to the one canonical `.md` path, so a page's fetches are one
 number rather than three. **Each request is counted once:** a Next rewrite does not re-enter the
-proxy, so `/docs/x.md` fires one event, not a second one for the mirror it rewrites to. A `.md` on
-a legacy URL is not tracked either, because it is answered with a 307 and the destination request
-is tracked instead.
+proxy, so `/docs/x.md` fires one event, not a second one for the mirror it rewrites to. Neither a
+`.md` on a legacy URL nor a legacy `?v=` link is tracked, because both are answered with a redirect
+and the destination request is tracked instead.
+
+**Archives need no rule of their own.** An archived version is `/docs/<slug>/<id>`, so its three
+markdown shapes are the rows above with the version id inside the slug, and they normalise through
+the same code to `/docs/<slug>/<id>.md`. That is a different series from the live page's
+`/docs/<slug>.md`, which is the point: "who is reading the ArbOS 20 archive" is a question worth
+being able to answer. `scripts/lib/llms-tracking.test.mjs` pins it, since nothing in
+`lib/llms-tracking.ts` mentions versions and the behaviour is therefore easy to lose.
 
 Two upstream rules are dropped: the `/sdk/` exclusion (there is no `/sdk` route here) and tracking
 of `.md` outside the docs tree.
@@ -810,7 +827,56 @@ is cheap to state and hard to break from a distance.
 
 Archived pages live in `content/_versions/<id>/…` — a separate, non-routed collection, outside
 `content/docs` for the same reason partials are. `lib/versions.ts` indexes them by path. Only
-hand-registered pages are versioned.
+hand-registered pages are versioned, in the `VERSIONED` registry in `lib/versions-constants.ts`.
+
+An archive is served at `/docs/<slug>/<id>` (FS-2698 moved it off `?v=<id>`, which made every docs
+page dynamic). `lib/source.ts` `resolveDocsPath()` reads that path, **page first**: `/docs/a/b` is
+only reinterpreted as archive `b` of page `a` when no page exists at `a/b`, so an archive id can
+never shadow a child page. `scripts/versions-routing.test.mjs` separately asserts that no such
+collision exists, so creating one is a reviewed act.
+
+### The archive's markdown mirror
+
+An archive answers the same three markdown shapes a live page does (FS-2711):
+
+| Request                                          | Serves                            |
+| ------------------------------------------------ | --------------------------------- |
+| `/llms.mdx/docs/<slug>/<id>/content.md`          | the archive's processed markdown  |
+| `/docs/<slug>/<id>.md`                           | the same, via the suffix rewrite  |
+| `/docs/<slug>/<id>` with `Accept: text/markdown` | the same, via content negotiation |
+
+**None of that is a new URL family.** Both rewrites in `proxy.ts` are written over the whole path
+under `/docs`, so they already mapped an archive path onto `/llms.mdx/docs/<slug>/<id>/content.md`;
+what was missing was a route handler that resolved it, which is why the three shapes 404ed rather
+than serving the wrong version. The handler now shares `resolveDocsPath()` with the docs page, so
+the two cannot disagree about what a path means, and its `generateStaticParams` prerenders the
+three archive mirrors alongside the live ones (1060 prerendered routes, up from 1057).
+
+One shape changed as a side effect. The handler now carries `dynamicParams = false`, so a markdown
+request for a slug outside the generated set (`/docs/nope.md`, `/llms.mdx/docs/nope/content.md`, or
+`Accept: text/markdown` on `/docs/nope`) is answered the way `/docs/nope` is: the 82 KB HTML
+`app/not-found.tsx` body with status 404 and `no-store`, where the base sent an empty body with
+`s-maxage=31536000`. A markdown client gets HTML on a miss and misses are no longer edge-cacheable;
+no consumer here ever requests a miss, so it is recorded rather than worked around.
+
+Three things this must keep getting right:
+
+- **`postprocess.includeProcessedMarkdown` is per collection.** The `docsVersions` collection sets
+  it separately from `docs`; without it `getText('processed')` rejects and the archive mirrors fail
+  at request time, a long way from `source.config.ts`.
+- **An archive is `noindex` with a canonical to the live page.** The HTML carries both tags. A
+  markdown body can carry neither, so the mirror sends `X-Robots-Tag: noindex, follow` instead.
+  Live markdown sends no such header.
+- **Archives stay out of discovery.** `llms.txt`, `llms-full.txt`, the sitemap and `og/` all derive
+  from `source.getPages()`, which never sees the `docsVersions` collection, so this holds by
+  construction rather than by exclusion. `scripts/static-docs-http.test.mjs` asserts it against the
+  built site anyway, because "by construction" is exactly the kind of claim that quietly stops
+  being true.
+
+The page's own copy and view-as-markdown controls point at whichever version is on screen. Serving
+Latest's text under an archive URL is the specific mistake this closes: `/docs/<slug>.md?v=v1` did
+it silently before FS-2698, and answering 404 afterwards was a deliberate stopgap rather than an
+end state.
 
 **An archive is a path, not a query parameter.** FS-2698 moved the selector from
 `/docs/<slug>?v=<id>` to `/docs/<slug>/<id>`, which is what lets the docs route prerender at all
