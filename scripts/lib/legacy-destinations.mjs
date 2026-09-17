@@ -5,11 +5,10 @@
  * Both maps are hand-written overlays from a legacy docs.arbitrum.io URL to a page on this site.
  * Their *values* are site URLs (`/docs/...`, optionally with an `#anchor`) that `move-doc` otherwise
  * has no idea exist, so moving one of those pages leaves a legacy URL pointing at a 404.
- * `scripts/generate-legacy-redirects.test.mjs` catches it ("every hand-written destination still
- * names a live page in the content tree"), but only in whatever PR happens to run `pnpm test` next,
- * which is rarely the move itself, so it fails Gates in an unrelated PR. This module makes `move-doc`
- * fix it in the same commit as the move. Sibling of `scripts/lib/drift-maps.mjs`, deliberately the
- * same shape.
+ * `scripts/lib/legacy-redirects.test.mjs` catches it ("every hand-written destination still names
+ * a live page in the content tree"), but only in whatever PR happens to run `pnpm test` next,
+ * which is rarely the move itself, so it fails Gates in an unrelated PR. This module makes
+ * `move-doc` fix it in the same commit as the move.
  *
  * **This module outlived the legacy redirect *generator*, as designed.** The generator half (the
  * code that read a sibling arbitrum-docs checkout to derive upstream's URL corpus) was deleted in
@@ -19,8 +18,8 @@
  * nothing but the two object literals that declare those exports, which is why the generator's
  * deletion cost it no change at all.
  *
- * Map *keys* are legacy root-level URLs and are never touched: only this site's pages move. Every
- * property `drift-maps` holds, this holds too, for the same reasons:
+ * Map *keys* are legacy root-level URLs and are never touched: only this site's pages move. Four
+ * properties make the rewrite safe:
  *
  *  - **It only ever edits inside the named `new Map([...])` literal**, so a URL that also appears in
  *    `SECTION_RENAMES`, in a doc comment, or in an unrelated declaration is out of reach.
@@ -36,7 +35,7 @@
  *  - **Nothing is written until every rewrite, and its Prettier pass, has succeeded.**
  *
  * What this module does *not* do is retarget `redirects.legacy.mjs` itself, the committed map of
- * 4,424 legacy URLs. Readers do not need it: `move-doc` appends `oldUrl -> newUrl` to
+ * 853 legacy URLs. Readers do not need it: `move-doc` appends `oldUrl -> newUrl` to
  * `redirects.config.mjs`, and Next serves one redirect per request, so a legacy URL still reaches the
  * moved page in two hops. `pnpm redirects:check` does care. It compares a destination against
  * the routable pages and never follows a second hop, so every legacy source still naming the moved
@@ -218,8 +217,7 @@ export async function assertLegacyDestinationsRewrite(
  * Run contents through Prettier so a retarget never carries collateral reformatting: moving a value
  * changes its length, and Prettier is what decides whether the entry now fits on one line or has to
  * wrap. Writing the raw substitution would leave the file failing `pnpm format:check`, which is a
- * blocking gate. Same `resolveConfig` + `format` shape as `drift-maps.mjs` and
- * `scripts/generate-legacy-redirects.mjs`. Formatting is deliberately separate from writing.
+ * blocking gate. Formatting is deliberately separate from writing.
  */
 async function formatFor(filePath, contents) {
   const config = await resolveConfig(filePath);
@@ -280,9 +278,9 @@ function chainedRedirectNote(repoRoot, oldUrl, newUrl) {
 
 /**
  * Retarget both maps in the repo at `repoRoot`, in place, unless `dryRun`. Returns human-readable
- * notes for the CLI to print — empty when neither map references the moved page. Mirrors
- * `updateDriftMaps`: notes describe the same change whether or not `dryRun` is set, so a dry run
- * reports exactly what a real run would do.
+ * notes for the CLI to print, and no notes when neither map references the moved page. The notes
+ * describe the same change whether or not `dryRun` is set, so a dry run reports exactly what a
+ * real run would do.
  *
  * Every read, rewrite, verification and Prettier pass happens before the single `writeFileSync`.
  *

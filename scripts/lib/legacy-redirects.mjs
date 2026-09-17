@@ -2,12 +2,12 @@
  * The hand-maintained overlay that decides where legacy docs.arbitrum.io URLs point.
  *
  * Legacy URLs were served at the site root (`/stylus/using-cli`); this site serves docs under
- * `/docs`. `redirects.legacy.mjs` carries the resulting 4,424 entries and is committed, permanent
- * and now **hand-maintained**: the generator that derived it read a sibling `arbitrum-docs`
- * checkout (its `vercel.json` for redirect sources and its `docs/` tree for canonical page URLs),
- * and that repo is archived. Adding a legacy redirect now means appending one
- * `{ source, destination, permanent }` object to `redirects.legacy.mjs` by hand, then proving the
- * destination with `pnpm redirects:check`, which resolves it against the router's own URL
+ * `/docs`. `redirects.legacy.mjs` carries the resulting 853 entries (across 4,425 lines) and is
+ * committed, permanent and now **hand-maintained**: the generator that derived it read a sibling
+ * `arbitrum-docs` checkout (its `vercel.json` for redirect sources and its `docs/` tree for
+ * canonical page URLs), and that repo is archived. Adding a legacy redirect now means appending
+ * one `{ source, destination, permanent }` object to `redirects.legacy.mjs` by hand, then proving
+ * the destination with `pnpm redirects:check`, which resolves it against the router's own URL
  * inventory rather than against a guess at what is routable.
  *
  * What survives here are the two judgement maps and the page inventory that keeps them honest.
@@ -308,7 +308,8 @@ export const MANUAL_DESTINATIONS = new Map([
     '/how-arbitrum-works/deep-dives/gas-and-fees#parent-chain-gas-pricing',
     '/docs/how-arbitrum-works/deep-dives/gas-and-fees#parent-chain-gas-pricing',
   ],
-  // The gentle intro was folded into the STF page here; see the GUTTED entry in `pnpm drift`.
+  // The gentle intro was folded into the STF page here; the upstream comparison recorded that as a
+  // GUTTED pair before it was retired (FS-2706).
   ['/how-arbitrum-works/deep-dives/stf-gentle-intro', '/docs/how-arbitrum-works/deep-dives/stf'],
   ['/for-devs/contribute', '/docs/contribute'],
   ['/stylus/cli-tools-overview', '/docs/stylus/cli-tools/overview'],
@@ -347,9 +348,9 @@ export const MANUAL_DESTINATIONS = new Map([
  *
  * These are not equivalences and must never be treated as such. Each names a page that exists
  * upstream and nowhere here. Almost all were added upstream after the port window closed, so
- * `pnpm drift` reports them as work still to do. Sending the reader to the section they were
- * heading for is better than a 404 at cutover, and it is the same judgement already recorded for
- * `/stylus/overview` in `MANUAL_DESTINATIONS`.
+ * the upstream comparison reported them as work still to do before it was retired (FS-2706).
+ * Sending the reader to the section they were heading for is better than a 404 at cutover, and it
+ * is the same judgement already recorded for `/stylus/overview` in `MANUAL_DESTINATIONS`.
  *
  * Consulted only after every mechanical rule has declined, and *after* the self-URL rule in
  * particular. So the day one of these pages is ported, the self-URL rule matches first and the
@@ -399,8 +400,9 @@ export const SECTION_LANDINGS = new Map([
   ],
   // "ArbOS 61 Elara", upstream 2026-07-16. The releases index here is `overview`, not an `index`.
   ['/run-arbitrum-node/arbos-releases/arbos61', '/docs/run-a-node/arbos-releases/overview'],
-  // "Sequencer", a Docusaurus <Card> grid. `pnpm drift` records it as a standing non-item: the
-  // sequencer nav lives in meta.json here, so the section landing is all there is to point at.
+  // "Sequencer", a Docusaurus <Card> grid. The upstream comparison recorded it as a standing
+  // non-item before it was retired (FS-2706): the sequencer nav lives in meta.json here, so the
+  // section landing is all there is to point at.
   ['/node-running/sequencer-content-map', '/docs/run-a-node'],
 ]);
 
@@ -431,10 +433,11 @@ export function collectValidUrls(contentDir) {
 /**
  * Every routable page on this site as `{ url, file }`.
  *
- * The same walk `collectValidUrls` is built from, exported separately because the tripwire test
- * wants the file paths as well as the URLs.
+ * The walk `collectValidUrls` is built from. Module-internal: nothing outside this file needs the
+ * file paths today, and the tripwire test reads URLs through `collectValidUrls`. Export it again if
+ * a caller ever needs to go from a URL back to the file that serves it.
  */
-export function collectLocalPages(contentDir) {
+function collectLocalPages(contentDir) {
   const pages = [];
   const walk = (dir, prefix) => {
     for (const entry of readdirSync(dir)) {
