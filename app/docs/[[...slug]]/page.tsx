@@ -70,9 +70,9 @@ interface ResolvedRequest {
  * so the two cannot disagree about what a path means. Everything added here is display state.
  *
  * Returns `undefined` for a path that is neither, which only `notFound()` can answer. With
- * `dynamicParams = false` that is unreachable from a request — an unknown slug stops matching this
- * route before rendering starts — so in practice it fires only at build time, for a `VERSIONED` key
- * naming a page that no longer exists.
+ * `dynamicParams = false` that is unreachable from a request (an unknown slug still matches this
+ * segment pattern, but its params are rejected and Next answers 404 before rendering starts), so in
+ * practice it fires only at build time, for a `VERSIONED` key naming a page that no longer exists.
  */
 function resolveRequest(slug: string[] | undefined): ResolvedRequest | undefined {
   const resolved = resolveDocsPath(slug);
@@ -154,7 +154,8 @@ export default async function Page({ params }: { params: Promise<{ slug?: string
 }
 
 // The docs route is statically routable: every live page and every archived version is enumerated
-// below, and `dynamicParams = false` makes a slug that is not in that list match no route at all.
+// below, and `dynamicParams = false` makes Next answer 404 for any slug outside that list without
+// rendering the page.
 //
 // Both exports are load-bearing, and for two different tickets:
 //
@@ -163,10 +164,11 @@ export default async function Page({ params }: { params: Promise<{ slug?: string
 //     path suffix in the same change: a page that awaits `searchParams` is dynamic by definition,
 //     and a dynamic route prerenders nothing whatever it returns here.
 //   - `dynamicParams = false` is what gives `/docs/<missing>` a server-rendered 404 body (FS-2688).
-//     An unknown slug stops matching this route, so the request lands on the internal `/_not-found`
-//     entry and `app/not-found.tsx` renders as an ordinary page with the status set before
-//     rendering starts. Left dynamic, the `notFound()` above throws mid-flight-render and Next
-//     replaces the whole response with its hardcoded empty `__next_error__` shell.
+//     An unknown slug still matches this segment pattern, but its params are rejected, so the
+//     request lands on the internal `/_not-found` entry and `app/not-found.tsx` renders as an
+//     ordinary page with the status set before rendering starts. Left dynamic, the `notFound()`
+//     above throws mid-flight-render and Next replaces the whole response with its hardcoded empty
+//     `__next_error__` shell.
 //
 // The accepted cost is that a page added without a rebuild 404s rather than being merely stale, and
 // that a failed build takes *new* pages offline. Existing pages keep serving the last good build.
