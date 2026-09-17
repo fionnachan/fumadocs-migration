@@ -162,6 +162,10 @@ export default function proxy(request: NextRequest, event: NextFetchEvent) {
     // Static JSON that a widget fetches at runtime (public/data/). Same convention as the
     // metadata routes below: no rewrite reaches it today, and it is listed anyway.
     path.startsWith('/data/') ||
+    // Well-known URIs (RFC 8615), served from public/.well-known/. The MCP server discovery card
+    // lives at /.well-known/mcp/server-card.json and is fetched by clients that have only the site
+    // origin, so it must come back as the JSON on disk and never as a negotiated markdown body.
+    path.startsWith('/.well-known/') ||
     // Metadata routes (app/sitemap.ts, app/robots.ts). Listed by the same convention as every
     // other top-level route rather than because a rewrite currently reaches them: both rewrite
     // patterns below are anchored at `/docs`, so neither matches these paths today. That anchoring

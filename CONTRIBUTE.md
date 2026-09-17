@@ -168,13 +168,11 @@ predates them and gets brought up to spec incrementally, not all at once.
 6. **American English, plain language, short sentences.** Address the reader as "you"; contractions
    are fine; avoid jargon your target reader won't recognize.
 
-The full editorial standard — content-type selection criteria, a plain-language checklist, and the
-Quicklook/glossary-linking convention — lives in Offchain Labs' pattern guide. It has not been
-ported into this repo yet, so for now refer to the upstream copy on GitHub:
-[`arbitrum-docs/docs/Offchain-pattern-guide.md`](https://github.com/OffchainLabs/arbitrum-docs/blob/master/docs/Offchain-pattern-guide.md).
-If this repo starts drifting from it, port it into `content/docs/` (it is a real doc page
-upstream, with its own frontmatter) rather than leaving contributors to jump repos for the style
-guide.
+The long version lives in [STYLE-GUIDE.md](STYLE-GUIDE.md), at the root of this repo: the
+plain-language rules in testable form, the words and phrases to replace or cut, the
+one-term-one-meaning table, the terminology table, and the glossary-linking convention. It is the
+house editorial standard, it is maintained here, and it is the file to read before a first draft
+and before a review.
 
 ## Opening a pull request
 

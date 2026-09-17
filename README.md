@@ -7,7 +7,9 @@ Serves English MDX docs; deployed on Vercel.
 This file covers **how to work on the docs.** For how the codebase works and why, see
 [INTERNALS.md](INTERNALS.md). Contributing a page or a PR? Start with
 [CONTRIBUTE.md](CONTRIBUTE.md) instead — it covers the frontmatter contract, partials, variables,
-moving pages, and the gates to run before you push.
+moving pages, and the gates to run before you push. For the prose itself, the house editorial
+standard is [STYLE-GUIDE.md](STYLE-GUIDE.md): plain-language rules, words and phrases to replace or
+cut, the terminology table, and the glossary-linking convention.
 
 New to Fumadocs, or arriving from the old Docusaurus site? Start with
 [What Fumadocs is](INTERNALS.md#what-fumadocs-is) and
@@ -245,8 +247,9 @@ pnpm move-doc <from> <to>
 This rewrites inbound links, re-bases the moved page's own relative links and includes, updates
 `meta.json`, writes the redirect, and retargets the two legacy-redirect destination maps if either
 names the page. Add `--dry-run` to see all of it without touching a file. One map it cannot fix is
-`VERSIONED` in `lib/versions.ts`. If the page you moved has a version dropdown, retarget its key by
-hand.
+`VERSIONED` in `lib/versions-constants.ts`. If the page you moved has a version dropdown, retarget its key by
+hand. Forgetting is not silent, at least. `pnpm test` fails on a registry key that names no live
+page.
 
 Readers are fine either way: a legacy `docs.arbitrum.io` URL still reaches the page through the
 redirect just written, one hop longer. `pnpm redirects:check` is not. It follows one hop only, so

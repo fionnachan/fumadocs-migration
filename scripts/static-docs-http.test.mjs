@@ -56,8 +56,13 @@ test('built static docs routing', { skip: !baseUrl }, async (t) => {
   });
 
   await t.test('unknown docs and prototype-named slugs serve visible 404s', async () => {
+    // FS-2688. `dynamicParams = false` is what makes these land on the prerendered `/_not-found`
+    // entry instead of the empty `__next_error__` shell a mid-render `notFound()` produces. The
+    // copy has to be in the document with scripts stripped: a *200* page carries it too, inside the
+    // router's prefetched flight payload.
     for (const path of [
       '/docs/does-not-exist',
+      '/docs/does/not/exist/deep',
       `${livePath}/v99`,
       '/docs/constructor?v=v1',
       '/docs/__proto__?v=v1',
@@ -67,6 +72,18 @@ test('built static docs routing', { skip: !baseUrl }, async (t) => {
       const doc = documentOnly(await response.text());
       assert.match(doc, /Start somewhere else/);
       assert.doesNotMatch(doc, /__next_error__/);
+    }
+  });
+
+  await t.test('the docs 404 is the same response as the root 404', async () => {
+    // Both are the one prerendered `/_not-found` output, so they are byte identical. A divergence
+    // means `/docs/*` has stopped falling through to it, which is how FS-2688 regresses.
+    const [root, docs] = await Promise.all([get('/does-not-exist'), get('/docs/does-not-exist')]);
+    assert.equal(root.status, 404);
+    assert.equal(docs.status, 404);
+    assert.equal(await docs.text(), await root.text());
+    for (const response of [root, docs]) {
+      assert.match(response.headers.get('cache-control') ?? '', /no-store/);
     }
   });
 
@@ -95,5 +112,35 @@ test('built static docs routing', { skip: !baseUrl }, async (t) => {
       assert.equal(response.status, 404, path);
       await response.text();
     }
+  });
+});
+
+test('well-known MCP discovery card', { skip: !baseUrl }, async (t) => {
+  const cardPath = '/.well-known/mcp/server-card.json';
+
+  await t.test('serves the card as JSON, whatever the client will accept', async () => {
+    // `/.well-known/` is on the proxy's bypass list. A client discovering the MCP server sends
+    // whatever Accept header it likes, and every one of them must get the file on disk rather than
+    // a negotiated markdown body, so both headers are asserted here.
+    for (const accept of ['application/json', 'text/markdown']) {
+      const response = await get(cardPath, { headers: { accept } });
+      assert.equal(response.status, 200, accept);
+      assert.match(response.headers.get('content-type') ?? '', /application\/json/, accept);
+      const card = JSON.parse(await response.text());
+      assert.equal(card.transport.type, 'streamable-http');
+      assert.equal(card.transport.endpoint, 'https://mcp.inkeep.com/offchainlabs/mcp');
+    }
+  });
+
+  await t.test('a well-known path with no file behind it is a 404', async () => {
+    const response = await get('/.well-known/nope.json');
+    assert.equal(response.status, 404);
+    await response.text();
+  });
+
+  await t.test('robots.txt does not disallow the well-known tree', async () => {
+    const response = await get('/robots.txt');
+    assert.equal(response.status, 200);
+    assert.doesNotMatch(await response.text(), /Disallow:\s*\/\.well-known/i);
   });
 });
