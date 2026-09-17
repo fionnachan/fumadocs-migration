@@ -8,6 +8,10 @@ import { VFile } from 'vfile';
 
 import { mdxOptions } from '../../lib/mdx-options.mjs';
 
+function pluginName(plugin) {
+  return (Array.isArray(plugin) ? plugin[0] : plugin).name;
+}
+
 /** Compile with the site's preset, plus the include pass Fumadocs MDX adds before it. */
 export async function createAnchorCompiler(repoRoot) {
   const options = await applyMdxPreset(mdxOptions)('bundler');
@@ -62,7 +66,14 @@ export async function createAnchorCompiler(repoRoot) {
           url = node.attributes.find((attr) => ['href', 'to'].includes(attr.name))?.value;
         }
         if (typeof url === 'string' && url.includes('#')) {
-          links.push({ ...node.data.anchorSource, url });
+          // Nodes a transform synthesises after parsing carry no source stamp; fall back to the
+          // containing page so the report still names a file instead of the run crashing.
+          const fallback = {
+            file: file.path,
+            rel: path.relative(repoRoot, file.path).split(path.sep).join('/'),
+            line: (node.position?.start.line ?? 1) + source(file.path).lineOffset,
+          };
+          links.push({ ...(node.data?.anchorSource ?? fallback), url });
         }
       });
       file.data.anchorLinks = links;
@@ -94,7 +105,13 @@ export async function createAnchorCompiler(repoRoot) {
           ...options,
           format,
           remarkPlugins: [remarkInclude, ...options.remarkPlugins, collectLinks],
-          rehypePlugins: [...options.rehypePlugins, collectIds],
+          // Code blocks never produce an id, and shiki plus the twoslash transformer were two thirds
+          // of the run (15.5 s -> 5.1 s on 348 pages, same findings). A fumadocs-core rename of the
+          // plugin only un-matches this filter and slows the run; it cannot change the answer.
+          rehypePlugins: [
+            ...options.rehypePlugins.filter((plugin) => pluginName(plugin) !== 'rehypeCode'),
+            collectIds,
+          ],
         }),
       );
     }
@@ -108,6 +125,10 @@ export async function createAnchorCompiler(repoRoot) {
       path: filePath,
       cwd: repoRoot,
       value: parsed.content,
+      // `_getProcessor` is the private hook fumadocs-mdx's include plugin reads from `file.data`
+      // (node_modules/fumadocs-mdx/dist/remark-include-*.js, `const { _getProcessor = () => this`).
+      // If a fumadocs-mdx bump renames it, partial links lose their source stamp and the
+      // "partial links are checked per containing page" test fails; look there first.
       data: { frontmatter: parsed.data, _getProcessor: parser },
     });
     // Run the real remark -> rehype transforms; JavaScript output is unnecessary for checking.

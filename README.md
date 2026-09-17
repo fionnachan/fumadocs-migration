@@ -75,7 +75,7 @@ willing to hash the IPv4 space against it. Treat it as personal data when queryi
 
 ```bash
 pnpm types:check   # the main verification gate
-pnpm check-links   # broken internal links
+pnpm check-links   # broken internal links and MDX fragments
 ```
 
 CI runs thirteen blocking checks, including Prettier formatting and the MDX structural lint.
@@ -268,7 +268,7 @@ pnpm types:check         # regenerate .source/, generate Next types, tsc --noEmi
 pnpm build               # production build (runs check-links first)
 pnpm start               # serve the production build
 
-pnpm check-links         # broken internal doc links
+pnpm check-links         # broken internal doc links and MDX fragments
 pnpm vars:check          # every <Var name> resolves
 pnpm nav:check           # meta.json navigation integrity
 pnpm partials:check      # includes resolve, no routing leak, catalog fresh

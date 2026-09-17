@@ -1015,13 +1015,30 @@ blocks.**
 | `references:check`         | Glossary ids and `<Reference>` targets                                        |
 | `faq:check`                | A `faqsId` with no matching entry in the FAQ data                             |
 | `images:presence`          | A markdown image with a remote src, which renders as a 500                    |
-| `check-links`              | Broken internal doc links                                                     |
+| `check-links`              | Broken internal doc links and MDX fragments                                   |
 | `contracts:check`          | The generated contract-address partial matches `@arbitrum/sdk`                |
 | `format:check`             | Prettier style drift                                                          |
 | `content:lint`             | MDX structural defects, rules A1 through A6                                   |
 
 `check-links` exists because Fumadocs has no equivalent of Docusaurus's `onBrokenLinks: 'throw'`.
-`pnpm build` chains it ahead of `next build`, so a broken link also fails the Vercel deploy.
+`pnpm build` chains it ahead of `next build`, so a broken link or fragment also fails the Vercel deploy.
+
+Fragment validation compiles each routed document with `@mdx-js/mdx`, Fumadocs' `applyMdxPreset`
+and `remarkInclude`, and the same options the site imports from `lib/mdx-options.mjs`. It reads
+IDs from the resulting HTML syntax tree instead of approximating heading slugs. Nested and repeated
+includes retain their position in the document, so duplicate headings and `[#custom-id]` headings
+resolve as they do on the site. Markdown and literal JSX links in included partials are checked in
+each containing page's URL context; errors name the partial's original file and line. The checker
+drops one preset plugin, `rehypeCode`: syntax highlighting never produces an id, and shiki plus
+the twoslash transformer were two thirds of the run (15.5 s against 5.1 s on 348 pages, identical
+findings). Everything else, remark plugins and `rehypeKatex` included, runs exactly as on the site.
+
+Same-page, relative, and root-relative fragments are checked, including percent-encoded IDs and
+query strings. External URLs, public-asset fragments, and dynamic JSX expressions are outside this
+check. It does not execute React components: anchors generated only at component runtime still need
+browser verification, as do scrolling and heading visibility. `--json` retains its reporting-only
+exit status of 0 for link findings; MDX compilation errors exit 1 in either mode. The default command
+blocks on both broken paths and missing fragments, through the existing CI gate and build command.
 
 `format:check` and `content:lint` are the two newest entries, promoted on 2026-09-15. Until then
 they sat in a third, non-blocking `Content debt` tier, which existed to hold a check whose count
@@ -1358,8 +1375,9 @@ trusted at all, so do not route around it.
 
 Every gate has a blind spot. These are the ones that have bitten:
 
-- **Dead `#anchors`.** `check-links` validates pages, not fragments. A live page with a dead anchor
-  passes. Verify by curling the page and grepping for `id="…"`.
+- **Runtime-generated anchors and obscured headings.** `check-links` validates compiled MDX IDs,
+  but does not execute React components or measure the viewport. Click changed anchors in a browser
+  and confirm the target is visible below sticky navigation.
 - **Client components importing `lib/source`.** Costs megabytes in the browser bundle. No gate sees
   it.
 - **Rendering.** `types:check` proves the schema, not the render. It exits 0 on pages that serve
