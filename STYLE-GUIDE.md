@@ -126,22 +126,30 @@ only on the glossary index page.
 
 One spelling, one capitalization, across the whole site.
 
-| Term                           | Correct                                                           | Incorrect                              |
-| ------------------------------ | ----------------------------------------------------------------- | -------------------------------------- |
-| JavaScript                     | JavaScript                                                        | js, javascript, Javascript             |
-| app                            | first mention on page: decentralized app<br />later mentions: app | dapp, dApp                             |
-| Smart contract                 | smart contract, contract                                          | smartcontract                          |
-| Cross-chain                    | cross-chain                                                       | cross chain, crosschain                |
-| Allowlist / denylist           | allowlist, denylist                                               | whitelist, blacklist                   |
-| ERC-XX (ERC-20, ERC-721, …)    | ERC-20, ERC-721, ERC-1155                                         | ERC20, erc721, …                       |
-| Sequencer Coordination Manager | Sequencer Coordination Manager (SQM)                              | sequencer coordinator manager          |
-| AnyTrust                       | AnyTrust                                                          | anytrust, Anytrust                     |
-| Ethereum currency              | ETH, Ether, ether                                                 | eth, Eth, `ETH`                        |
-| onchain                        | onchain                                                           | on-chain, on chain                     |
-| Arbitrum chains                | "Your Arbitrum chain"                                             | "L3 Orbit chain", "blockchain"         |
-| Challenge period               | 6.4 days to challenge an assertion                                | confirmation period (a different term) |
-| Bond                           | bond, bonded funds for proposing                                  | stake, staked funds                    |
-| Rollup                         | Rollup                                                            | rollup                                 |
+| Term                                                           | Correct                                                           | Incorrect                              |
+| -------------------------------------------------------------- | ----------------------------------------------------------------- | -------------------------------------- |
+| JavaScript                                                     | JavaScript                                                        | js, javascript, Javascript             |
+| app                                                            | first mention on page: decentralized app<br />later mentions: app | dapp, dApp                             |
+| Smart contract                                                 | smart contract, contract                                          | smartcontract                          |
+| Cross-chain                                                    | cross-chain                                                       | cross chain, crosschain                |
+| Allowlist / denylist                                           | allowlist, denylist                                               | whitelist, blacklist                   |
+| ERC-XX (ERC-20, ERC-721, …)                                    | ERC-20, ERC-721, ERC-1155                                         | ERC20, erc721, …                       |
+| Sequencer Coordination Manager (unsettled, see the note below) | upstream: Sequencer Coordination Manager (SQM)                    | see the note below                     |
+| AnyTrust                                                       | AnyTrust                                                          | anytrust, Anytrust                     |
+| Ethereum currency                                              | ETH, Ether, ether                                                 | eth, Eth, `ETH`                        |
+| onchain                                                        | onchain                                                           | on-chain, on chain                     |
+| Arbitrum chains                                                | "Your Arbitrum chain"                                             | "L3 Orbit chain", "blockchain"         |
+| Challenge period                                               | 6.4 days to challenge an assertion                                | confirmation period (a different term) |
+| Bond                                                           | bond, bonded funds for proposing                                  | stake, staked funds                    |
+| Rollup                                                         | Rollup                                                            | rollup                                 |
+
+**The Sequencer Coordination Manager row is unsettled, so do not act on it yet.** The Correct column
+records upstream's wording verbatim, `(SQM)` included, which is upstream's initialism and not an
+abbreviation of either expansion. Measured over `content/docs`, this repo's own pages say
+"Coordinator Manager" 18 times against "Coordination Manager" 3 times, one page is filed at
+`run-sequencer-coordination-manager.mdx` while its own title says Coordinator, and Nitro's flag
+family is `node.seq-coordinator.*`. Naming the tool is the docs owner's call and was requested in
+FS-2708, so leave both spellings alone until it lands.
 
 ## What is not here
 
