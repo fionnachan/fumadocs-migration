@@ -818,6 +818,13 @@ than serving the wrong version. The handler now shares `resolveDocsPath()` with 
 the two cannot disagree about what a path means, and its `generateStaticParams` prerenders the
 three archive mirrors alongside the live ones (1060 prerendered routes, up from 1057).
 
+One shape changed as a side effect. The handler now carries `dynamicParams = false`, so a markdown
+request for a slug outside the generated set (`/docs/nope.md`, `/llms.mdx/docs/nope/content.md`, or
+`Accept: text/markdown` on `/docs/nope`) is answered the way `/docs/nope` is: the 82 KB HTML
+`app/not-found.tsx` body with status 404 and `no-store`, where the base sent an empty body with
+`s-maxage=31536000`. A markdown client gets HTML on a miss and misses are no longer edge-cacheable;
+no consumer here ever requests a miss, so it is recorded rather than worked around.
+
 Three things this must keep getting right:
 
 - **`postprocess.includeProcessedMarkdown` is per collection.** The `docsVersions` collection sets
