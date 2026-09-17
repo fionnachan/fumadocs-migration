@@ -2,7 +2,7 @@ import { docsVersions } from 'collections/server';
 import type { TOCItemType } from 'fumadocs-core/toc';
 import type { MDXContent } from 'mdx/types';
 
-import { LATEST_ID, LATEST_LABEL, VERSIONED, canonicalSlug } from '@/lib/versions-constants';
+import { LATEST_ID, LATEST_LABEL, canonicalSlug, versionSources } from '@/lib/versions-constants';
 import type { VersionOption } from '@/lib/versions-constants';
 
 export {
@@ -82,7 +82,7 @@ function findArchive(path: string): VersionedEntry | undefined {
  * Archive labels come from each file's `version` frontmatter, falling back to the version id.
  */
 export function getVersions(slug: string): VersionOption[] | undefined {
-  const sources = VERSIONED[slug];
+  const sources = versionSources(slug);
   if (!sources) return undefined;
 
   return sources.map((source) => {
@@ -95,10 +95,17 @@ export function getVersions(slug: string): VersionOption[] | undefined {
 /**
  * The archived entry for version `id` of `slug`, or `undefined` when `id` is missing, `latest`, or
  * not a registered archive (callers fall back to the live page).
+ *
+ * `slug` reaches here straight off the URL, via the markdown route as well as the docs page
+ * (FS-2711), so the registry lookup goes through `versionSources` for its own-property guard. A
+ * plain index read answers a slug like `constructor` with a function off `Object.prototype`, and
+ * `?.find` on that throws rather than short-circuiting.
  */
 export function getArchive(slug: string, id: string | undefined): VersionedEntry | undefined {
   if (!id || id === LATEST_ID) return undefined;
-  const source = VERSIONED[slug]?.find((candidate) => candidate.id === id && candidate.archivePath);
+  const source = versionSources(slug)?.find(
+    (candidate) => candidate.id === id && candidate.archivePath,
+  );
   return source?.archivePath ? findArchive(source.archivePath) : undefined;
 }
 

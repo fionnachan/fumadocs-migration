@@ -68,15 +68,29 @@ export function canonicalSlug(slug: string[] | undefined): string {
 }
 
 /**
+ * The versions registered for `slug`, or `undefined` when the page is not versioned.
+ *
+ * **Every lookup of `VERSIONED` by slug goes through here.** Slugs arrive from the URL, so a
+ * request can name an `Object.prototype` key (`constructor`, `toString`, `valueOf`, `__proto__`),
+ * and a plain `VERSIONED[slug]` resolves one of those up the prototype chain to a function, or to
+ * the prototype itself. That value is truthy, so the caller's `?.find`, `?.some` or `.map` does
+ * not short-circuit, and it throws a `TypeError`: an unhandled HTTP 500 where the answer is a 404.
+ * The own-property check is the whole reason this accessor exists, and it lives in this module
+ * rather than beside its callers because this module imports nothing, which makes it the only half
+ * of the feature `node --test` can exercise directly (`scripts/versions-routing.test.mjs`).
+ */
+export function versionSources(slug: string): VersionSource[] | undefined {
+  return Object.hasOwn(VERSIONED, slug) ? VERSIONED[slug] : undefined;
+}
+
+/**
  * True when `id` names a registered archive of the page at `slug` — not Latest, and not an id this
  * registry has never heard of. `proxy.ts` asks this before turning a legacy `?v=<id>` into a path,
  * because an unregistered id has to keep falling back to Latest rather than 404 on a route that now
  * carries `dynamicParams = false`.
  */
 export function isArchiveId(slug: string, id: string): boolean {
-  // The proxy passes user-controlled slugs, including Object.prototype property names.
-  if (!Object.hasOwn(VERSIONED, slug)) return false;
-  return VERSIONED[slug]?.some((source) => source.id === id && source.archivePath) ?? false;
+  return versionSources(slug)?.some((source) => source.id === id && source.archivePath) ?? false;
 }
 
 /**
