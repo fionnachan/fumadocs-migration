@@ -214,6 +214,45 @@ Open Graph image from the `og/` route, a canonical URL, and the Twitter card tag
 page's URL, so an archived view at `/docs/<slug>/<id>` canonicalizes to its live page rather than
 splitting one document in two. Archives also carry `robots: noindex, follow`.
 
+**The site root publishes the same set, from a static `metadata` object in `app/(home)/page.tsx`**
+(FS-2713). It shipped with none of it: measured on a production build of `3064177`, the only
+`<meta name>` tags on `/` were `viewport` and `next-size-adjust`, `grep -c '<title'` returned 0,
+and Lighthouse scored the page 83 on SEO with `document-title` and `meta-description` both failing,
+against 100 for every docs page. The root is the URL most likely to be shared and indexed.
+
+Its title and description are `siteTitle` and `siteDescription` in `lib/shared.ts`, beside
+`appName`, so the page and its social card render from one pair of strings. **They are deliberately
+not the docs landing page's own title and description.** `content/docs/index.mdx` is titled
+"Arbitrum docs", and `/` and `/docs` are two separately indexable portal pages: one title across
+both would make each compete with the other for the same query. `scripts/static-docs-http.test.mjs`
+asserts the two differ, so reusing one is a test failure rather than a silent regression.
+
+**The root's card is `app/(home)/opengraph-image.tsx`, Next's file convention, not a second handler
+under `app/og/`.** The existing route resolves its slug through `source.getPage()`, and the site
+root is not a page in the docs collection, so it cannot serve `/` under any URL. The convention
+buys two things a hand-written route would not: Next emits `og:image:width`, `og:image:height`,
+`og:image:type` and `og:image:alt` beside the URL, and the file's position scopes the image to the
+`(home)` route group, which holds only `/`. At the app root it would apply to `/docs/**` too, where
+each page already generates a card of its own. The card itself, colours and 1200x630 size included,
+is `renderOgImage` in `lib/og.tsx`, shared with the docs route so the two cannot drift apart;
+nothing else would catch that, because an OG image is only ever seen in somebody else's feed. Next
+serves it from `/opengraph-image-<hash>`, where the suffix is derived from the file's position in
+`app/`, which is why the entry on the proxy's bypass list is a prefix test rather than an equality
+one. A rejected alternative was pointing the root at `/og/docs/image.png`, the docs landing page's
+card: it exists and is already prerendered, but its text comes from `content/docs/index.mdx`
+frontmatter, so a writer editing that page would silently change what `/` looks like on X and in
+Slack.
+
+**No `title.template` in `app/layout.tsx`.** A site-wide `%s | Arbitrum docs` suffix is the
+conventional shape and was rejected on two measurements. `content/docs/index.mdx` is titled
+"Arbitrum docs", so `/docs` would render "Arbitrum docs | Arbitrum docs". And the longest
+frontmatter title in `content/docs` is 105 characters, which a 16-character suffix pushes well past
+what a search result shows. Adding one later means giving those pages a `title.absolute` or
+shortening them, which is an editorial pass and not a metadata change.
+
+`app/not-found.tsx` already exported a title and a description and needed nothing. Every other
+route under `app/` is a route handler or a metadata route and emits no document head at all.
+
 **Every absolute URL a page publishes as metadata traces back to `getSiteUrl()` in
 `lib/shared.ts`, and that helper throws rather than guessing.** It returns `NEXT_PUBLIC_SITE_URL`, falls back to `http://localhost:3000`
 outside production, throws when `VERCEL_ENV` or `NEXT_PUBLIC_VERCEL_ENV` is `production` and the
@@ -229,7 +268,7 @@ the build evaluates, which makes it the gate that always fires, and it cannot im
 is no longer the _only_ thing that fires: before FS-2689 dropped
 `--experimental-build-mode=compile`, no page or layout module was evaluated at build time at all, so
 `getSiteUrl()`'s throw in `lib/shared.ts` never ran during a build and `next.config.mjs` was the sole
-enforcement point. Now that 1057 routes prerender, the docs pages among them (see
+enforcement point. Now that 1061 routes prerender, the docs pages among them (see
 [static routing](#static-routing-under-docs)), the root layout's module scope does run at build and
 would throw too. Keep both anyway: `next.config.mjs` is evaluated before any route is, so it is the
 one check that does not depend on what a given build happens to render. The rule used to be
@@ -258,7 +297,8 @@ page the report is about, while `http://localhost:3000/docs/stylus/quickstart` i
 whoever happened to file it from a dev server. In production the two are identical, because the
 build fails when the variable is unset. Do not "fix" this into a `getSiteUrl()` call.
 
-`app/(home)/page.tsx` sets no canonical of its own and is the one remaining page without one.
+`app/(home)/page.tsx` builds its canonical the same way, absolutely from `getSiteUrl()`, so no
+route in the app leans on `metadataBase` resolution for the one tag a wrong origin ruins.
 
 ## Partials
 
@@ -1381,12 +1421,14 @@ Measured on Next 16.3.4 (2026-09-17) with a full `pnpm build`, counting
 | --------------------- | ----- |
 | `/docs/**` pages      | 352   |
 | `/og/docs/**` images  | 349   |
-| `/llms.mdx/docs/**`   | 349   |
-| Static routes and `/` | 7     |
-| Total                 | 1057  |
+| `/llms.mdx/docs/**`   | 352   |
+| Static routes and `/` | 8     |
+| Total                 | 1061  |
 
-The 352 is 349 live pages plus the three archives. The seven are `/`, `/_not-found`,
-`/_global-error`, `/llms.txt`, `/llms-full.txt`, `/robots.txt` and `/sitemap.xml`.
+The 352 is 349 live pages plus the three archives, and the markdown mirrors match it one for one
+since FS-2711. The eight are `/`, `/_not-found`, `/_global-error`, `/llms.txt`, `/llms-full.txt`,
+`/robots.txt`, `/sitemap.xml` and `/opengraph-image-<hash>`, the home page's social card
+(FS-2713).
 
 ### The `/docs/*` 404 is a real page (FS-2688)
 

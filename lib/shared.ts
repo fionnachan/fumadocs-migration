@@ -1,6 +1,18 @@
 import { localSiteUrl, resolveSiteUrl } from './site-url.mjs';
 
 export const appName = 'Arbitrum docs';
+/**
+ * The site root's own title and description, for `app/(home)/page.tsx` and for the social card
+ * `app/(home)/opengraph-image.tsx` renders from the same two strings.
+ *
+ * They live here, beside `appName`, so the page and its card cannot disagree, and they are
+ * deliberately not the docs landing page's own title and description (`content/docs/index.mdx`,
+ * "Arbitrum docs"). `/` and `/docs` are two separately indexable URLs, so giving them one title
+ * would make each compete with the other for the same query.
+ */
+export const siteTitle = 'Arbitrum documentation';
+export const siteDescription =
+  'Arbitrum is the finance-native platform for applications, tokenization, and dedicated chains. These docs cover the protocols, chains, services, and SDKs.';
 /** The brand's X handle, for the `twitter:site` card tag on every docs page. */
 export const socialHandle = '@arbitrum';
 export const docsRoute = '/docs';

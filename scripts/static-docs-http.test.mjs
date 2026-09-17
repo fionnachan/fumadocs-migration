@@ -216,3 +216,63 @@ test('well-known MCP discovery card', { skip: !baseUrl }, async (t) => {
     assert.doesNotMatch(await response.text(), /Disallow:\s*\/\.well-known/i);
   });
 });
+
+test('home page metadata', { skip: !baseUrl }, async (t) => {
+  // FS-2713. The site root shipped with no <title>, no description, no canonical and no social
+  // tags at all, while every docs page had the lot. These assertions run against the built HTML
+  // because that is the only place the answer lives: `types:check` proves the Metadata object
+  // compiles, not that Next emitted a tag from it.
+  const head = async (path) => {
+    const response = await get(path);
+    assert.equal(response.status, 200, path);
+    return await response.text();
+  };
+  const tag = (html, pattern) => html.match(pattern)?.[1];
+
+  const title = (html) => tag(html, /<title>([^<]*)<\/title>/);
+  const meta = (html, name) =>
+    tag(html, new RegExp(`<meta (?:name|property)="${name}" content="([^"]*)"`));
+
+  await t.test('the root carries a title, description, canonical and social tags', async () => {
+    const html = await head('/');
+    assert.equal(title(html), 'Arbitrum documentation');
+    assert.match(meta(html, 'description') ?? '', /^Arbitrum is the finance-native platform/);
+    assert.match(tag(html, /<link rel="canonical" href="([^"]*)"/) ?? '', /^https?:\/\/[^/]+\/?$/);
+    assert.equal(meta(html, 'og:type'), 'website');
+    assert.equal(meta(html, 'og:title'), 'Arbitrum documentation');
+    assert.equal(meta(html, 'og:description'), meta(html, 'description'));
+    assert.equal(meta(html, 'twitter:card'), 'summary_large_image');
+    assert.equal(meta(html, 'twitter:site'), '@arbitrum');
+    assert.equal(meta(html, 'twitter:title'), 'Arbitrum documentation');
+  });
+
+  await t.test('the social card the root names is a real 1200x630 PNG', async () => {
+    // `app/(home)/opengraph-image.tsx` is served from `/opengraph-image-<hash>`, where the suffix
+    // is Next's and not ours. Following the URL out of the document is the only way to assert the
+    // tag points at something rather than at a 404, and it is also what pins the proxy bypass:
+    // without it the request would reach markdown negotiation.
+    const html = await head('/');
+    const image = meta(html, 'og:image');
+    assert.ok(image, 'no og:image on /');
+    assert.equal(meta(html, 'twitter:image'), image);
+    assert.equal(meta(html, 'og:image:width'), '1200');
+    assert.equal(meta(html, 'og:image:height'), '630');
+
+    const url = new URL(image);
+    const response = await get(`${url.pathname}${url.search}`, {
+      headers: { accept: 'text/markdown' },
+    });
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') ?? '', /image\/png/);
+    assert.ok((await response.arrayBuffer()).byteLength > 1024);
+  });
+
+  await t.test('the root and the docs landing page do not share a title', async () => {
+    // `/` and `/docs` are two separately indexable portal pages. Giving them one title would make
+    // each compete with the other for the same query, which is why the root does not simply reuse
+    // `content/docs/index.mdx`'s "Arbitrum docs". See lib/shared.ts.
+    const [root, docs] = await Promise.all([head('/'), head('/docs')]);
+    assert.notEqual(title(root), title(docs));
+    assert.notEqual(meta(root, 'description'), meta(docs, 'description'));
+  });
+});

@@ -207,6 +207,11 @@ export default function proxy(request: NextRequest, event: NextFetchEvent) {
     path === '/robots.txt' ||
     path === '/llms.txt' ||
     path === '/llms-full.txt' ||
+    // The home page's social card (app/(home)/opengraph-image.tsx). Next serves it from
+    // `/opengraph-image-<hash>`, where the suffix is derived from the file's position in `app/`,
+    // so this is a prefix test rather than an equality one. Same convention as the metadata routes
+    // above: no rewrite reaches it today, and a route served verbatim is listed here anyway.
+    path.startsWith('/opengraph-image') ||
     path.startsWith('/llms.mdx/') ||
     path.startsWith('/og/') ||
     path.startsWith('/api/')

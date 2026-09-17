@@ -18,10 +18,50 @@ import {
   Settings,
   ShieldCheck,
 } from 'lucide-react';
+import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 
 import { HomeHero } from '@/components/home-hero';
-import { docsRoute } from '@/lib/shared';
+import {
+  appName,
+  docsRoute,
+  getSiteUrl,
+  siteDescription,
+  siteTitle,
+  socialHandle,
+} from '@/lib/shared';
+
+/**
+ * The site root shipped with no title, description, canonical or social tags at all: everything
+ * below is what `app/docs/[[...slug]]/page.tsx` emits per page, stated once for the one route that
+ * is not a docs page (FS-2713).
+ *
+ * `og:image` is not listed. Next fills it, with its width, height, type and alt, from
+ * `opengraph-image.tsx` beside this file.
+ */
+export const metadata: Metadata = {
+  title: siteTitle,
+  description: siteDescription,
+  // Absolute, built from `getSiteUrl()` rather than left relative for `metadataBase` to resolve,
+  // for the reason the docs page gives: the value a wrong canonical would depend on is then read
+  // through the one helper that refuses to guess it in a production build.
+  alternates: {
+    canonical: new URL('/', getSiteUrl()).toString(),
+  },
+  openGraph: {
+    type: 'website',
+    siteName: appName,
+    title: siteTitle,
+    description: siteDescription,
+    url: new URL('/', getSiteUrl()).toString(),
+  },
+  // Next fills twitter:title/description/image from openGraph when they are absent, but the card
+  // type and the site handle have no such default and are what X needs to render a large card.
+  twitter: {
+    card: 'summary_large_image',
+    site: socialHandle,
+  },
+};
 
 /**
  * The site's section eyebrow (`GradientFromTopSection`, `Dot`): a 9px dot with a soft shadow
