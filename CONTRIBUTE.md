@@ -167,6 +167,12 @@ predates them and gets brought up to spec incrementally, not all at once.
    task completion — don't bury the point.
 6. **American English, plain language, short sentences.** Address the reader as "you"; contractions
    are fine; avoid jargon your target reader won't recognize.
+7. **Never put a link in a heading.** Fumadocs wraps every heading in its own anchor, so a link
+   inside one renders an anchor inside an anchor and breaks React hydration on the page. Keep the
+   heading as plain text and put the link in the prose under it. `pnpm content:lint` rule A8 is a
+   blocking gate on this, alongside A9 (a hand-written `<p>` around block content) and A10 (a `<tr>`
+   outside a `<thead>`/`<tbody>`); see
+   [The content-lint rules](INTERNALS.md#the-content-lint-rules).
 
 The long version lives in [STYLE-GUIDE.md](STYLE-GUIDE.md), at the root of this repo: the
 plain-language rules in testable form, the words and phrases to replace or cut, the

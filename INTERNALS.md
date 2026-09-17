@@ -30,6 +30,7 @@ governs it. `CLAUDE.md` is machine-facing and duplicates parts of this file for 
 - [Analytics](#analytics)
 - [The gates](#the-gates) (including [Generated pages](#generated-pages) and
   [Stylus by Example](#stylus-by-example))
+- [The content-lint rules](#the-content-lint-rules)
 - [What nothing catches](#what-nothing-catches)
 - [Static routing under `/docs`](#static-routing-under-docs)
 - [Design specs](#design-specs)
@@ -1086,7 +1087,7 @@ blocks.**
 | `check-links`              | Broken internal doc links and MDX fragments                                   |
 | `contracts:check`          | The generated contract-address partial matches `@arbitrum/sdk`                |
 | `format:check`             | Prettier style drift                                                          |
-| `content:lint`             | MDX structural defects, rules A1 through A6                                   |
+| `content:lint`             | MDX structural defects, rules A1 through A10 except A7                        |
 
 `check-links` exists because Fumadocs has no equivalent of Docusaurus's `onBrokenLinks: 'throw'`.
 `pnpm build` chains it ahead of `next build`, so a broken link or fragment also fails the Vercel deploy.
@@ -1302,6 +1303,60 @@ word "seamlessly" in the opening line of `primitive_data_types`, dropped in arbi
 `2665b2643`. Both were edits to a file that carried a `DONT-EDIT-THIS-FOLDER` marker. **An
 editorial fix to one of these pages has to be made upstream** or it will not survive the next
 Monday.
+
+## The content-lint rules
+
+`pnpm content:lint` (`scripts/content-lint.mjs`, rules in `scripts/lib/content-lint.mjs`) is the
+gate for MDX that compiles and type-checks but renders wrong. Every rule ignores fenced blocks and
+inline code spans, so a page that documents syntax is never mistaken for a page that uses it.
+
+| Rule  | What it catches                                                               |
+| ----- | ----------------------------------------------------------------------------- |
+| `A1`  | `VanillaAdmonition` with an empty body, prose stranded in `title=`            |
+| `A2`  | `VanillaAdmonition` `type` outside `note\|tip\|info\|warning\|danger`         |
+| `A3`  | An unconverted Docusaurus `:::` directive                                     |
+| `A4`  | Markdown syntax inside a `title=` attribute, which renders literally          |
+| `A5`  | An internal link target that keeps its `.md`/`.mdx` suffix                    |
+| `A6`  | `<Var>` inside code, which ships as the literal tag                           |
+| `A7`  | A local image `src` with no file under `public/` (**not** in the default set) |
+| `A8`  | A link inside a heading                                                       |
+| `A9`  | A hand-written `<p>` around block content                                     |
+| `A10` | A `<tr>` that is a direct child of `<table>`                                  |
+
+`A7` is the one rule the bare command does not run. It has three findings left, all on
+`content/docs/stylus/cli-tools/verify-contracts.mdx`, tracked as FS-2709; the command prints a note
+saying so. Run `--rule=A7` or `--all` to see them, and fold `A7` back into the default set once that
+page is fixed.
+
+### A8, A9 and A10 are one family: invalid nesting breaks hydration
+
+These three catch HTML the browser's parser has to restructure before it can build a tree. React
+then hydrates a client tree that does not match the server tree, throws
+[error #418](https://react.dev/errors/418), and discards and re-renders the affected subtree. The
+reader sees a flash and loses any client state in it.
+
+**Nothing else sees this.** The page still compiles, still returns HTTP 200, and still passes
+`types:check`, `check-links` and every other gate. The production readiness audit found eighteen of
+350 routes failing this way (FS-2714), and the rules above were written from those three shapes:
+
+- **`A8`, a link inside a heading.** Fumadocs wraps every heading's content in its own
+  `<a href="#slug">`, so a heading that already contains a link renders `<a><a>…</a></a>`, which no
+  HTML parser can represent. A markdown link, a bare URL (GFM autolinks those) and a raw `<a>` all
+  count. A markdown **image** does not: `<img>` nests inside an anchor legally. The fix is to keep
+  the heading as plain text and move the link into the prose under it, which also leaves the
+  heading's slug untouched.
+- **`A9`, a hand-written `<p>` around block content.** MDX parses a JSX element's children as flow
+  content when they start on their own line, so remark wraps the prose in a paragraph and the
+  element becomes `<p><p>…</p></p>`. Written inline, `<p>text</p>` renders one paragraph and is not
+  flagged; the generated precompile partials use that form, and a rule that flagged it would demand
+  an edit to a do-not-edit file for markup that renders correctly.
+- **`A10`, a `<tr>` directly inside a `<table>`.** The parser inserts the `<tbody>` the source
+  omitted, so the client tree gains an element the server tree does not have. Put every row inside a
+  `<thead>`, `<tbody>` or `<tfoot>`. A raw table is still the right choice when it needs the
+  `small-table` class, which `app/global.css` styles and a markdown table cannot carry.
+
+They are three ids rather than one because the report groups by id and each shape has its own fix. A
+single "invalid nesting" id would print one count covering three unrelated edits.
 
 ## The local pre-commit hook
 
