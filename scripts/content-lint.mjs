@@ -25,6 +25,9 @@ const RULE_TITLES = {
   A5: 'internal link keeps a .md/.mdx suffix',
   A6: '<Var> inside code renders as a literal tag',
   A7: 'local image src has no file under public/',
+  A8: 'link inside a heading nests <a> inside <a>',
+  A9: 'hand-written <p> nests inside the paragraph markdown already emits',
+  A10: '<tr> is a direct child of <table>',
 };
 
 /**
@@ -82,7 +85,9 @@ function main() {
   const files = new Set(findings.map((f) => f.rel)).size;
   console.error(`content-lint: ${findings.length} finding(s) across ${files} file(s):`);
 
-  for (const rule of [...byRule.keys()].sort()) {
+  // Numeric, not lexicographic: with A10 in the set, a plain sort puts it between A1 and A2.
+  const ruleOrder = (r) => Number(r.slice(1));
+  for (const rule of [...byRule.keys()].sort((a, b) => ruleOrder(a) - ruleOrder(b))) {
     const group = byRule.get(rule);
     const groupFiles = new Set(group.map((f) => f.rel)).size;
     console.error(`\n  ${rule} — ${RULE_TITLES[rule]}: ${group.length} in ${groupFiles} file(s)`);

@@ -290,3 +290,102 @@ test('lintContent({ files }) lints only the given files, not the whole tree', ()
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+// ---------------------------------------------------------------------------
+// A8, A9, A10 — HTML the browser's parser has to restructure, which makes the
+// hydrated client tree differ from the server tree (React error #418, FS-2714).
+// ---------------------------------------------------------------------------
+
+test('A8 fires on a markdown link in a heading', () => {
+  const found = lintSource('### [`ReadyEVMForL2`](https://github.com/x/y/blob/sha/a.go#L47)\n');
+  assert.deepEqual(
+    found.map((f) => f.rule),
+    ['A8'],
+  );
+  assert.match(found[0].message, /markdown link/);
+});
+
+test('A8 fires on a link that is only part of the heading text', () => {
+  assert.deepEqual(rules('## Step 2. Clone the [nitro-testnode](https://example.com) repo\n'), [
+    'A8',
+  ]);
+});
+
+test('A8 handles a link label that contains brackets', () => {
+  assert.deepEqual(rules('### [`#[storage]`](https://docs.rs/x)\n'), ['A8']);
+});
+
+test('A8 fires on a bare URL in a heading, which GFM autolinks', () => {
+  const found = lintSource('### 1. Load Remix: https://remix.ethereum.org\n');
+  assert.deepEqual(
+    found.map((f) => f.rule),
+    ['A8'],
+  );
+  assert.match(found[0].message, /bare URL/);
+});
+
+test('A8 fires on a raw <a> element in a heading', () => {
+  const found = lintSource('## <a href="https://example.com">Venly</a>\n');
+  assert.ok(found.some((f) => f.rule === 'A8' && /<a> element/.test(f.message)));
+});
+
+test('A8 does NOT fire on a plain heading, or on a link in body prose', () => {
+  assert.deepEqual(rules('## Plain heading\n\nBody with a [link](https://example.com).\n'), []);
+});
+
+test('A8 does NOT fire on a URL inside an inline code span in a heading', () => {
+  assert.deepEqual(rules('### Point the node at `https://example.com`\n'), []);
+});
+
+test('A8 does NOT fire on a heading shown inside a fenced code block', () => {
+  assert.deepEqual(rules('```md\n### [text](https://example.com)\n```\n'), []);
+});
+
+test('A8 does NOT fire on an image in a heading — <img> nests inside an anchor legally', () => {
+  assert.deepEqual(rules('## ![logo](/img/logo.png)\n'), []);
+});
+
+test('A9 fires on a <p> whose children start on the next line', () => {
+  const found = lintSource('<p>\n  Some prose.\n</p>\n');
+  assert.deepEqual(
+    found.map((f) => f.rule),
+    ['A9'],
+  );
+  assert.match(found[0].message, /<p> inside <p>/);
+});
+
+test('A9 does NOT fire on an inline <p>, which renders a single paragraph', () => {
+  assert.deepEqual(rules('<p>Some prose.</p>\n'), []);
+});
+
+test('A9 does NOT fire on a <p> inside a fenced code block', () => {
+  assert.deepEqual(rules('```html\n<p>\n  Some prose.\n</p>\n```\n'), []);
+});
+
+test('A10 fires on every <tr> that is a direct child of <table>', () => {
+  const found = lintSource(
+    '<table className="small-table">\n  <tr>\n    <th>a</th>\n  </tr>\n  <tr>\n    <td>b</td>\n  </tr>\n</table>\n',
+  );
+  assert.deepEqual(
+    found.map((f) => f.rule),
+    ['A10', 'A10'],
+  );
+  assert.match(found[0].message, /direct child of <table>/);
+});
+
+test('A10 does NOT fire when the rows sit in a <thead>/<tbody>', () => {
+  assert.deepEqual(
+    rules(
+      '<table>\n  <thead>\n    <tr>\n      <th>a</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>b</td>\n    </tr>\n  </tbody>\n</table>\n',
+    ),
+    [],
+  );
+});
+
+test('A10 does NOT fire on a markdown table', () => {
+  assert.deepEqual(rules('| a | b |\n| - | - |\n| 1 | 2 |\n'), []);
+});
+
+test('A10 does NOT fire on a table inside a fenced code block', () => {
+  assert.deepEqual(rules('```html\n<table>\n  <tr>\n    <td>a</td>\n  </tr>\n</table>\n```\n'), []);
+});
