@@ -187,7 +187,7 @@ Some important disclaimers:
 
 ### Banner conventions
 
-Use banners to set expectations for your readers or emphasize an important callout, but use them conservatively, since they interrupt the flow of the document. This site renders a banner with the `<VanillaAdmonition>` component, documented in [STYLE-GUIDE.md](https://github.com/OffchainLabs/Fumadocs-test/blob/main/STYLE-GUIDE.md#what-is-not-here). Docusaurus `:::` directives do not render here and fail the `content:lint` A3 gate, so never write one. The `type` prop is one of `note`, `tip`, `info`, `warning`, or `danger`; pick the type that matches the message, not the page's subject.
+Use banners to set expectations for your readers or emphasize an important callout, but use them conservatively, since they interrupt the flow of the document. This site renders a banner with the `<VanillaAdmonition>` component; the same callout-syntax rule appears in [STYLE-GUIDE.md](https://github.com/OffchainLabs/Fumadocs-test/blob/main/STYLE-GUIDE.md#what-is-not-here). Docusaurus `:::` directives do not render here and fail the `content:lint` A3 gate, so never write one. The `type` prop is one of `note`, `tip`, `info`, `warning`, or `danger`; pick the type that matches the message, not the page's subject. `title` is optional and defaults to the capitalized type name (`note` becomes "Note", and so on).
 
 **Before writing a new banner, search [`content/partials/CATALOG.md`](https://github.com/OffchainLabs/Fumadocs-test/blob/main/content/partials/CATALOG.md) for one that already says what you need**, and reuse it instead of duplicating the prose. CONTRIBUTE.md's [partial-reuse guide](https://github.com/OffchainLabs/Fumadocs-test/blob/main/CONTRIBUTE.md#reuse-a-partial-before-you-write-new-prose) has the copy-paste include snippet for pulling a cataloged partial into a page.
 
@@ -223,7 +223,7 @@ Example:
 
 <VanillaAdmonition type="info" title="Community member contribution">
 
-The following document was contributed by @todo-twitter-handle. Give them a shoutout if you find it useful!
+Shoutout to [@handle](https://github.com/handle) for contributing the following [third-party document](/docs/third-party-docs/contribute)!
 
 </VanillaAdmonition>
 
@@ -232,7 +232,7 @@ Usage:
 ```mdx
 <VanillaAdmonition type="info" title="Community member contribution">
 
-The following document was contributed by @todo-twitter-handle. Give them a shoutout if you find it useful!
+Shoutout to [@handle](https://github.com/handle) for contributing the following [third-party document](/docs/third-party-docs/contribute)!
 
 </VanillaAdmonition>
 ```
