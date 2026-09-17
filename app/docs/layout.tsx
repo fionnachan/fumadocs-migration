@@ -10,7 +10,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   return (
     <DocsLayout
       {...base}
-      nav={{ ...base.nav, mode: 'top', children: <SidebarCollapseButton /> }}
+      nav={{ ...base.nav, mode: 'top', children: <SidebarCollapseButton key="sidebar-collapse" /> }}
       // Suppresses the built-in collapse triggers only — the sidebar still
       // collapses. Collapse state lives in SidebarProvider and the edge-peek in
       // SidebarContent, neither of which reads this flag. SidebarCollapseButton
