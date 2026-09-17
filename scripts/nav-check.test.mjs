@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { checkDir, classifyEntry } from './lib/nav.mjs';
+import { checkDir, checkRoots, classifyEntry, resolveRef } from './lib/nav.mjs';
 
 test('classifyEntry recognises every meta.json entry form', () => {
   assert.equal(classifyEntry('my-page').kind, 'page');
@@ -73,4 +73,111 @@ test('index may legally be listed in pages and is not a ghost', () => {
     ],
   });
   assert.deepEqual(result.ghosts, []);
+});
+
+test('resolveRef walks out of the directory holding the meta.json', () => {
+  assert.equal(resolveRef('resources', '../chain-info'), 'chain-info');
+  assert.equal(resolveRef('resources', '../get-started/index'), 'get-started/index');
+  assert.equal(resolveRef('', 'chain-info'), 'chain-info');
+  assert.equal(resolveRef('stylus', 'how-tos/gas-metering'), 'stylus/how-tos/gas-metering');
+});
+
+test('checkRoots flags a page no root folder covers', () => {
+  const { rootless } = checkRoots({
+    dirs: new Map([['', { pages: ['glossary'] }]]),
+    pages: new Set(['glossary']),
+  });
+  assert.deepEqual(rootless, ['glossary']);
+});
+
+test('checkRoots covers a page inside a root folder', () => {
+  const { rootless } = checkRoots({
+    dirs: new Map([
+      ['', { pages: ['notices'] }],
+      ['notices', { root: true, pages: ['index', '...'] }],
+    ]),
+    pages: new Set(['notices/index', 'notices/fusaka-upgrade-notice']),
+  });
+  assert.deepEqual(rootless, []);
+});
+
+test('checkRoots covers a page a root folder claims across directories', () => {
+  const { rootless } = checkRoots({
+    dirs: new Map([
+      ['', { pages: ['resources', '...'] }],
+      ['resources', { root: true, pages: ['../chain-info', '../glossary'] }],
+    ]),
+    pages: new Set(['chain-info', 'glossary']),
+  });
+  assert.deepEqual(rootless, []);
+});
+
+test('checkRoots exempts the docs landing page and nothing else', () => {
+  const { rootless } = checkRoots({
+    dirs: new Map([['', {}]]),
+    pages: new Set(['index', 'glossary']),
+  });
+  assert.deepEqual(rootless, ['glossary']);
+});
+
+test('checkRoots flags a link entry that shadows a real page', () => {
+  const { shadowLinks } = checkRoots({
+    dirs: new Map([
+      ['', { pages: ['get-started', '...'] }],
+      ['get-started', { root: true, pages: ['index', '[Chain info](/docs/chain-info)'] }],
+    ]),
+    pages: new Set(['index', 'chain-info', 'get-started/index']),
+  });
+  assert.deepEqual(shadowLinks, [
+    { dir: 'get-started', entry: '[Chain info](/docs/chain-info)', page: 'chain-info' },
+  ]);
+});
+
+test('checkRoots flags every link-entry form fumadocs accepts, not only the plain one', () => {
+  // fumadocs-core builds a link node from three shapes (see LINK_ENTRY in scripts/lib/nav.mjs).
+  // All three become a `type: "page"` node with the literal url, so all three shadow a real page.
+  for (const entry of [
+    '[Chain info](/docs/chain-info)',
+    '[BookOpen][Chain info](/docs/chain-info)',
+    'external:[Chain info](/docs/chain-info)',
+  ]) {
+    assert.equal(classifyEntry(entry).kind, 'link', entry);
+    const { shadowLinks } = checkRoots({
+      dirs: new Map([['', { root: true, pages: ['index', entry] }]]),
+      pages: new Set(['index', 'chain-info']),
+    });
+    assert.deepEqual(shadowLinks, [{ dir: '', entry, page: 'chain-info' }], entry);
+  }
+});
+
+test('checkRoots resolves a shadowing link through a folder index', () => {
+  const { shadowLinks } = checkRoots({
+    dirs: new Map([['', { root: true, pages: ['[Notices](/docs/notices)', '...'] }]]),
+    pages: new Set(['notices/index']),
+  });
+  assert.deepEqual(shadowLinks, [
+    { dir: '', entry: '[Notices](/docs/notices)', page: 'notices/index' },
+  ]);
+});
+
+test('checkRoots leaves alone a link entry that points outside the collection', () => {
+  const { shadowLinks } = checkRoots({
+    dirs: new Map([
+      ['', { root: true, pages: ['[Status](https://status.arbitrum.io)', '[Gone](/docs/gone)'] }],
+    ]),
+    pages: new Set([]),
+  });
+  assert.deepEqual(shadowLinks, []);
+});
+
+test('checkRoots inherits coverage through a cross-directory folder claim', () => {
+  const { rootless } = checkRoots({
+    dirs: new Map([
+      ['', { pages: ['section', '...'] }],
+      ['section', { root: true, pages: ['../loose'] }],
+      ['loose', { pages: ['...'] }],
+    ]),
+    pages: new Set(['loose/a', 'loose/b']),
+  });
+  assert.deepEqual(rootless, []);
 });

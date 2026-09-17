@@ -28,6 +28,20 @@ export const gitConfig = {
 };
 
 /**
+ * The cross-section links pinned in the sidebar footer on every docs page
+ * (`components/sidebar-resource-links.tsx`). Kept here, not inline in that `.tsx` file, so
+ * `scripts/lib/shared.test.mjs` can assert each `url` still resolves to a real page under
+ * `content/docs`. `check-links` walks MDX only, and `pnpm move-doc` does not retarget a `.tsx`
+ * file, so without that test a deleted or renamed page would leave a silent 404 in every section
+ * sidebar. Same ungated shape `announcementLinkHref` has, which earned its own `vars:check` rule.
+ */
+export const sidebarResourceLinks = [
+  { text: 'Chain info', url: '/docs/chain-info' },
+  { text: 'Audit reports', url: '/docs/audit-reports' },
+  { text: 'Contribute', url: '/docs/contribute' },
+];
+
+/**
  * The absolute origin this site is served from, for `metadataBase`, canonical URLs, and anything
  * else that must be absolute.
  *

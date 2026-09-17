@@ -15,6 +15,7 @@ governs it. `CLAUDE.md` is machine-facing and duplicates parts of this file for 
 - [Coming from Docusaurus](#coming-from-docusaurus)
 - [The pipeline](#the-pipeline)
 - [`source` is a choke point](#source-is-a-choke-point)
+- [The sidebar and its roots](#the-sidebar-and-its-roots)
 - [The frontmatter contract](#the-frontmatter-contract)
 - [Last modified dates](#last-modified-dates)
 - [Page metadata](#page-metadata)
@@ -76,6 +77,8 @@ source be swapped (local MDX, Notion, Sanity) without touching route code. See
 directory layout and refined by a `meta.json` in each directory. `meta.json` controls **order and
 grouping** — its `pages: []` array takes basename slugs and supports `...` rest-globs,
 `---Separator---`, `[text](url)` external links, and `!exclude`. There is no global sidebar file.
+A `"root": true` in a `meta.json` also makes that directory a sidebar root, which is what the root
+switcher above the sidebar names. See [The sidebar and its roots](#the-sidebar-and-its-roots).
 
 **The catch-all route.** One file, `app/docs/[[...slug]]/page.tsx`, renders every docs page. It
 takes the slug segments, calls `source.getPage()`, and renders. Adding an `.mdx` file creates a
@@ -154,6 +157,82 @@ and nothing else reads content. The constraints that follow are deliberate:
 client component: it drags the compiled collection into the browser bundle. One such import once
 cost a 24 MB chunk on every docs page. No gate catches this — see
 [What nothing catches](#what-nothing-catches).
+
+## The sidebar and its roots
+
+A `meta.json` carrying `"root": true` makes its directory a **sidebar root**. The notebook layout
+renders one such root at a time: the sidebar tree is that folder's subtree, and the dropdown above
+it (the root switcher) names the folder and lists every sibling root. Twelve directories declare it.
+
+**How Fumadocs picks the root for a page.** `TreeContextProvider` in `fumadocs-ui/contexts/tree`
+runs `searchPath` over the page tree to find the path to the current URL, then takes
+`path.findLast((item) => item.type === 'folder' && item.root)`. With no root folder on that path it
+falls back to the whole tree, and the switcher renders nothing at all, because `useTabsGroups`
+builds one group per root folder on the path and there is none. Nothing about either outcome is
+visible to `types:check` or to the build.
+
+**Two things put a page outside every root**, and before FS-2716 both were true here:
+
+1. Nothing in the page's ancestry declared `"root": true`. `arbitrum-bridge`, `notices`, `oracles`
+   and the four loose pages at the top of `content/docs` were all in that position.
+2. A `pages` link entry somewhere else pointed at the page's own URL. A `[Title](/docs/x)` entry
+   becomes a real page node in the tree, so the depth-first `searchPath` finds that copy before it
+   reaches the page itself and hands the page the linking folder's sidebar. Every root folder used
+   to repeat `"[Chain info](/docs/chain-info)"`, `"[Audit reports](/docs/audit-reports)"` and
+   `"[Contribute](/docs/contribute)"`, which is how `/docs/chain-info` came to serve the Get started
+   tree under a switcher reading "Third-party docs". `isLayoutTabActive` matches a tab when any page
+   inside it is active, so those repeated links also made every tab match at once and the label fell
+   to whichever root sorted last.
+
+**A `pages` entry can reach across directories.** `resolveFolderItem` in `fumadocs-core` joins the
+entry onto the directory holding the meta.json, and `joinPath` pops on `..`, so
+`"../chain-info"` in `content/docs/resources/meta.json` claims `content/docs/chain-info.mdx`. That
+is what gives the four loose reference pages a root without moving a file or changing a URL:
+`content/docs/resources/` holds a meta.json and nothing else.
+
+**Claims are arbitrated by priority, and order decides ties.** `own()` records the first folder to
+claim a node; an explicit `pages` entry claims at priority 2, the `"..."` rest operator at priority
+0, and a later claim at equal or lower priority is refused. Directories are built in the order
+their parent lists them, so `"resources"` has to appear in `content/docs/meta.json` before anything
+else could claim those pages, and the four names must not also be listed at the top level. Get it
+wrong and the pages silently revert to the top level, which is why `nav:check` now checks the
+result rather than the rule.
+
+**The docs index is the one page with no root, by design.** `/docs` is the section list, so the
+sidebar there is the whole tree and no switcher renders. `ROOTLESS_BY_DESIGN` in
+`scripts/lib/nav.mjs` names it, and nothing else is exempt.
+
+**`nav:check` gained two rules** (`checkRoots` in `scripts/lib/nav.mjs`). It reports any page that
+no `"root": true` folder owns, following cross-directory claims as Fumadocs does, and any link
+entry that points at a real docs page. On the commit before FS-2716 the first rule names 26 pages
+and the second names 33 entries. Neither rule can see what a browser sees, so a change to the root
+layout still wants a look at the rendered switcher.
+
+**The link rule recognises all three shapes Fumadocs does, not just the obvious one.** `resolveLink`
+builds a page node from `[Name](/url)`, from `[Icon][Name](/url)` and from `external:[Name](/url)`,
+and the `external` group sets a flag without touching `url`, so all three shadow a real page in the
+same way. `LINK_ENTRY` in `scripts/lib/nav.mjs` is that regex copied verbatim from
+`fumadocs-core/dist/dynamic-lx_V4971.js` with the source and version named beside it, so the gate
+and the builder cannot drift apart. A narrower rule left the gate with a hole shaped like the bug
+it exists to catch: both wider forms passed `nav:check` while handing `/docs/chain-info` another
+section's sidebar.
+
+**The three pinned cross-section links moved to the sidebar footer.** Chain info, Audit reports and
+Contribute were `pages` link entries repeated in all eleven roots, which is the shadowing above;
+they are now `components/sidebar-resource-links.tsx`, passed to the notebook layout as
+`sidebar.footer` in `app/docs/layout.tsx`. The footer slot renders after the page tree and outside
+it, so it restores the affordance with no way to claim a root. It is passed as a **component, not
+an element**: fumadocs-ui's `renderFooter` wraps a plain `ReactNode` in a container whose className
+begins with `hidden` and only gains a display class when there are icon menu items (desktop) or a
+language or theme slot (drawer), and this app declares no icon items, so a `ReactNode` footer would
+be in the DOM and invisible on desktop. The component form receives `createElement(footer, props)`
+instead, renders its own links first, and then renders the library's container with its props
+untouched so the drawer's theme switch is unaffected. Its link styles are copied from
+`itemVariants({ variant: 'link' })` in the notebook sidebar slot, minus the depth offset. The three
+`{ text, url }` entries themselves live in `lib/shared.ts` as `sidebarResourceLinks`, not in the
+component, because `check-links` walks `content/docs/**` `.md(x)` only and `pnpm move-doc` does not
+retarget a `.tsx` file; `scripts/lib/shared.test.mjs` imports the constant and asserts every `url`
+still resolves to a real page under `content/docs`.
 
 ## The frontmatter contract
 
@@ -1122,7 +1201,7 @@ blocks.**
 | `types:check`              | Frontmatter schema violations, TypeScript errors                              |
 | `test`                     | Regressions in the tooling scripts themselves                                 |
 | `vars:check`               | A `<Var name>` with no matching key in `vars.json`                            |
-| `nav:check`                | `meta.json` navigation integrity                                              |
+| `nav:check`                | `meta.json` navigation integrity, including sidebar root coverage             |
 | `partials:check`           | Unresolved includes, routing leaks, stale catalog, `cwd` include in a partial |
 | `versioned-docs-check.mjs` | Archived-page registry drift                                                  |
 | `references:check`         | Glossary ids and `<Reference>` targets                                        |

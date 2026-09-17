@@ -134,7 +134,9 @@ sme: reviewing-sme-handle
 `content_type` must be one of: `how-to`, `concept`, `quickstart`, `tutorial`, `reference`,
 `troubleshooting`, `faq`. Optional: `sidebar_label`, `user_story`, `draft`.
 
-Sidebar order comes from `meta.json` in each directory, not from file names.
+Sidebar order comes from `meta.json` in each directory, not from file names. A top-level section
+also carries `"root": true`, which is what the root switcher above the sidebar names; see
+[The sidebar and its roots](INTERNALS.md#the-sidebar-and-its-roots).
 
 ## Use a partial
 
@@ -272,7 +274,7 @@ pnpm start               # serve the production build
 
 pnpm check-links         # broken internal doc links and MDX fragments
 pnpm vars:check          # every <Var name> resolves
-pnpm nav:check           # meta.json navigation integrity
+pnpm nav:check           # meta.json nav integrity + sidebar root coverage
 pnpm partials:check      # includes resolve, no routing leak, catalog fresh
 pnpm references:check    # glossary ids + <Reference> targets
 pnpm content:lint        # MDX structural defects

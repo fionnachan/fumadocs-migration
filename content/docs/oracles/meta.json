@@ -1,6 +1,7 @@
 {
   "title": "Oracles",
   "icon": "Radio",
+  "root": true,
   "description": "Integrate oracle price feeds and VRF into your Arbitrum apps.",
   "pages": [
     "index",
@@ -12,9 +13,6 @@
     "overview-oracles",
     "supra",
     "trellor",
-    "...",
-    "[Chain info](/docs/chain-info)",
-    "[Audit reports](/docs/audit-reports)",
-    "[Contribute](/docs/contribute)"
+    "..."
   ]
 }
