@@ -272,6 +272,12 @@ test('pathInfo: a .well-known path is ignored even with a markdown Accept', () =
   assert.deepEqual(pathInfo('/.well-known/mcp/server-card.json', 'text/markdown'), ignored);
 });
 
+test('pathInfo: the home social card is ignored even with a markdown Accept', () => {
+  // Same reasoning as the `.well-known` case above: `/opengraph-image-<hash>` sits outside `/docs`
+  // and has no `.md` suffix, so the Accept branch is the only one it could otherwise fall into.
+  assert.deepEqual(pathInfo('/opengraph-image-12gd74', 'text/markdown'), ignored);
+});
+
 // --- pathInfo: everything else -----------------------------------------------------------------
 
 test('pathInfo: static and metadata routes are ignored', () => {
@@ -286,6 +292,10 @@ test('pathInfo: static and metadata routes are ignored', () => {
     // Well-known URIs (public/.well-known/). The MCP discovery card is a static JSON fetch, not a
     // markdown read, so it must never join the `llms_file_fetched` series.
     '/.well-known/mcp/server-card.json',
+    // The home page's social card (app/(home)/opengraph-image.tsx), served from
+    // `/opengraph-image-<hash>`. It is a PNG fetch, not a markdown read, so it must never join the
+    // `llms_file_fetched` series.
+    '/opengraph-image-12gd74',
   ]) {
     assert.deepEqual(pathInfo(path, ''), ignored, path);
   }
