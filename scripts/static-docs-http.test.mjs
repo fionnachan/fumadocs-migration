@@ -249,8 +249,10 @@ test('home page metadata', { skip: !baseUrl }, async (t) => {
   await t.test('the social card the root names is a real 1200x630 PNG', async () => {
     // `app/(home)/opengraph-image.tsx` is served from `/opengraph-image-<hash>`, where the suffix
     // is Next's and not ours. Following the URL out of the document is the only way to assert the
-    // tag points at something rather than at a 404, and it is also what pins the proxy bypass:
-    // without it the request would reach markdown negotiation.
+    // tag points at something rather than at a 404. It also proves the route answers with a real
+    // PNG even under a markdown-preferring Accept header, though that is not because of the
+    // `/opengraph-image` proxy bypass entry: both negotiation patterns in proxy.ts are anchored at
+    // `/docs`, so this path never reaches them regardless of the bypass (see the comment there).
     const html = await head('/');
     const image = meta(html, 'og:image');
     assert.ok(image, 'no og:image on /');

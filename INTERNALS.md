@@ -244,11 +244,15 @@ frontmatter, so a writer editing that page would silently change what `/` looks 
 Slack.
 
 **No `title.template` in `app/layout.tsx`.** A site-wide `%s | Arbitrum docs` suffix is the
-conventional shape and was rejected on two measurements. `content/docs/index.mdx` is titled
-"Arbitrum docs", so `/docs` would render "Arbitrum docs | Arbitrum docs". And the longest
-frontmatter title in `content/docs` is 105 characters, which a 16-character suffix pushes well past
-what a search result shows. Adding one later means giving those pages a `title.absolute` or
-shortening them, which is an editorial pass and not a metadata change.
+conventional shape and was rejected on two measurements, though only the first carries weight.
+`content/docs/index.mdx` is titled "Arbitrum docs", so `/docs` would render "Arbitrum docs | Arbitrum
+docs", and that reason stands on its own. The second reason is weaker than it first looks: the
+longest frontmatter title across `content/docs` is 96 characters, not 105, and at 96 characters a
+title is already well past the roughly 60 characters a search result shows, so a suffix costs nothing
+on the handful of pages long enough to raise the concern. The suffix would instead land on the many
+short titles that make up most of the tree, where it is brand value rather than truncation risk.
+Adding a template later means giving `content/docs/index.mdx` (or any page that would otherwise
+double the suffix) a `title.absolute`, which is an editorial pass and not a metadata change.
 
 `app/not-found.tsx` already exported a title and a description and needed nothing. Every other
 route under `app/` is a route handler or a metadata route and emits no document head at all.
