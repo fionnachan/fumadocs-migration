@@ -7,9 +7,11 @@
 > `next dev`.
 >
 > The canonical docs are [README.md](README.md) (how to work on the docs),
-> [INTERNALS.md](INTERNALS.md) (how the codebase works, and why), and
-> [CONTRIBUTE.md](CONTRIBUTE.md) (how an outside contributor gets from zero to an open PR). Humans
-> should read those.
+> [INTERNALS.md](INTERNALS.md) (how the codebase works, and why),
+> [CONTRIBUTE.md](CONTRIBUTE.md) (how an outside contributor gets from zero to an open PR), and
+> [STYLE-GUIDE.md](STYLE-GUIDE.md) (the house prose rules: plain language, words to replace,
+> terminology, glossary linking). Humans should read those. **Read STYLE-GUIDE.md before writing or
+> editing any prose in `content/`.**
 >
 > **Duplication here is expected and fine** — agents need the context in-session, so anything
 > canonical that an agent needs belongs in this file too. When the same material lives in both

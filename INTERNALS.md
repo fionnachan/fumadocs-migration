@@ -4,8 +4,10 @@ How this codebase works, and why it is built the way it is. For the docs team an
 maintaining the tooling.
 
 Task-level instructions — setup, writing a page, using a partial — live in [README](README.md).
-`CLAUDE.md` is machine-facing and duplicates parts of this file for coding agents; **this file is
-canonical for humans, and the one to edit first.**
+Getting a first contribution to an open PR is [CONTRIBUTE](CONTRIBUTE.md). The house prose rules
+are [STYLE-GUIDE](STYLE-GUIDE.md), which is editorial, not technical, and nothing in this file
+governs it. `CLAUDE.md` is machine-facing and duplicates parts of this file for coding agents;
+**this file is canonical for humans, and the one to edit first.**
 
 ## Contents
 

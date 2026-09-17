@@ -7,7 +7,9 @@ Serves English MDX docs; deployed on Vercel.
 This file covers **how to work on the docs.** For how the codebase works and why, see
 [INTERNALS.md](INTERNALS.md). Contributing a page or a PR? Start with
 [CONTRIBUTE.md](CONTRIBUTE.md) instead — it covers the frontmatter contract, partials, variables,
-moving pages, and the gates to run before you push.
+moving pages, and the gates to run before you push. For the prose itself, the house editorial
+standard is [STYLE-GUIDE.md](STYLE-GUIDE.md): plain-language rules, words and phrases to replace or
+cut, the terminology table, and the glossary-linking convention.
 
 New to Fumadocs, or coming from the Docusaurus site? Start with
 [What Fumadocs is](INTERNALS.md#what-fumadocs-is) and
