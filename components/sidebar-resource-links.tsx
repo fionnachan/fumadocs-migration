@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ComponentProps } from 'react';
 
+import { sidebarResourceLinks } from '@/lib/shared';
+
 /**
  * The cross-section links pinned under every section sidebar, passed to the notebook layout as
  * `sidebar.footer` from app/docs/layout.tsx.
@@ -23,12 +25,10 @@ import type { ComponentProps } from 'react';
  * `createElement(footer, props)` instead, which puts the className under our control. The
  * library's own footer row is still rendered below, with its props untouched, so the theme switch
  * in the mobile drawer is unaffected.
+ *
+ * The link data itself lives in `lib/shared.ts` as `sidebarResourceLinks`, not here, so
+ * `scripts/lib/shared.test.mjs` can pin each `url` against the real content tree.
  */
-const RESOURCE_LINKS = [
-  { text: 'Chain info', url: '/docs/chain-info' },
-  { text: 'Audit reports', url: '/docs/audit-reports' },
-  { text: 'Contribute', url: '/docs/contribute' },
-];
 
 // Copied from `itemVariants({ variant: 'link' })` in the notebook sidebar slot, minus the depth
 // offset, so a footer link is visually the same object as a tree link.
@@ -41,7 +41,7 @@ export function SidebarResourceLinks({ children, ...props }: ComponentProps<'div
   return (
     <>
       <div className="flex flex-col gap-0.5 border-t p-2">
-        {RESOURCE_LINKS.map((link) => (
+        {sidebarResourceLinks.map((link) => (
           <Link
             key={link.url}
             href={link.url}

@@ -227,7 +227,11 @@ language or theme slot (drawer), and this app declares no icon items, so a `Reac
 be in the DOM and invisible on desktop. The component form receives `createElement(footer, props)`
 instead, renders its own links first, and then renders the library's container with its props
 untouched so the drawer's theme switch is unaffected. Its link styles are copied from
-`itemVariants({ variant: 'link' })` in the notebook sidebar slot, minus the depth offset.
+`itemVariants({ variant: 'link' })` in the notebook sidebar slot, minus the depth offset. The three
+`{ text, url }` entries themselves live in `lib/shared.ts` as `sidebarResourceLinks`, not in the
+component, because `check-links` walks `content/docs/**` `.md(x)` only and `pnpm move-doc` does not
+retarget a `.tsx` file; `scripts/lib/shared.test.mjs` imports the constant and asserts every `url`
+still resolves to a real page under `content/docs`.
 
 ## The frontmatter contract
 
