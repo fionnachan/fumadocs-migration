@@ -133,6 +133,23 @@ test('checkRoots flags a link entry that shadows a real page', () => {
   ]);
 });
 
+test('checkRoots flags every link-entry form fumadocs accepts, not only the plain one', () => {
+  // fumadocs-core builds a link node from three shapes (see LINK_ENTRY in scripts/lib/nav.mjs).
+  // All three become a `type: "page"` node with the literal url, so all three shadow a real page.
+  for (const entry of [
+    '[Chain info](/docs/chain-info)',
+    '[BookOpen][Chain info](/docs/chain-info)',
+    'external:[Chain info](/docs/chain-info)',
+  ]) {
+    assert.equal(classifyEntry(entry).kind, 'link', entry);
+    const { shadowLinks } = checkRoots({
+      dirs: new Map([['', { root: true, pages: ['index', entry] }]]),
+      pages: new Set(['index', 'chain-info']),
+    });
+    assert.deepEqual(shadowLinks, [{ dir: '', entry, page: 'chain-info' }], entry);
+  }
+});
+
 test('checkRoots resolves a shadowing link through a folder index', () => {
   const { shadowLinks } = checkRoots({
     dirs: new Map([['', { root: true, pages: ['[Notices](/docs/notices)', '...'] }]]),

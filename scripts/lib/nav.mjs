@@ -8,11 +8,26 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
+/**
+ * Fumadocs' own link-entry regex, copied verbatim from
+ * `node_modules/fumadocs-core/dist/dynamic-lx_V4971.js:261` (fumadocs-core 16.15.9) so that the two
+ * cannot drift. Three forms build a link node, not one: `[Name](/url)`, `[Icon][Name](/url)` and
+ * `external:[Name](/url)`. `resolveLink` turns every match into a `type: "page"` node carrying the
+ * literal `url` (the `external` group sets a flag and leaves `url` untouched), so all three shadow
+ * a real page in exactly the same way. Recognising only the first left this gate with a hole shaped
+ * like the bug it exists to catch.
+ */
+const LINK_ENTRY =
+  /^(?<external>external:)?(?:\[(?<icon>[^\]]+)])?\[(?<name>[^\]]+)]\((?<url>[^)]+)\)$/;
+
 /** Classify a single `pages` entry. */
 export function classifyEntry(entry) {
   if (typeof entry !== 'string') return { kind: 'unknown', name: String(entry) };
   if (entry === '...' || entry === 'z...a') return { kind: 'rest', name: entry };
-  if (entry.startsWith('[')) return { kind: 'link', name: entry };
+  // `startsWith('[')` stays as a catch-all so a malformed bracket entry is still reported as a
+  // link rather than as a missing page; LINK_ENTRY adds the `external:` form, which starts with a
+  // letter and would otherwise be read as a page name.
+  if (entry.startsWith('[') || LINK_ENTRY.test(entry)) return { kind: 'link', name: entry };
   if (entry.startsWith('---')) return { kind: 'separator', name: entry };
   if (entry.startsWith('!')) return { kind: 'exclude', name: entry.slice(1) };
   return { kind: 'page', name: entry };
@@ -72,7 +87,7 @@ export function checkTree(root) {
 }
 
 /**
- * Root coverage — the second navigation defect this module detects.
+ * Root coverage: the second navigation defect this module detects.
  *
  * Fumadocs decides which sidebar a page gets by walking the page tree to that page and taking the
  * last `"root": true` folder on the way (`path.findLast(...)` in `fumadocs-ui/contexts/tree`). A
@@ -173,9 +188,9 @@ export function checkRoots({ dirs, pages, exempt = ROOTLESS_BY_DESIGN }) {
   return { rootless: rootless.sort(), shadowLinks };
 }
 
-/** The docs-relative page path a `[Title](/docs/…)` entry points at, or `null` for anything else. */
+/** The docs-relative page path a link entry points at, or `null` for anything else. */
 function linkTarget(entry) {
-  const url = /^\[[^\]]*]\(([^)]*)\)$/.exec(entry)?.[1];
+  const url = LINK_ENTRY.exec(entry)?.groups?.url;
   if (!url || !url.startsWith('/docs/')) return null;
   return url.slice('/docs/'.length).split(/[#?]/)[0].replace(/\/$/, '');
 }
