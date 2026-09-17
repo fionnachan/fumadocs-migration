@@ -97,7 +97,7 @@ pnpm move-doc <from> <to>
 This rewrites every internal link that pointed at the old path (in whatever form it was written —
 absolute, relative, `.mdx`-suffixed, `<include>`), moves the file with `git mv`, updates the
 surrounding `meta.json`, and records the redirect in `redirects.config.mjs` for you. **Never
-hand-edit between the `AUTO-GENERATED` markers in `redirects.config.mjs`** — `move-doc` owns that
+hand-edit between the `AUTO-GENERATED` markers in `redirects.config.mjs`**, since `move-doc` owns that
 block. Use `--dry-run` first to preview the changes, and confirm afterward with `pnpm check-links`.
 
 `move-doc` also retargets the two hand-written maps in `scripts/lib/legacy-redirects.mjs` that decide

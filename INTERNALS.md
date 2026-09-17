@@ -506,12 +506,12 @@ content-tree inventory the tripwire resolves against, and the record of the reso
 legacy URL took the first rule that matched, and a rule that could not decide declined rather than
 guessing.
 
-1. **`MANUAL_DESTINATIONS`** — hand-verified legacy destination → local page, confirmed by comparing
+1. **`MANUAL_DESTINATIONS`**, a hand-verified legacy destination → local page, confirmed by comparing
    the upstream page's frontmatter title against the local candidates. A value may carry an
    `#anchor`; the page part has to resolve.
-2. **Self-URL** — the legacy path still names a live page here under `/docs`. This resolved most of
+2. **Self-URL**, where the legacy path still names a live page here under `/docs`. This resolved most of
    the canonical URLs, which had only ever needed the `/docs` prefix.
-3. **`SECTION_RENAMES`** — whole sections that moved wholesale (`/run-arbitrum-node` →
+3. **`SECTION_RENAMES`**, whole sections that moved wholesale (`/run-arbitrum-node` →
    `/run-a-node`). Deep restructures are deliberately absent: their pages moved individually, so a
    prefix rule would produce confidently-wrong destinations.
 4. **Exact title**, when exactly one local page carried the upstream page's frontmatter title
@@ -522,7 +522,7 @@ guessing.
    page that has none. It declined when two local pages shared the title, _and_ when two upstream
    pages shared it, for the same reason rule 5 does: there the legacy path was doing the
    disambiguating and the title cannot.
-5. **Basename fallback** — accepted only when exactly one local page carried that slug _and_ the
+5. **Basename fallback**, accepted only when exactly one local page carried that slug _and_ the
    basename was unique upstream too.
 6. **`SECTION_LANDINGS`**, the nearest live section, for a page upstream had and this site never
    ported. Not an equivalence, and last on purpose: the day the page is ported, rule 2 matches first
@@ -1236,6 +1236,12 @@ Every gate has a blind spot. These are the ones that have bitten:
   literal `:::`, `undefined`, or HTTP 500. Confirm content changes in a browser.
 - **A redirect to the wrong-but-existing page.** `redirects:check` only proves the destination
   resolves.
+- **A page deleted without a redirect.** `check-links` validates the links that exist, so deleting
+  a page along with its inbound links passes every gate while the page's published URL starts
+  404ing. `move-doc` covers a move, and `redirects:check` proves a destination resolves, but
+  neither sees a plain deletion, and the upstream comparison that would have reported the page
+  absent after the fact went with FS-2706. Write the redirect into `redirects.config.mjs` by hand
+  in the same commit as the deletion.
 - **A third-party image that has rotted.** Nothing in CI requests it, so a dead URL behind
   `<ImageZoom src="https://…">` is silent. `pnpm images:check` is the manual sweep. The one case CI
   does catch is a remote image in markdown syntax, via the offline `images:presence` gate.

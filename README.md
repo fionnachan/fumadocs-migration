@@ -245,7 +245,7 @@ pnpm move-doc <from> <to>
 This rewrites inbound links, re-bases the moved page's own relative links and includes, updates
 `meta.json`, writes the redirect, and retargets the two legacy-redirect destination maps if either
 names the page. Add `--dry-run` to see all of it without touching a file. One map it cannot fix is
-`VERSIONED` in `lib/versions.ts` — if the page you moved has a version dropdown, retarget its key by
+`VERSIONED` in `lib/versions.ts`. If the page you moved has a version dropdown, retarget its key by
 hand.
 
 Readers are fine either way: a legacy `docs.arbitrum.io` URL still reaches the page through the
@@ -256,7 +256,7 @@ earlier move's redirect in `redirects.config.mjs` pointed at the page you just m
 prints a second note naming it: it reports `DEAD` for the same reason, so point it at the new URL.
 No such note means there is no such entry.
 
-**Never hand-edit between the `AUTO-GENERATED` markers in `redirects.config.mjs`** — `move-doc`
+**Never hand-edit between the `AUTO-GENERATED` markers in `redirects.config.mjs`**, since `move-doc`
 owns that block. ([Details](INTERNALS.md#redirects).)
 
 ## Commands
@@ -281,7 +281,7 @@ pnpm move-doc <from> <to>
 pnpm redirects:check     # every redirect destination is a real page (needs a running site)
 ```
 
-Precompile, CLI and Stylus tooling runs by hand only — see
+Precompile, CLI and Stylus tooling runs by hand only. See
 [The gates](INTERNALS.md#the-gates).
 
 ## Conventions
