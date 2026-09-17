@@ -1,9 +1,10 @@
 # Contributing to the Arbitrum docs
 
 Thank you for considering a contribution to the Arbitrum documentation portal. This repo is a
-Next.js 16 / Fumadocs site; the content model, tooling, and gates are different enough from the
-legacy Docusaurus site ([`OffchainLabs/arbitrum-docs`](https://github.com/OffchainLabs/arbitrum-docs))
-that this document is a rewrite, not a port, of that repo's `CONTRIBUTE.md`. If something here
+Next.js 16 / Fumadocs site. It replaced the Docusaurus site at
+[`OffchainLabs/arbitrum-docs`](https://github.com/OffchainLabs/arbitrum-docs), which is archived, and
+the content model, tooling and gates are different enough that this document is a rewrite, not a
+port, of that repo's `CONTRIBUTE.md`. If something here
 conflicts with [README.md](README.md) or [INTERNALS.md](INTERNALS.md), those two are canonical —
 this file exists to get a new contributor from zero to an open PR.
 
@@ -96,8 +97,14 @@ pnpm move-doc <from> <to>
 This rewrites every internal link that pointed at the old path (in whatever form it was written —
 absolute, relative, `.mdx`-suffixed, `<include>`), moves the file with `git mv`, updates the
 surrounding `meta.json`, and records the redirect in `redirects.config.mjs` for you. **Never
-hand-edit `redirects.config.mjs`** — both blocks in it are generated. Use `--dry-run` first to
-preview the changes, and confirm afterward with `pnpm check-links`.
+hand-edit between the `AUTO-GENERATED` markers in `redirects.config.mjs`** — `move-doc` owns that
+block. Use `--dry-run` first to preview the changes, and confirm afterward with `pnpm check-links`.
+
+`move-doc` also retargets the two hand-written maps in `scripts/lib/legacy-redirects.mjs` that decide
+where legacy `docs.arbitrum.io` URLs point, if either names the page, and prints a note when a
+`redirects.legacy.mjs` entry is left one hop long. That file is hand-maintained: add or retarget a
+legacy redirect by editing it directly, then prove the destination with `pnpm redirects:check`
+against a running site.
 
 ## Gates to run before you push
 

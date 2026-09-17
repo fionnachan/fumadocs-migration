@@ -28,7 +28,6 @@ canonical for humans, and the one to edit first.**
 - [Analytics](#analytics)
 - [The gates](#the-gates) (including [Generated pages](#generated-pages) and
   [Stylus by Example](#stylus-by-example))
-- [Upstream drift](#upstream-drift)
 - [What nothing catches](#what-nothing-catches)
 - [Known trade-off: no static prerendering](#known-trade-off-no-static-prerendering)
 - [Design specs](#design-specs)
@@ -91,8 +90,9 @@ description and the row.
 
 ## Coming from Docusaurus
 
-Most of the team is arriving from `OffchainLabs/arbitrum-docs`. The differences that actually cause
-mistakes:
+This repo replaced the Docusaurus site at `OffchainLabs/arbitrum-docs`, which is archived. Nothing
+here reads that repo any more, and nothing may start to. Most of the team arrived from it, though,
+so the differences that actually cause mistakes are worth keeping written down:
 
 | Docusaurus                                          | Here                                                                |
 | --------------------------------------------------- | ------------------------------------------------------------------- |
@@ -105,11 +105,13 @@ mistakes:
 | Client-redirects plugin + synced `vercel.json`      | Next `redirects()` only, see [Redirects](#redirects)                |
 | `docs:move` style tooling                           | None official — `pnpm move-doc` is ours                             |
 
-The numeric-prefix rule is the sharpest edge when porting URLs: a path that Docusaurus served at
-`/foo/bar` will serve at `/02-foo/bar` here unless the directory is renamed or a redirect is added.
+The numeric-prefix rule was the sharpest edge when porting URLs: a path that Docusaurus served at
+`/foo/bar` serves at `/02-foo/bar` here unless the directory is renamed or a redirect is added. It
+is why `redirects.legacy.mjs` exists, and it still decides where a hand-added legacy redirect should
+point.
 
 `@fumadocs/cli` exists but only **installs UI components**. It does not move, rename, or restructure
-docs, and it does not manage redirects. Every tool in `scripts/` exists because nothing upstream
+docs, and it does not manage redirects. Every tool in `scripts/` exists because nothing else
 provides it.
 
 ## The pipeline
@@ -311,8 +313,9 @@ Adding a **new** variable takes both files: the key in `vars.json` **and** its t
 `types:check` exits 0 on a page full of broken variables. **`vars:check` is the only gate that
 catches a `<Var name>` with no matching key.**
 
-Values mirror upstream `arbitrum-docs/src/resources/globalVars.js`. Keep them in sync while that
-site is still live.
+Values started as a copy of the Docusaurus site's `src/resources/globalVars.js`. That site is
+archived, so `content/vars.json` is now the only copy and there is nothing left to keep it in sync
+with.
 
 **`<Var>` does not render inside code.** MDX does not evaluate components inside a fenced code
 block or an inline code span, so a `<Var name="…" />` placed there ships as the literal tag text.
@@ -402,55 +405,42 @@ Next compiles them into `.next/routes-manifest.json`, which Vercel reads directl
 `vercel.json` here, and adding one would be a second source of truth, not a mirror.** Vercel applies
 `vercel.json` routes before framework routes, so it would silently shadow `redirects.config.mjs`.
 
-The upstream Docusaurus site needs two copies (a client-redirects plugin for in-app navigation plus
-a synced `vercel.json` for the edge). Next needs one. The sync step is what disappeared in the
-migration, not the generation step.
+The Docusaurus site needed two copies (a client-redirects plugin for in-app navigation plus a synced
+`vercel.json` for the edge). Next needs one.
 
 `redirects()` runs **before** `proxy.ts`, so a redirected URL gets markdown negotiation on the
 destination, not on the first hop.
 
-Both blocks in `redirects.config.mjs` are generated. Never hand-edit it.
+The `AUTO-GENERATED` block in `redirects.config.mjs` is written by `pnpm move-doc`; never hand-edit
+between its markers. The rest of the file, and `redirects.legacy.mjs` beside it, are hand-maintained.
 
 **Moved pages.** `pnpm move-doc <from> <to>` writes the old→new URL between the `AUTO-GENERATED`
-markers. It also retargets the moved path if either drift map names it: a `RENAME_MAP` value (or the
-`to` field of a `merge: true` entry) in `scripts/lib/tree-compare.mjs`, and a `guttedAllowlist` entry's
-`local` field in `scripts/data/upstream.config.json` (see [Upstream drift](#upstream-drift)). Before
-this, a move left those maps pointing at a path that no longer existed, which only surfaced as a
-`pnpm test` failure in whatever unrelated PR happened to run next — the maps themselves gave no
-warning. `scripts/lib/drift-maps.mjs` does the rewrite; `RENAME_MAP` keys (upstream/Tree A paths) and
-`absentAllowlist` (which names only an upstream path, never a local one) are never touched, because
-only local paths move.
+markers.
+
+**It then retargets the legacy destination overlay, as its last step.**
+`scripts/lib/legacy-redirects.mjs` keeps two hand-written maps naming this site's pages,
+`MANUAL_DESTINATIONS` and `SECTION_LANDINGS`, as **site URLs** (`/docs/…`, sometimes with an
+`#anchor`) rather than content-relative paths. `scripts/lib/legacy-destinations.mjs` retargets both.
+Before this, moving a page named in either left a legacy `docs.arbitrum.io` URL pointing at a 404
+until the tripwire in `scripts/lib/legacy-redirects.test.mjs` ("every hand-written destination still
+names a live page") failed in whatever PR ran `pnpm test` next.
 
 Three things about that rewrite are load-bearing, and each exists because the alternative fails
 quietly:
 
-- **It edits only inside the `RENAME_MAP` object literal.** `tree-compare.mjs` also declares
-  `SECTION_MAP`, whose values are bare section prefixes (`'stylus'`, `'oracles'`, `'run-a-node'`). A
-  whole-file match for a top-level page's path would rewrite one of those and silently remap an
-  entire upstream section, while reporting it on the CLI as a `RENAME_MAP` change.
+- **It edits only inside the two named `new Map([…])` literals.** `legacy-redirects.mjs` also
+  declares `SECTION_RENAMES`, an array of URL-shaped strings. A whole-file match for a page's URL
+  could rewrite one of those while reporting itself on the CLI as a destination change.
 - **A missed match aborts the step.** The rewrite is textual and single-quote-only, so reformatting
-  `tree-compare.mjs` to double quotes, or writing an entry as a template literal, would match nothing
-  and leave the stale path in place, which is the original bug again with no warning. After
-  rewriting, `drift-maps` imports `tree-compare.mjs` and checks its substitution count against the
-  parsed `RENAME_MAP`; a disagreement throws and names the path. It also warns, without failing, when
-  the destination is already another entry's target, since `pairTrees` rejects two upstream pages
-  claiming one local file unless every entry involved declares `merge: true`.
+  the module to double quotes, or writing an entry as a template literal, would match nothing and
+  leave the stale destination in place, which is the original bug again with no warning. After
+  rewriting, `legacy-destinations` imports the module and checks its substitution count against the
+  parsed maps; a disagreement throws and names the URL.
 - **It runs last and writes both maps or neither.** Every read, rewrite, verification and Prettier
   pass happens before the first write, and `move-doc` calls it after the redirect is appended, so a
   formatter or parse failure cannot cost the redirect or leave one map retargeted and the other not.
 
-**The legacy destination overlay is retargeted the same way, one step later.**
-`scripts/lib/legacy-redirects.mjs` keeps two more hand-written maps naming this site's pages —
-`MANUAL_DESTINATIONS` and `SECTION_LANDINGS` — as **site URLs** (`/docs/…`, sometimes with an
-`#anchor`) rather than content-relative paths. `scripts/lib/legacy-destinations.mjs` retargets both,
-and `move-doc` calls it after the drift maps. Before this, moving a page named in either left a
-legacy `docs.arbitrum.io` URL pointing at a 404 until
-`scripts/generate-legacy-redirects.test.mjs` ("every hand-written destination still names a live
-page") failed in whatever PR ran `pnpm test` next.
-
-It is a deliberate near-copy of `drift-maps.mjs` — same confinement to the named literal, same
-cross-check against the imported map, same abort-before-writing-anything, same Prettier pass — with
-three differences that come from the data:
+Three further details come from the data:
 
 - **It works in URLs, so `move-doc` hands it `fromMeta.url`/`toMeta.url`.** A partial (no URL) and a
   move that does not change the URL are both no-ops.
@@ -459,17 +449,15 @@ three differences that come from the data:
   and the value wrapped onto its own line) satisfy it. An `#anchor` on a destination is carried
   across; the closing quote sits immediately after the URL, so `/docs/get-started` cannot match
   inside `/docs/get-started/child`.
-- **It does not regenerate `redirects.legacy.mjs`, and must not.** Regenerating needs the sibling
-  `arbitrum-docs` checkout that `move-doc` deliberately does not require. Readers do not need it:
-  `move-doc` has already appended `oldUrl → newUrl` to `redirects.config.mjs`, and Next serves one
-  redirect per request, so a legacy URL still reaches the moved page in two hops. `redirects:check`
-  does need it. `redirects.legacy.mjs` still names the old URL as its destination, and the check
-  compares a destination against the routable pages without ever following a second hop, so every
-  legacy source that named the moved page reports `DEAD` until `pnpm redirects:legacy` is rerun.
-  That one-hop reading reaches the `AUTO-GENERATED` block too: an earlier move's redirect whose
-  destination is the page just moved now chains, reports `DEAD` alongside them, and regenerating the
-  legacy map does not fix that one. Retarget it to the new URL. The step prints a note saying all
-  of this.
+- **It does not retarget `redirects.legacy.mjs` itself.** Readers do not need it: `move-doc` has
+  already appended `oldUrl → newUrl` to `redirects.config.mjs`, and Next serves one redirect per
+  request, so a legacy URL still reaches the moved page in two hops. `redirects:check` does care.
+  `redirects.legacy.mjs` still names the old URL as its destination, and the check compares a
+  destination against the routable pages without ever following a second hop, so every legacy source
+  that named the moved page reports `DEAD`. That file is hand-maintained, so the fix is to retarget
+  those entries or accept the extra hop. The same one-hop reading reaches the `AUTO-GENERATED` block:
+  an earlier move's redirect whose destination is the page just moved now chains and reports `DEAD`
+  alongside them. Retarget it to the new URL. The step prints a note saying all of this.
 - **The chained `AUTO-GENERATED` entry gets its own note, and only when there is one.** The block
   holds four entries in total, so a move of any other page has nothing chained to it: asserting the
   chain unconditionally was false for 64 of the 68 pages the two maps name, and sent the mover
@@ -482,15 +470,13 @@ three differences that come from the data:
   having changed, unlike the `redirects.legacy.mjs` note above it: a chained entry is an earlier
   move's business, not the maps', and a page no legacy map names would otherwise chain in silence.
 
-**This step is written to outlive the legacy redirect generator.** The derivation half of that
-system — everything that reads an upstream checkout (`scripts/lib/upstream-pages.mjs`,
-`resolveUpstreamRepo`, `build`) — is scheduled for deletion once this repo replaces upstream and
-upstream is archived. The two maps and `resolveTarget`'s ordering are not: `docs.arbitrum.io` URLs
-have to keep resolving forever. So `legacy-destinations.mjs` imports those two named exports and
-rewrites the two literals that declare them, and reads nothing else: no `build()`, no
-`upstream.config.json`, no `vercel.json`, no checkout. Deleting the generator leaves it working
-unchanged. Should the maps ever move to a different module, the textual rewrite finds nothing and
-the cross-check throws, rather than the step silently skipping.
+**This step was written to outlive the legacy redirect generator, and did.** The derivation half of
+that system, everything that read an arbitrum-docs checkout, was deleted in FS-2706 when that repo
+was archived. The two maps were not: `docs.arbitrum.io` URLs have to keep resolving forever. Because
+`legacy-destinations.mjs` imports only those two named exports, rewrites only the two literals that
+declare them, and reads nothing else, the generator's deletion cost it no change at all. Should the
+maps ever move to a different module, the textual rewrite finds nothing and the cross-check throws,
+rather than the step silently skipping.
 
 **`VERSIONED` in `lib/versions.ts` is still on the mover, and it is worse, because nothing catches
 it.** That registry
@@ -503,97 +489,62 @@ and watching 346/346 pass with `lib/versions.ts` untouched. Retargeting it is a 
 (`archivePath` mirrors the old slug on every current entry but is not required to), so after moving
 a versioned page, retarget its `VERSIONED` key by hand.
 
-**Legacy `docs.arbitrum.io` URLs.** `pnpm redirects:legacy` regenerates `redirects.legacy.mjs`.
-Legacy URLs were served at the site root (`/stylus/using-cli`) and this site serves docs under
-`/docs`, so sources stay root-level (that is what real inbound links look like) and destinations
-are rewritten to `/docs/…`. The output is committed, so builds never need the sibling repo; only
-regeneration does. The generator locates that checkout the way `scripts/data/upstream.config.json`
-describes (`--upstream <dir>`, then `UPSTREAM_DOCS_REPO`, then `repo`, then the probe paths), so it
-runs from a worktree without a flag.
+**Legacy `docs.arbitrum.io` URLs.** `redirects.legacy.mjs` holds 853 of them. Legacy URLs were
+served at the site root (`/stylus/using-cli`) and this site serves docs under `/docs`, so sources
+stay root-level (that is what real inbound links look like) and destinations point at `/docs/…`. The
+file is committed and **hand-maintained**: add an entry by writing it, in source order, and prove the
+destination with `pnpm redirects:check`.
 
-**Two kinds of source feed in, and both flow through the same resolution order.**
+It was originally generated, from two inputs that no longer exist: the Docusaurus repo's own
+`vercel.json` redirect sources, and every canonical page URL derived from its `docs/` tree by
+reimplementing Docusaurus routing. That generator, and the `pnpm redirects:legacy` script around it,
+were deleted in FS-2706 along with the rest of the upstream coupling. What survives is
+`scripts/lib/legacy-redirects.mjs`: `MANUAL_DESTINATIONS`, `SECTION_LANDINGS`, `SECTION_RENAMES`, the
+content-tree inventory the tripwire resolves against, and the record of the resolution order below.
 
-- **Upstream's own redirect sources**, from the sibling repo's `vercel.json`: URLs upstream had
-  already moved before the migration.
-- **Upstream's canonical page URLs**, derived from its `docs/` tree by
-  `scripts/lib/upstream-pages.mjs`. These were never redirect sources anywhere, so until 2026-09-11
-  nothing mapped them and all ~289 of them would have 404'd at cutover, purely because of the
-  `/docs` prefix. They are now the larger half of the map.
+**The resolution order is how every committed entry was decided, and how a new one should be.** Each
+legacy URL took the first rule that matched, and a rule that could not decide declined rather than
+guessing.
 
-Deriving those canonical URLs means reimplementing Docusaurus's routing, because upstream sets
-`routeBasePath: '/'` and the computed slug _is_ the URL. The rules, transcribed from
-`@docusaurus/plugin-content-docs` and verified against upstream's published `/llms.txt`:
-
-- Drop the extension, and strip a `NN-` number prefix from every path segment, except date-like
-  and version-like names (`2024-06-…`, `7.0-…`), which upstream leaves alone.
-- A file named `index`, `README`, or the same as its parent directory takes the directory's URL.
-- Frontmatter `id` renames the last URL segment; frontmatter `slug` replaces the URL outright and
-  wins over `id`. Both are in use upstream (`use-supras-price-feed-oracle.mdx` serves at
-  `…/supras-price-feed`; `get-started/overview.mdx` serves at `/`).
-- `sdk/`, `api/`, `hosted-pdfs/`, `superpowers/`, any `partials/` directory, anything `_`-prefixed,
-  and `Offchain-pattern-guide.md` are not pages. This matches upstream's own
-  `nonCanonicalRoutePatterns`.
-- Category landings that exist only in `sidebars.js` (a `generated-index` link with an explicit
-  `slug`, such as `/stylus`) are real indexable URLs upstream, so they are seeded too.
-
-The generator then resolves a destination in this order, declining rather than guessing. For a
-canonical URL the target is the URL itself, because the page was live there; for a redirect it is
-the end of upstream's own chain.
-
-1. **`MANUAL_DESTINATIONS`** — hand-verified legacy destination → local page. A value may carry an
-   `#anchor`; the page part must resolve or the generator throws.
-2. **Self-URL** — the legacy path still names a live page here under `/docs`. Upstream moved the
-   page and this site did not, so serve ours. This is the rule that resolves most canonical URLs.
-3. **Section renames** — whole sections that moved wholesale (`/run-arbitrum-node` → `/run-a-node`).
-   Deep restructures are deliberately absent: their pages moved individually, so a prefix rule
-   would produce confidently-wrong destinations.
-4. **Exact title**, when exactly one local page carries the upstream page's frontmatter title
-   verbatim. Ahead of the basename, because a title identifies a page where a basename only
-   suggests one. This site pairs a `features/…/choose-X` page answering "why would I want X" with
-   a `configuration/…/X` how-to, and the two often share a basename or differ only by a `config-`
-   prefix; the basename alone kept picking the "why" half, so a reader after a procedure landed on
-   a page that has none. Declines when two local pages share the title, _and_ when two upstream
-   pages shared it, which is the same asymmetry rule 5 guards against: there the legacy path was
-   doing the disambiguating and the title cannot. Two upstream pages folded into one here may well
-   be deliberate, but that is a judgement, and judgements belong in `MANUAL_DESTINATIONS` rather
-   than being inferred from a title collision. Declining sends the source to the todo file, where
-   the tripwire makes someone decide.
-5. **Basename fallback** — accepted only when exactly one local page carries that slug _and_ the
-   basename was unique upstream too. Where the legacy path was doing the disambiguating, the
-   fallback cannot, and declines.
-6. **`SECTION_LANDINGS`**, the nearest live section, for a page upstream has and this site has not
-   ported. Not an equivalence, and last on purpose: the day the page is ported, rule 2 matches
-   first and the entry goes inert on its own.
-
-It also follows upstream's own redirect chains to their terminal destination first. Many upstream
-entries point at a URL that is itself a redirect source, up to three hops deep, so a raw
-`destination` is often not where a reader ends up.
-
-**A source that names a live route here is skipped, not emitted.** Next runs `redirects()` before
-anything renders, so such a redirect wins over the route and makes it unreachable. Upstream's
-homepage `/` is the standing example. `reservedRouteReason` in `scripts/lib/upstream-pages.mjs`
-holds the list: the root, `/llms*`, `/og`, `/api`, `/img`, the `public/` asset directories, and
-the icon and PDF files. `/docs` is checked against the content tree instead of banned wholesale.
+1. **`MANUAL_DESTINATIONS`** — hand-verified legacy destination → local page, confirmed by comparing
+   the upstream page's frontmatter title against the local candidates. A value may carry an
+   `#anchor`; the page part has to resolve.
+2. **Self-URL** — the legacy path still names a live page here under `/docs`. This resolved most of
+   the canonical URLs, which had only ever needed the `/docs` prefix.
+3. **`SECTION_RENAMES`** — whole sections that moved wholesale (`/run-arbitrum-node` →
+   `/run-a-node`). Deep restructures are deliberately absent: their pages moved individually, so a
+   prefix rule would produce confidently-wrong destinations.
+4. **Exact title**, when exactly one local page carried the upstream page's frontmatter title
+   verbatim. Ahead of the basename, because a title identifies a page where a basename only suggests
+   one. This site pairs a `features/…/choose-X` page answering "why would I want X" with a
+   `configuration/…/X` how-to, and the two often share a basename or differ only by a `config-`
+   prefix; the basename alone kept picking the "why" half, so a reader after a procedure landed on a
+   page that has none. It declined when two local pages shared the title, _and_ when two upstream
+   pages shared it, for the same reason rule 5 does: there the legacy path was doing the
+   disambiguating and the title cannot.
+5. **Basename fallback** — accepted only when exactly one local page carried that slug _and_ the
+   basename was unique upstream too.
+6. **`SECTION_LANDINGS`**, the nearest live section, for a page upstream had and this site never
+   ported. Not an equivalence, and last on purpose: the day the page is ported, rule 2 matches first
+   and the entry goes inert on its own.
 
 **The guiding rule: a redirect to a plausible-but-wrong page is worse than a 404.** It silently
 sends readers somewhere wrong, and `redirects:check` cannot catch it, because the destination
-exists.
+exists. Anything no rule resolved was left unmapped rather than pointed at a plausible page, and the
+same judgement applies to a hand-added entry.
+
+**A source that names a live route here must never be added.** Next runs `redirects()` before
+anything renders, so such a redirect wins over the route and makes it unreachable. The site root,
+`/llms*`, `/og`, `/api`, `/img`, the `public/` asset directories and the icon and PDF files are all
+in that category; `redirects:check` reports one as `SHADOWED`.
 
 **`MANUAL_DESTINATIONS` and `SECTION_LANDINGS` are hand-written, so a test pins them against the
-content tree.** The generator throws when an entry it _reaches_ names a missing page, but it only
-reaches an entry whose source is in upstream's corpus on that run, so an orphaned entry would
-otherwise rot silently into a redirect to a 404. `pnpm test` walks `content/docs` and asserts every
-non-external value in both maps still resolves — the same guard, for the same reason, as the one the
-drift allowlists carry. `pnpm move-doc` now retargets both maps in the same run as the move (see
-[Moved pages](#redirects)), so the test guards against a hand edit and against a page that leaves
-the tree some other way, not against the mover.
-
-Anything unresolvable lands in `redirects.legacy.todo.json`. **That file reached `[]` on
-2026-08-31, stayed `[]` when canonical URLs were added on 2026-09-11, and is a tripwire, not a
-backlog.** A non-empty todo after a regeneration means upstream added a page or a redirect this
-site cannot resolve; map it in `MANUAL_DESTINATIONS` (or `SECTION_LANDINGS`, when this site has no
-such page yet), confirming the upstream page's frontmatter title against the local candidates,
-rather than leaving it parked.
+content tree.** An orphaned entry would otherwise rot silently into a redirect to a 404.
+`pnpm test` walks `content/docs` and asserts every non-external value in both maps still resolves.
+Since the generator was deleted this is the only automated check on either map that runs without a
+server, which is why `pnpm move-doc` retargets both in the same run as the move (see
+[Moved pages](#redirects)); the test now guards against a hand edit and against a page leaving the
+tree some other way, not against the mover.
 
 `pnpm redirects:check` validates every destination against `/llms.txt` — the router's own page
 list — and fails on a dead destination or a source that shadows a live page. It needs the site
@@ -789,6 +740,12 @@ site instead.
 **not** the page contract. It is surfaced by `<Reference>`, `<Term>`, and `<ReferenceList>` via the
 registry in `lib/references.ts`.
 
+**It is hand-maintained here.** Until FS-2706 a script resynced it from the Docusaurus repo's
+glossary partials on demand; that repo is archived and the script is gone, so a new term is written
+as a new `.mdx` file in this directory and nothing else has to happen. `pnpm references:check`
+proves every `<Term id>` and `<Reference>` names a real entry, which is the only gate over this
+collection.
+
 New reference types add a collection plus one registry entry.
 
 ## Custom MDX components
@@ -924,7 +881,7 @@ measured from disk, and `onError` stays at its default `error`, so a missing or 
 `.node-version` is the one that makes a fresh machine and a fresh Vercel build agree without anyone
 remembering to configure it. Vercel reads it on every build and pins the runtime to that major;
 without it Vercel uses its own current default, which is ahead of `engines` and drifts again each
-time Vercel moves. Upstream `arbitrum-docs` carries the same file with the same content.
+time Vercel moves.
 
 **The Vercel project setting still has to be set to Node.js 22.x by hand** (Settings, then Build and
 Deployment, then Node.js Version). `.node-version` pins the build; the project setting is what the
@@ -1064,11 +1021,9 @@ is gone: the build no longer touches the network for images (see
 this job into `Gates` is now possible and wants its own change, not least because a full build is
 the slowest job here.
 
-**Run by hand only:** `cli:check`, `stylus:check`, `redirects:legacy`, and the network mode of
-`images:check`.
+**Run by hand only:** `cli:check`, `stylus:check`, and the network mode of `images:check`.
 `images:check` reaches out to third-party hosts, so its result depends on somebody else's uptime;
-its offline sibling `images:presence` does run in CI. `drift` is worth running by hand for a local
-check but is no longer manual-only: the `drift` job below runs it weekly. `redirects:check` is no
+its offline sibling `images:presence` does run in CI. `redirects:check` is no
 longer hand-only for a PR either — it runs as the last step of the `Build` job, against `next start`
 on localhost (see [Redirects](#redirects)). It is not in the blocking `Gates` job because it needs a
 running site, and the only cheap way to get one is to reuse the build that `Build` already does;
@@ -1076,34 +1031,19 @@ promoting `Build` promotes it too. It is still available by hand with `--base-ur
 `pnpm dev` or any other URL.
 
 `upstream-refresh.yml` runs Mondays at 08:00 UTC and on `workflow_dispatch`, in two independent
-jobs:
+jobs. **"Upstream" in its name means the pinned Nitro release, go-ethereum, the `@arbitrum/sdk`
+network registry and `offchainlabs/stylus-by-example`.** It has not meant the Docusaurus repo since
+FS-2706 deleted the third job, `drift`, which compared the two content trees and maintained an
+"Upstream drift" issue from the result.
 
 - **`refresh`** runs `nitro:check-release`, then `precompiles:generate`, `contracts:generate` and
   `cli:generate`, opening `automated/upstream-refresh` as a PR if anything changed. It never writes
   to `main` and no-ops when the tree is clean.
-- **`drift`** clones the still-live `arbitrum-docs`, runs `upstream-drift.mjs` against it, and keeps
-  a single issue titled "Upstream drift" in sync with the report: created or its body replaced while
-  anything is absent or gutted, commented and closed once the report comes back empty. It holds
-  `issues: write` and nothing else. **It is deleted at cutover (plan M-52)**, when there is no longer
-  an upstream to drift from.
+- **`stylus`** regenerates `content/docs/stylus/stylus-by-example/`, runs `ci.yml`'s whole `Gates`
+  list against the result, and only then opens `automated/stylus-by-example` as its own PR.
 
-The two jobs have no `needs` between them on purpose, so a failing generator never hides a drift
-report and a missing upstream clone never blocks the refresh PR.
-
-`upstream-drift.mjs` exits 1 both when it finds drift and when it refuses to run at all (missing
-tree, or a clone stale enough to under-report), so the job cannot read the exit code alone. It
-requires the `N absent, M gutted` summary to appear somewhere on stdout; anything else fails the job
-instead of closing the issue on a report that never happened. **Match that line anywhere, and keep
-its suffix optional.** The script prints a `comparing against <path>` line ahead of it, so a guard
-pinned to line one never matches, and it appends `, N stale allowlist` exactly when an exemption has
-expired, so a guard anchored at `gutted$` rejects the one case the report most needs to deliver.
-Two details of the clone are equally load-bearing and easy to get wrong:
-
-- It is cloned `--filter=blob:none`, **not** `--depth 1`. The report splits absent pages into DRIFT
-  (added upstream after the port window) and MISS (should already have been ported) using
-  `git log --diff-filter=A`, which a depth-1 clone cannot answer, so everything would come back MISS.
-- `git clone` never writes `.git/FETCH_HEAD`, and `lib/git-freshness.mjs` treats a clone that has
-  never fetched as an untrustworthy baseline. The job runs an explicit `git fetch` afterwards.
+The two jobs have no `needs` between them on purpose, so a failing generator never hides the other
+job's result.
 
 The three generators' `--check` modes sit in three different places, because they are not the same
 kind of check.
@@ -1189,9 +1129,9 @@ flags page these are generated whole, frontmatter included, so there is nothing 
 owns — a fix belongs upstream, or in `scripts/data/stylus-examples.data.mjs`.
 
 They arrived here as a hand port of an arbitrum-docs pipeline
-(`scripts/sync-stylus-content.js` plus a `stylus-content` job in `update-external-content.yml`)
-that does not survive that repo being archived. Without the port, an edit upstream reached this
-site through nobody and nothing, and nobody would have been told.
+(`scripts/sync-stylus-content.js` plus a `stylus-content` job in `update-external-content.yml`),
+which did not survive that repo being archived. Without the port, an edit in stylus-by-example would
+have reached this site through nobody and nothing, and nobody would have been told.
 
 Six things about it are worth knowing:
 
@@ -1202,9 +1142,8 @@ Six things about it are worth knowing:
   the moment an unrelated repository edited a page. The `stylus` job in
   [`upstream-refresh.yml`](.github/workflows/upstream-refresh.yml) runs it weekly instead, where a
   change becomes a PR on `automated/stylus-by-example`. That is its own job on its own branch, not
-  another step in `refresh`, for the reason `drift` is independent too: a failure here must not
-  hide a Nitro pin bump, and nineteen pages of changed prose in the same PR as a regenerated
-  address table is a PR nobody reviews.
+  another step in `refresh`: a failure here must not hide a Nitro pin bump, and nineteen pages of
+  changed prose in the same PR as a regenerated address table is a PR nobody reviews.
 - **That job runs the blocking gates itself**, between the generator and the pull request, and
   that is not belt-and-braces. A pull request opened with `GITHUB_TOKEN` triggers no workflow
   runs — GitHub's own rule, so a workflow cannot recurse — and `ci.yml` fires only on
@@ -1283,93 +1222,6 @@ one:
   for a full regenerate-and-typecheck pass.
 
 The hook skips entirely when `CI=true` (CI already runs the full `Gates` job) and when `HUSKY=0`.
-
-## Upstream drift
-
-`pnpm drift` compares this repo against the upstream Docusaurus tree
-(`OffchainLabs/arbitrum-docs`) and reports two things: **ABSENT**, an upstream page with no
-counterpart here, and **GUTTED**, a page whose body here is under 70% of the upstream body.
-
-**Finding the upstream checkout.** `scripts/lib/upstream-tree.mjs` resolves it from
-`scripts/data/upstream.config.json`, first hit wins:
-
-1. `--tree-a <path>`, which names the docs tree itself, resolved against the cwd
-2. `UPSTREAM_DOCS_REPO`, which names the repo root, resolved against the cwd
-3. `repo` in the config, resolved against **this repo's root**
-4. `probePaths` in the config, in order, resolved against this repo's root
-
-Config paths resolve against the repo root rather than the cwd because the checkout's position
-relative to this repo is fixed while the cwd is not: the sibling clone sits at `../arbitrum-docs`
-from the main checkout and `../../arbitrum-docs` from a worktree, and both are in `probePaths`. So
-clone `arbitrum-docs` next to this repo and `pnpm drift` needs no arguments from anywhere.
-
-**Pairing happens across the whole tree at once, not file by file.** `pairTrees` makes two passes:
-directory-qualified matches first, each claiming its local file, then the bare-slug fallback for
-whatever is left, never onto a file the first pass already claimed. One local file therefore pairs
-with at most one upstream page.
-
-**One local file pairs with at most one upstream page, in both passes.** The claim rule is not just
-a tie-breaker for the fallback: two upstream pages can land on the same local file through the
-directory match too, once a rename points them there. The single exception is a deliberate
-two-into-one port, which both sides declare with `merge: true` in `RENAME_MAP` (upstream splits
-batch-poster and assertion config across two pages; the port combined them). Without that flag the
-collision is treated as accidental and the later page reports ABSENT, which is the honest answer,
-because the tool cannot tell on its own whether the second page's content survived inside the first.
-
-This matters because upstream keeps a concept page and a how-to page under the same basename:
-`arbos`, `stf`, and `batchposter` versus `batch-poster`. Resolving one path at a time, the concept
-page paired correctly by directory and the how-to page then grabbed the **same** local file through
-the fallback. The report called three ported pages GUTTED at 0.12, 0.20 and 0.48, purely because it
-was measuring a how-to against a concept page, and hid three unported how-tos behind those ratios.
-One mispairing, two wrong answers, in opposite directions. A fourth case was quieter still:
-upstream's `chain-config/costs/gas-optimization.mdx` paired against the unrelated Stylus
-`best-practices/gas-optimization.mdx`, whose line count happened to clear 70%, so it produced no
-finding at all. All four turned out to be plain renames once pairing was fixed.
-
-**Three mechanisms change what the report says, and they are deliberately not one mechanism:**
-
-| Mechanism         | Where                               | Means                                                        |
-| ----------------- | ----------------------------------- | ------------------------------------------------------------ |
-| `RENAME_MAP`      | `scripts/lib/tree-compare.mjs`      | The page was ported under a different name                   |
-| `absentAllowlist` | `scripts/data/upstream.config.json` | The page was deliberately never ported                       |
-| `guttedAllowlist` | `scripts/data/upstream.config.json` | The page was ported at parity; only the line count disagrees |
-
-`RENAME_MAP` makes a page pair up so it is actually compared, which is the opposite of suppressing
-it. The two allowlists suppress a verdict, and they stay separate because they are earned
-differently. Absent-exempt means the content is not here on purpose. Gutted-exempt means the content
-**is** here and the 70% ratio is counting Docusaurus `import` lines and inline grid boilerplate the
-port does not carry. One combined list would let an exemption earned for one reason quietly cover
-the other.
-
-Every allowlist entry carries its reason, every `guttedAllowlist` entry also names its local
-counterpart, and the script lists what it suppressed under `ALLOWED` rather than hiding it. Tests
-pin both allowlists to their current contents and assert that every `RENAME_MAP` target and every
-`local` path is a file that exists — so growing a list is a visible decision, and an entry that rots
-into a no-op after a page moves fails the suite instead of quietly regrowing a false positive.
-
-An absent-exempt page is still compared for GUTTED when a counterpart exists, so an exemption can
-never hide content loss in whichever page absorbed it.
-
-**Exemptions expire, by design.** Each allowlist entry records `reviewedUpstreamSha`, the git blob
-hash of the upstream page as it read when a human granted the exemption. Drift recomputes that hash
-on every run and re-flags the pair as `STALE-ALLOWLIST`, failing the run, once upstream edits the
-page. An exemption is a judgement about one version of a page, not about the page forever, and
-without an expiry the surest way to hide a real future gap would be to have already allowlisted the
-page it lands in. An entry with no recorded hash counts as stale, so an entry added without one
-demands a review rather than being trusted. To clear a stale entry, read both pages again and either
-update the hash with `git -C ../arbitrum-docs hash-object docs/<path>` or drop the entry.
-
-**Prefer a rename over an exemption whenever one is available.** `01-stf-gentle-intro.mdx` sat in
-`absentAllowlist` on the theory that it had been absorbed into `deep-dives/stf.mdx`. Once pairing
-was fixed it turned out to be an ordinary rename at ratio 1.74, so it moved to `RENAME_MAP`, where
-the two pages get compared on every run instead of one of them being skipped. An exemption stops
-looking; a rename keeps looking.
-
-**The baseline has to be fresh.** A stale upstream clone does not make the comparison fail, it makes
-it lie: everything upstream changed after the last fetch looks identical to ours. `drift` refuses to
-run against a clone that has not fetched in 24 hours or is behind its upstream branch, so run
-`git -C ../arbitrum-docs fetch` first if it has been a while. This guard is the reason drift can be
-trusted at all, so do not route around it.
 
 ## What nothing catches
 
