@@ -14,11 +14,13 @@ name: Upstream refresh
 # rather than running `nitro --help`, precisely so this job stays a plain Node job.
 #
 # The second job, `stylus`, regenerates the Stylus by Example pages from the third-party repo
-# they are republished from, onto its own branch. The third, `drift`, compares this repo's
-# content tree against the still-live arbitrum-docs and keeps a single "Upstream drift" issue in
-# sync with the result. All three are independent, with no `needs` between them, so a failed
-# generator never hides another job's result. `drift` exists only while both sites are live:
-# DELETE THE `drift` JOB AT CUTOVER (plan M-52), along with the issue it maintains.
+# they are republished from, onto its own branch. The two are independent, with no `needs` between
+# them, so a failed generator never hides the other job's result.
+#
+# "Upstream" here means the pinned Nitro release, go-ethereum, the @arbitrum/sdk network registry
+# and offchainlabs/stylus-by-example. It no longer means the Docusaurus arbitrum-docs repo: the
+# third job, `drift`, compared this repo's content tree against that one and was deleted with the
+# rest of the coupling when this repo replaced it (FS-2706).
 
 on:
   schedule:
@@ -238,121 +240,3 @@ jobs:
             Every blocking gate ran inside the `stylus` job against this exact tree before the
             PR was opened, and the run had to be green to get here:
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-  # Removed at cutover (plan M-52): once arbitrum-docs is frozen there is nothing to drift from.
-  drift:
-    name: Report upstream drift
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read # reads this repo only; the upstream clone is public and unauthenticated
-      issues: write # maintains the single "Upstream drift" issue
-    env:
-      # A sibling of the checkout, matching the local layout upstream-drift.mjs expects.
-      UPSTREAM_DIR: ${{ github.workspace }}/../arbitrum-docs
-      ISSUE_TITLE: Upstream drift
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      # No pnpm and no install: upstream-drift.mjs and everything it reaches
-      # (lib/git-freshness.mjs, lib/tree-compare.mjs, lib/upstream-tree.mjs) import only `node:`
-      # builtins and each other, so the dependency tree is never touched. `refresh` above is the
-      # job that needs the install.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22
-
-      # `--filter=blob:none` rather than `--depth 1`: the report labels each absent page DRIFT
-      # (added upstream after the port window) or MISS (should have been ported), and it reads
-      # that date from `git log --diff-filter=A`. A depth-1 clone has no history, so every
-      # absent page would come back MISS and the distinction that makes the report actionable
-      # would be gone. A blobless clone keeps the history at roughly the same download size.
-      #
-      # The explicit `fetch` afterwards is not redundant. scripts/lib/git-freshness.mjs refuses
-      # to run against a clone with no `.git/FETCH_HEAD`, on the grounds that a stale baseline
-      # under-reports drift rather than failing, and `git clone` alone never writes that file.
-      - name: Clone the upstream docs
-        run: |
-          git clone --filter=blob:none --quiet \
-            https://github.com/OffchainLabs/arbitrum-docs.git "$UPSTREAM_DIR"
-          git -C "$UPSTREAM_DIR" fetch --quiet origin
-
-      # upstream-drift.mjs exits 1 both when it finds drift and when it refuses to run (missing
-      # tree, untrustworthy baseline), so the exit code alone cannot be trusted. A completed run
-      # always prints a counts line; anything else is an environment failure and fails the job
-      # rather than quietly closing the issue.
-      #
-      # Match that line anywhere in the report, not at a fixed offset: the script prints a
-      # "comparing against <path>" line ahead of it. And keep the stale-allowlist suffix
-      # optional, because the script appends ", N stale allowlist" exactly when an exemption has
-      # expired, which is the case this job most needs to report rather than choke on.
-      - name: Compare the content trees
-        id: drift
-        run: |
-          set +e
-          node scripts/upstream-drift.mjs --tree-a "$UPSTREAM_DIR/docs" > drift-report.txt 2> drift-errors.txt
-          status=$?
-          set -e
-          if ! grep -qE '^upstream-drift: [0-9]+ absent, [0-9]+ gutted(, [0-9]+ stale allowlist)?$' drift-report.txt; then
-            echo "upstream-drift produced no report (exit $status):"
-            cat drift-errors.txt
-            exit 1
-          fi
-          cat drift-report.txt
-          if [ "$status" -eq 0 ]; then
-            echo 'has_drift=false' >> "$GITHUB_OUTPUT"
-          else
-            echo 'has_drift=true' >> "$GITHUB_OUTPUT"
-          fi
-
-      # zizmor: ignore[superfluous-actions]
-      # `gh` is preinstalled on the runner, so this needs no action and no new pinned SHA.
-      - name: Open, update, or close the drift issue
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HAS_DRIFT: ${{ steps.drift.outputs.has_drift }}
-          REPO: ${{ github.repository }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          number=$(gh issue list --repo "$REPO" --state open --search "$ISSUE_TITLE in:title" \
-            --json number,title --jq "[.[] | select(.title == \"$ISSUE_TITLE\")][0].number // empty")
-
-          if [ "$HAS_DRIFT" = 'true' ]; then
-            {
-              echo "Reported by the \`upstream-refresh\` workflow on $(date -u '+%Y-%m-%d')."
-              echo
-              echo 'ABSENT is a page that exists upstream with no counterpart here. GUTTED is a page'
-              echo 'whose body here is under 70% of the upstream body. DRIFT means the page was added'
-              echo 'upstream after the port window closed; MISS means it should already have been ported.'
-              echo 'STALE-ALLOWLIST means upstream edited a page whose exemption a human granted against'
-              echo 'an older revision: re-read both pages, then either update reviewedUpstreamSha in'
-              echo 'scripts/data/upstream.config.json or drop the entry. It is not a porting task.'
-              echo
-              echo '```'
-              # Drop the leading "comparing against <path>" line: on a runner that path is an
-              # absolute workspace directory and means nothing to a human reading the issue.
-              tail -n +2 drift-report.txt
-              echo '```'
-              echo
-              echo "Reproduce locally with \`pnpm drift --tree-a <arbitrum-docs>/docs\`. [Workflow run]($RUN_URL)"
-              echo
-              echo 'This issue is maintained automatically: the body is replaced on every run, so do not'
-              echo 'edit it. It closes itself when the report comes back empty. Do not close it by hand'
-              echo 'either: the next run would open a second one rather than reopening this.'
-            } > issue-body.md
-
-            if [ -n "$number" ]; then
-              gh issue edit "$number" --repo "$REPO" --body-file issue-body.md
-              echo "updated issue #$number"
-            else
-              gh issue create --repo "$REPO" --title "$ISSUE_TITLE" --body-file issue-body.md
-            fi
-          elif [ -n "$number" ]; then
-            gh issue comment "$number" --repo "$REPO" \
-              --body "No absent or gutted pages as of $(date -u '+%Y-%m-%d'). Closing. [Workflow run]($RUN_URL)"
-            gh issue close "$number" --repo "$REPO"
-            echo "closed issue #$number"
-          else
-            echo 'no drift and no open issue; nothing to do'
-          fi

@@ -208,7 +208,7 @@ export async function assertLegacyDestinationsRewrite(
           `was reformatted (double quotes, a template literal, or a differently shaped declaration) ` +
           `and no longer matches. Retarget the entries by hand, then teach rewriteDestinationMap the ` +
           `new shape. Nothing was written; move-doc runs this step last, so in a real run the file ` +
-          `move, the link rewrites, meta.json, the redirect and the drift maps have already landed.`,
+          `move, the link rewrites, meta.json and the redirect have already landed.`,
       );
     }
   }
