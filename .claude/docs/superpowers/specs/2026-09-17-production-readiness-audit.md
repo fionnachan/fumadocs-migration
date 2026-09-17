@@ -157,7 +157,7 @@ archived-version paths prerender. The "Known trade-off (not a bug)" section of C
 docs pages are never prerendered and that `export const dynamic = 'force-dynamic'` is load-bearing, is now
 stale and describes the pre-FS-2698 world. **No ticket is proposed for it**: the in-flight FS-2688 branch
 `fs-2688-server-render-docs-404` already renames that heading to "Static routing under `/docs`", replaces
-the body, and rewrites the matching 285-line INTERNALS.md section. See "Already covered, no new ticket".
+the body, and rewrites the matching INTERNALS.md section (169 insertions, 116 deletions). See "Already covered, no new ticket".
 
 The 352 versus 349 difference is exactly the three archived paths, `/docs/run-a-node/start-here/v1`,
 `/docs/run-a-node/run-batch-poster/v1` and `/docs/run-a-node/nitro/build-nitro-locally/v1`. All three serve 200. None of them has an OG image or a markdown mirror (`/og/...` and `/...v1.md` both 404), which is
@@ -671,7 +671,7 @@ Each entry was checked against the specific ticket named, not against the ticket
 
 - **CLAUDE.md's "Known trade-off" section, which FS-2698 made false.** Already covered by **FS-2688**
   (in flight, branch `fs-2688-server-render-docs-404`), which renames that heading to "Static routing
-  under `/docs`", replaces the body, and rewrites the matching 285-line INTERNALS.md section. Confirmed by
+  under `/docs`", replaces the body, and rewrites the matching INTERNALS.md section (169 insertions, 116 deletions). Confirmed by
   reading that branch's diff against `fork/main`. Filing a ticket here would put a second agent into the
   same paragraphs of the file every agent in this repo reads first.
 - **Three broken Stylus verification images.** Confirmed in the browser (three `naturalWidth === 0`, three
