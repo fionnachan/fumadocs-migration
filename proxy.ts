@@ -144,6 +144,38 @@ function trackRequest(request: NextRequest, event: NextFetchEvent, path: string)
 export default function proxy(request: NextRequest, event: NextFetchEvent) {
   const path = request.nextUrl.pathname;
 
+  // 0. Legacy `?v=<id>`: archived versions moved from a query string onto a path suffix
+  //    (`/docs/<slug>/v1`, FS-2698), because reading `?v=` from `searchParams` made every one of
+  //    the docs pages render on demand. A redirect rather than a rewrite, so a link somebody
+  //    already shared lands on the URL that is canonical now.
+  //
+  //    An id naming no registered archive — `latest`, a typo, an archive that has since been
+  //    retired — is dropped instead of being put on the path. The docs route carries
+  //    `dynamicParams = false` now, so `/docs/<slug>/nonsense` would 404, where the contract has
+  //    always been that an unknown version falls back to Latest. Deleting the param is also what
+  //    stops this redirect looping back into itself.
+  //
+  //    `.md` is carried across rather than skipped: an archive has its own markdown mirror since
+  //    FS-2711, so `/docs/<slug>.md?v=v1` belongs at `/docs/<slug>/v1.md` and no longer has to be
+  //    answered with the live page's text.
+  //
+  //    **Ahead of `trackRequest`, unlike everything else here.** A 308 carries no markdown body,
+  //    and the reader's follow-up request to the destination is tracked on its own, so counting
+  //    this hop counts a fetch that delivered nothing, and counts it under the live page's path
+  //    when the reader asked for an archive. Nothing in the bypass list below starts with
+  //    `/docs/`, so running this first cannot swallow one of those routes.
+  const requestedVersion = request.nextUrl.searchParams.get(VERSION_PARAM);
+  if (requestedVersion && path.startsWith(`${docsRoute}/`)) {
+    const target = new URL(request.nextUrl);
+    target.searchParams.delete(VERSION_PARAM);
+    const markdown = path.endsWith('.md');
+    const slug = path.slice(docsRoute.length + 1, markdown ? -'.md'.length : undefined);
+    if (isArchiveId(slug, requestedVersion)) {
+      target.pathname = `${docsRoute}/${slug}/${requestedVersion}${markdown ? '.md' : ''}`;
+    }
+    return NextResponse.redirect(target, 308);
+  }
+
   // Before the bypass list: `/llms.txt`, `/llms-full.txt` and the `/llms.mdx/` mirrors are all
   // served verbatim below, and they are exactly the fetches worth counting. A rewrite does not
   // re-enter the proxy, so a `/docs/x.md` request is counted here once, not again as the
@@ -176,29 +208,6 @@ export default function proxy(request: NextRequest, event: NextFetchEvent) {
     path.startsWith('/api/')
   ) {
     return NextResponse.next();
-  }
-
-  // 0. Legacy `?v=<id>`: archived versions moved from a query string onto a path suffix
-  //    (`/docs/<slug>/v1`, FS-2698), because reading `?v=` from `searchParams` made every one of
-  //    the docs pages render on demand. A redirect rather than a rewrite, so a link somebody
-  //    already shared lands on the URL that is canonical now.
-  //
-  //    An id naming no registered archive — `latest`, a typo, an archive that has since been
-  //    retired — is dropped instead of being put on the path. The docs route carries
-  //    `dynamicParams = false` now, so `/docs/<slug>/nonsense` would 404, where the contract has
-  //    always been that an unknown version falls back to Latest. Deleting the param is also what
-  //    stops this redirect looping back into itself.
-  //
-  //    `.md` paths are left alone: archives have no markdown mirror, `/docs/<slug>.md/v1` is not a
-  //    path, and the suffix rewrite below already ignores the query string exactly as it does today.
-  const requestedVersion = request.nextUrl.searchParams.get(VERSION_PARAM);
-  if (requestedVersion && path.startsWith(`${docsRoute}/`) && !path.endsWith('.md')) {
-    const target = new URL(request.nextUrl);
-    target.searchParams.delete(VERSION_PARAM);
-    if (isArchiveId(path.slice(docsRoute.length + 1), requestedVersion)) {
-      target.pathname = `${path}/${requestedVersion}`;
-    }
-    return NextResponse.redirect(target, 308);
   }
 
   // 1. `.md` on a legacy URL: redirect to the destination's `.md`. Must precede the suffix

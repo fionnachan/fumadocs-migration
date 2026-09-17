@@ -45,6 +45,13 @@ export interface VersionedEntry {
   toc: TOCItemType[];
   info: { path: string; fullPath: string };
   /**
+   * The archive's own text. `'processed'` is the post-remark markdown the collection embeds under
+   * `postprocess.includeProcessedMarkdown` in source.config.ts, and is what the archive's markdown
+   * mirror serves (FS-2711). It rejects rather than resolving when that option is off, so the two
+   * belong together.
+   */
+  getText: (type: 'raw' | 'processed') => Promise<string>;
+  /**
    * Last git commit that touched the archive file, from the collection's `lastModified` option.
    * Absent when the checkout has no full git history (see `hasFullGitHistory` in source.config.ts).
    */
