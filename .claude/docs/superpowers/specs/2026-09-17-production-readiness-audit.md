@@ -13,13 +13,13 @@ sampled pages against the ticket's bar of 90.
 
 ## Environment
 
-| Item              | Value                                                                                           |
-| ----------------- | ----------------------------------------------------------------------------------------------- |
-| Branch            | `fs-2677-readiness-audit`, head `606e174` (identical to `fork/main`)                            |
-| Worktree          | `/Users/fionna/offchain/Fumadocs-wt/fs-2677-readiness-audit`                                    |
-| Node              | v22.23.1, pnpm 10.29.3                                                                          |
-| Upstream checkout | `/Users/fionna/offchain/arbitrum-docs`, HEAD `d0182a487` (declared freeze commit was `6a2738f`) |
-| Server under test | local `pnpm build` then `npx next start -p 3136`                                                |
+| Item              | Value                                                                                                                                      |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Branch            | `fs-2677-readiness-audit`. Every measurement below was taken at base commit `606e174` (`fork/main`); this report is committed on top of it |
+| Worktree          | `/Users/fionna/offchain/Fumadocs-wt/fs-2677-readiness-audit`                                                                               |
+| Node              | v22.23.1, pnpm 10.29.3                                                                                                                     |
+| Upstream checkout | `/Users/fionna/offchain/arbitrum-docs`, HEAD `d0182a487` (declared freeze commit was `6a2738f`)                                            |
+| Server under test | local `pnpm build` then `npx next start -p 3136`                                                                                           |
 
 **Local, not a Vercel preview.** No preview deployment was available, so every check below ran against a
 local production build. `NEXT_PUBLIC_SITE_URL` was unset, so `getSiteUrl()` fell back to
@@ -155,7 +155,9 @@ No warnings or errors in the log.
 **The docs route is now `● (SSG)`, not `ƒ (Dynamic)`.** FS-2698 landed, so 349 live docs pages plus three
 archived-version paths prerender. The "Known trade-off (not a bug)" section of CLAUDE.md, which states that
 docs pages are never prerendered and that `export const dynamic = 'force-dynamic'` is load-bearing, is now
-stale and describes the pre-FS-2698 world.
+stale and describes the pre-FS-2698 world. **No ticket is proposed for it**: the in-flight FS-2688 branch
+`fs-2688-server-render-docs-404` already renames that heading to "Static routing under `/docs`", replaces
+the body, and rewrites the matching 285-line INTERNALS.md section. See "Already covered, no new ticket".
 
 The 352 versus 349 difference is exactly the three archived paths, `/docs/run-a-node/start-here/v1`,
 `/docs/run-a-node/run-batch-poster/v1` and `/docs/run-a-node/nitro/build-nitro-locally/v1`. All three serve 200. None of them has an OG image or a markdown mirror (`/og/...` and `/...v1.md` both 404), which is
@@ -169,6 +171,32 @@ Run with `npx lighthouse@latest`, `CHROME_PATH` pointed at the Playwright Chrome
 used; Lighthouse accepted the full Chrome for Testing binary. A fourth intended page,
 `/docs/how-arbitrum-works/a-gentle-introduction`, does not exist on this site (404), so
 `/docs/run-a-node/nitro/cli-flags-reference` and `/docs/stylus` were used instead.
+
+**Settings, read back from the saved report JSON** (`configSettings` and `environment`), since no preset
+flag was passed and these are all Lighthouse defaults:
+
+| Setting             | Value                                                                                |
+| ------------------- | ------------------------------------------------------------------------------------ |
+| Lighthouse version  | 13.4.1                                                                               |
+| Form factor         | `mobile` (the default; **not** desktop)                                              |
+| Screen emulation    | 412 x 823 CSS px at DPR 1.75, mobile emulation enabled                               |
+| Emulated user agent | `Chrome/136.0.0.0 Mobile Safari/537.36` on `Android 11; moto g power (2022)`         |
+| Throttling method   | `simulate` (Lighthouse's simulated slow 4G, not the DevTools or provided methods)    |
+| Throttling values   | RTT 150 ms, throughput 1638.4 Kbps, request latency 562.5 ms, CPU slowdown 4x        |
+| Runs per page       | 1 (CLI default; the three scores are single runs, not a median)                      |
+| Host benchmark      | `benchmarkIndex` 2824.5 to 2891 across the runs, on HeadlessChrome 149 / macOS arm64 |
+| Locale / channel    | `en-US`, `cli`, `gatherMode: navigation`                                             |
+
+**A preview rerun must use these same settings to produce a comparable number.** The mobile default with
+4x CPU slowdown is far harsher than the desktop preset, and the gap between the two presets is routinely
+larger than the ten points between 80 and the bar of 90. The exact invocation to repeat:
+
+```bash
+CHROME_PATH="<Chrome for Testing binary>" npx lighthouse@13.4.1 <preview-origin>/<path> \
+  --output=json --output-path=<file>.json \
+  --only-categories=performance,accessibility,best-practices,seo \
+  --chrome-flags="--headless=new --no-sandbox --disable-gpu"
+```
 
 | Page                                         | Performance | Accessibility | Best practices | SEO |
 | -------------------------------------------- | ----------- | ------------- | -------------- | --- |
@@ -292,9 +320,15 @@ From `/docs/third-party-docs/Venly/venly`, whose source line 10 is `## [Venly](h
 ```
 
 The HTML parser cannot nest anchors, so it splits them and the client tree no longer matches the server
-tree. Sixty-seven headings across twelve source files carry a markdown link, and
-`/docs/build-decentralized-apps/quickstart-solidity-remix` adds a thirteenth case through a bare autolinked
-URL in a heading (`1. Load Remix: https://remix.ethereum.org`).
+tree. Sixty-nine heading lines across twelve source files carry a markdown link, counted with
+
+```
+grep -rEn '^#{1,6} .*\[.*\]\(' content/docs content/partials --include='*.mdx'
+```
+
+which returns 69 matching lines in 12 files. `/docs/build-decentralized-apps/quickstart-solidity-remix`
+adds a thirteenth affected page through a bare autolinked URL in a heading
+(`1. Load Remix: https://remix.ethereum.org`), which that grep does not match.
 
 Files:
 
@@ -380,9 +414,13 @@ Hand-written `meta.json` titles that read wrong in the rendered sidebar:
 
 - No page shows `[object Object]`, `<Var` or `{/*` in rendered content.
 - No horizontal overflow on any of the seventeen landings at either 1440 px or 390 px.
-- Light and dark themes both render correctly on every landing inspected. The announcement banner, hero,
-  card grids, sidebar, table of contents and footer all invert cleanly. Screenshots read for `/`,
-  `/docs/stylus`, `/docs/run-a-node`, `/docs/audit-reports` and `/docs/third-party-docs` in both themes.
+- **Ten of the 54 captures were read by eye**, five pages in both themes: `/`, `/docs/stylus`,
+  `/docs/run-a-node`, `/docs/audit-reports` and `/docs/third-party-docs`. On those ten, light and dark
+  both render correctly and the announcement banner, hero, card grids, sidebar, table of contents and
+  footer all invert cleanly. The other 44 captures were not looked at; those page-theme combinations were
+  checked programmatically only, for HTTP status, `pageerror` and console errors, the `:::`,
+  `[object Object]`, `<Var` and `{/*` text signals, and `img` elements with `naturalWidth === 0`. A theme
+  defect that produces none of those signals would not have been caught outside the ten.
 - Dev mode also surfaces `Each child in a list should have a unique "key" prop. Check the render method of
 Header. It was passed a child from Layout.` on every page. React emits key warnings in development only,
   so this does not reach production users, but it is a real code defect somewhere in the navbar children
@@ -569,7 +607,7 @@ of any open ticket; FS-2668 completed social metadata for docs pages only.
 **Severity: high.** Eighteen of 350 routes throw React error #418 (hydration failure) in a production build,
 which makes React discard and re-render the affected subtree on the client. Reproduce by loading any page
 in the list in section 6 with a console open. Three causes: a markdown or autolinked URL inside a heading
-produces nested `<a>` (thirteen pages, sixty-seven headings across twelve files), a hand-written `<p>`
+produces nested `<a>` (thirteen pages, sixty-nine heading lines across twelve files), a hand-written `<p>`
 around markdown prose produces `<p>` inside `<p>` (four DAC and DAS pages), and a raw `<table>` with `<tr>`
 children and no `<tbody>` (`content/docs/arbitrum-bridge/usdc-arbitrum-one.mdx:17`). No gate catches any of
 them; `types:check`, `check-links` and `content:lint` all pass. The fix is editorial in the content plus a
@@ -605,12 +643,19 @@ duplicate.
 
 ### 6. Rewrite the admonition section of the contribute guide for Fumadocs
 
-**Severity: low.** `/docs/contribute` still teaches contributors Docusaurus admonition syntax. Three code
-blocks in `content/partials/_contribute-docs-partial.mdx` (from line 204) show `:::caution`, `:::info` and
-friends as the way to write a banner, and the surrounding prose links to the Docusaurus admonitions docs.
-That syntax does not render on this site and `content:lint` rule A1 rejects it, so the guide instructs
-contributors to write something CI will refuse. Overlaps **FS-2708** ("Port the editorial style guide and
-fix CONTRIBUTE.md's stale pointer"), which is in progress; fold this in there if the scope fits.
+**Severity: low.** `/docs/contribute` still teaches contributors Docusaurus admonition syntax. Under the
+"Banner conventions" heading of `content/partials/_contribute-docs-partial.mdx`, two fenced `markdown`
+code blocks present that syntax as the way to write a banner: `:::caution UNDER CONSTRUCTION` at lines 204
+to 208, and `:::info Community member contribution` at lines 223 to 227. Line 190 of the same file calls
+banners "admonitions" and links to `https://docusaurus.io/docs/markdown-features/admonitions`. That syntax
+does not render on this site and `content:lint` rule A1 rejects it, so the guide instructs contributors to
+write something CI will refuse.
+
+**Not a duplicate, and no overlap with FS-2708.** FS-2708 ("Port the editorial style guide and fix
+CONTRIBUTE.md's stale pointer") touches only `STYLE-GUIDE.md`, `CONTRIBUTE.md`, `CLAUDE.md`, `README.md`,
+`INTERNALS.md` and one skill file, and its scope explicitly excludes `content/docs/`. The defect here is in
+`content/partials/`, on the reader-facing page `/docs/contribute`. Different file, different surface. This
+stands alone as its own ticket; sequence it after FS-2708 so the two contribute-facing documents agree.
 
 ### 7. Remove the React key warning from the header
 
@@ -620,16 +665,15 @@ development, so production users are unaffected, but it is a genuine defect in t
 `lib/layout.shared.tsx` and it adds noise that hides real warnings. Reproduce by loading any page under
 `pnpm dev` with a console open. Not a duplicate.
 
-### 8. Update CLAUDE.md's "Known trade-off" section, which FS-2698 made false
-
-**Severity: low, documentation.** CLAUDE.md states that docs pages are never prerendered, that
-`generateStaticParams` returns `[]` for zero output, and that `export const dynamic = 'force-dynamic'` is
-load-bearing. The build measured today prerenders 352 paths under `/docs/`, the route table shows
-`● (SSG)`, and the prerender manifest lists 1057 routes. FS-2698 is Done. An agent reading the current text
-would reintroduce the workaround. Not a duplicate; FS-2706 covers upstream decommissioning, not this.
-
 ### Already covered, no new ticket
 
+Each entry was checked against the specific ticket named, not against the ticket list in general.
+
+- **CLAUDE.md's "Known trade-off" section, which FS-2698 made false.** Already covered by **FS-2688**
+  (in flight, branch `fs-2688-server-render-docs-404`), which renames that heading to "Static routing
+  under `/docs`", replaces the body, and rewrites the matching 285-line INTERNALS.md section. Confirmed by
+  reading that branch's diff against `fork/main`. Filing a ticket here would put a second agent into the
+  same paragraphs of the file every agent in this repo reads first.
 - **Three broken Stylus verification images.** Confirmed in the browser (three `naturalWidth === 0`, three
   404s) and by `content-lint --rule=A7`. Exactly **FS-2709**, which also covers promoting A7 into the
   default rule set.
