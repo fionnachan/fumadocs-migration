@@ -26,6 +26,7 @@ governs it. `CLAUDE.md` is machine-facing and duplicates parts of this file for 
 - [Glossary and inline references](#glossary-and-inline-references)
 - [Custom MDX components](#custom-mdx-components)
 - [Remote images are never fetched at build](#remote-images-are-never-fetched-at-build)
+- [Page weight and what loads late](#page-weight-and-what-loads-late)
 - [The Node runtime](#the-node-runtime)
 - [Analytics](#analytics)
 - [The gates](#the-gates) (including [Generated pages](#generated-pages) and
@@ -978,6 +979,92 @@ measured from disk, and `onError` stays at its default `error`, so a missing or 
 - `pnpm images:check` requests every remote image, markdown or JSX, and prints the ones that no
   longer answer. Report only, exits 0 unless `--strict`, and deliberately not in CI: a third party's
   outage is not a reason to fail somebody else's pull request.
+
+## Page weight and what loads late
+
+Lighthouse scored the three sampled pages 81, 84 and 80 against a bar of 90 (plan M-50), and the
+cost was payload rather than execution: main-thread work and script bootup both scored 1 while
+Largest Contentful Paint sat at 3.9 to 4.4 seconds. FS-2715 worked through that. What follows is
+what moved and why, because every one of these is the kind of change someone undoes by accident.
+
+**Measure it the same way or the numbers mean nothing.** Lighthouse 13.4.1, mobile form factor,
+simulated throttling, against `next start` on localhost:
+
+```bash
+CHROME_PATH="<Chrome for Testing>" npx lighthouse@13.4.1 <origin>/<path> \
+  --output=json --output-path=<file>.json \
+  --chrome-flags="--headless=new --no-sandbox --disable-gpu" \
+  --only-categories=performance,accessibility,best-practices,seo
+```
+
+Take the median of at least three runs, and interleave the pages rather than running one page three
+times: a loaded machine moves a single score by ten points, and a run of three that all land in the
+same busy window looks like a regression. **A local server is a floor, not the number.** There is no
+CDN in front of it, so every request pays a full round trip under simulated throttling, which is why
+a 1.3 KB stylesheet can be charged 300 ms here and almost nothing in production.
+
+**The Inkeep chat widget is loaded on idle, after `load`.** `@inkeep/cxkit-react` is by a wide margin
+the heaviest thing this site ships: 1.19 MB on disk, about 321 KiB transferred, of which Lighthouse
+measured 190 KiB as unused on a page where nobody has asked a question. It used to be requested
+during hydration on every page, putting a third of a megabyte in direct contention with LCP for a
+floating button that is worth nothing until it is clicked. `components/inkeep/inkeep-chat-button.tsx`
+now waits for the `load` event and then a `requestIdleCallback` before rendering it. **Both halves
+matter**: gating on idle alone was not enough, because hydration finishes early and the main thread
+goes quiet while images and fonts are still in flight, so the callback fired around 300 ms, back
+inside the window it was meant to avoid. This is not the search path. Cmd-K search goes through
+`components/inkeep/inkeep-search.tsx`, whose own dynamic import fires when Fumadocs opens the dialog
+and is untouched.
+
+**Only the two upright body faces are preloaded.** The root layout declared five `next/font`
+families and every one of them preloaded on every route, which is 230 KiB of high-priority requests
+racing the LCP element. Three are now `preload: false`: Aeonik Fono (inline code), JetBrains Mono
+(fenced blocks) and FK Screamer (the home hero heading, and nothing at all on the other 349 pages).
+The browser still fetches them at high priority the moment the CSS asks for them, so a code-heavy
+page is no slower; it is the 349 pages that never use them that stop paying.
+
+**The italic face is its own `next/font` declaration.** `preload` is per declaration in `next/font`,
+not per `src` entry, so while Aeonik Italic sat beside the two uprights it was preloaded wherever
+they were. At 48 KiB it was the single largest preload on the site and the first request after the
+HTML, to serve the handful of `<em>` runs a page contains. It is now `sansItalic` with
+`preload: false`, and `app/global.css` points `em, i, cite, dfn, var, address, .italic` at
+`--font-sans-italic`. **That CSS rule is what re-attaches the face**: `--font-sans` no longer carries
+an italic `src`, so without it `font-style: italic` plus `font-synthesis: none` renders `<em>`
+upright. Delete one and you must delete the other.
+
+**A component's own stylesheet is render-blocking if a server module can reach it.**
+`components/mdx.tsx` is a server module, so Next cannot code-split anything it imports (the same
+wall the comment in `components/mdx/Twoslash.tsx` describes). Every client component reachable from
+that registry therefore contributes its CSS to the critical path of all 349 docs pages, whether or
+not the page renders the component. `components/HoverPopover` was costing a separate 3 KB stylesheet
+and a measured 319 ms round trip for that reason, so its rules moved into `app/global.css`, which the
+page already blocks on. **Adding a plain `.css` import to a component in that registry adds a
+render-blocking request to every docs page.** Put the rules in `app/global.css` instead, or put the
+component behind a `next/dynamic` boundary the way `VendingMachine`, `EdgeChallengeFlow`,
+`CentralizedAuction` and `Twoslash` already are.
+
+**`lucide-react` is pinned to the version `fumadocs-ui` resolves.** `package.json` asked for
+`^1.33.0` while `fumadocs-ui` requires `^1.43.0`, so pnpm installed both and both shipped to the
+browser. The direct dependency is now `^1.45.0`, which lets `fumadocs-core`'s `*` peer and
+`fumadocs-ui`'s range collapse onto one copy. Check with `pnpm why lucide-react` after any Fumadocs
+bump; a second copy reappearing is silent.
+
+**The home hero image carries all three priority hints.** It is the home page's LCP element
+(measured). Next 16 deprecated `priority` in favour of `preload`, and `preload` on its own emits the
+`<link>` with no priority hint, which is exactly what Lighthouse's LCP discovery check was failing
+on: discoverable early, but queued behind everything else. `components/home-hero.tsx` now passes
+`preload`, `fetchPriority="high"` and `loading="eager"` together.
+
+**What is left, and was deliberately not done.** The largest remaining render-blocking cost is
+`katex/dist/katex.css`, imported in `app/layout.tsx`: 29 KB raw, 5.7 KiB transferred, blocking on all
+350 routes, and **exactly three pages render any KaTeX markup**. Splitting it would mean deciding per
+page whether a page contains math, and the only signal available before render is a regex over the
+raw markdown, which over-matches every `$` in a shell command and, worse, fails quietly the other
+way: a page whose math the regex misses renders raw KaTeX markup with no styling. That is a bad
+trade for a saving Lighthouse charges at ~162 ms largely because localhost pays a full round trip per
+request. Revisit it against a Vercel preview, where the real number will be much smaller. Two other
+items are outside this repo: about 13 KiB of legacy JavaScript inside Next's own framework chunk
+(worth ~150 ms of LCP, nothing here controls it), and the `?_rsc=` route prefetches Next issues for
+in-viewport links, which are 60 to 106 KiB per page and are the price of instant navigation.
 
 ## The Node runtime
 
