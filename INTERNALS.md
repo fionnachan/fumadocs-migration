@@ -207,6 +207,28 @@ entry that points at a real docs page. On the commit before FS-2716 the first ru
 and the second names 33 entries. Neither rule can see what a browser sees, so a change to the root
 layout still wants a look at the rendered switcher.
 
+**The link rule recognises all three shapes Fumadocs does, not just the obvious one.** `resolveLink`
+builds a page node from `[Name](/url)`, from `[Icon][Name](/url)` and from `external:[Name](/url)`,
+and the `external` group sets a flag without touching `url`, so all three shadow a real page in the
+same way. `LINK_ENTRY` in `scripts/lib/nav.mjs` is that regex copied verbatim from
+`fumadocs-core/dist/dynamic-lx_V4971.js` with the source and version named beside it, so the gate
+and the builder cannot drift apart. A narrower rule left the gate with a hole shaped like the bug
+it exists to catch: both wider forms passed `nav:check` while handing `/docs/chain-info` another
+section's sidebar.
+
+**The three pinned cross-section links moved to the sidebar footer.** Chain info, Audit reports and
+Contribute were `pages` link entries repeated in all eleven roots, which is the shadowing above;
+they are now `components/sidebar-resource-links.tsx`, passed to the notebook layout as
+`sidebar.footer` in `app/docs/layout.tsx`. The footer slot renders after the page tree and outside
+it, so it restores the affordance with no way to claim a root. It is passed as a **component, not
+an element**: fumadocs-ui's `renderFooter` wraps a plain `ReactNode` in a container whose className
+begins with `hidden` and only gains a display class when there are icon menu items (desktop) or a
+language or theme slot (drawer), and this app declares no icon items, so a `ReactNode` footer would
+be in the DOM and invisible on desktop. The component form receives `createElement(footer, props)`
+instead, renders its own links first, and then renders the library's container with its props
+untouched so the drawer's theme switch is unaffected. Its link styles are copied from
+`itemVariants({ variant: 'link' })` in the notebook sidebar slot, minus the depth offset.
+
 ## The frontmatter contract
 
 `source.config.ts` extends the Fumadocs page schema. Every non-partial `.mdx` page **must** carry

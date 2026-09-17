@@ -120,7 +120,7 @@ against a running site.
 pnpm types:check       # regenerates .source/, generates Next types, tsc --noEmit — the main gate
 pnpm test              # node --test over the tooling scripts in scripts/
 pnpm vars:check        # every <Var name> resolves
-pnpm nav:check         # meta.json navigation integrity
+pnpm nav:check         # meta.json nav integrity + sidebar root coverage
 pnpm partials:check    # includes resolve, no routing leak, catalog fresh
 pnpm references:check  # glossary ids + <Reference> targets
 pnpm check-links       # broken internal doc links and MDX fragments

@@ -274,7 +274,7 @@ pnpm start               # serve the production build
 
 pnpm check-links         # broken internal doc links and MDX fragments
 pnpm vars:check          # every <Var name> resolves
-pnpm nav:check           # meta.json navigation integrity
+pnpm nav:check           # meta.json nav integrity + sidebar root coverage
 pnpm partials:check      # includes resolve, no routing leak, catalog fresh
 pnpm references:check    # glossary ids + <Reference> targets
 pnpm content:lint        # MDX structural defects
