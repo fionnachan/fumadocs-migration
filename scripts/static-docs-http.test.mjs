@@ -132,6 +132,29 @@ test('built static docs routing', { skip: !baseUrl }, async (t) => {
     await negotiated.text();
   });
 
+  await t.test('a prototype-named slug 404s on every markdown shape', async () => {
+    // The registry is an object literal, so `VERSIONED['constructor']` resolved up the prototype
+    // chain to a function and the resolver's `?.find` threw rather than short-circuiting: an
+    // unhandled 500 on a URL anyone, an ordinary crawler included, can send. The HTML shape was
+    // never affected, because that route carries `dynamicParams = false`. The markdown route
+    // carries it now too, and `versionSources` guards the registry lookup itself.
+    for (const path of [
+      '/docs/constructor/v1.md',
+      '/docs/toString/v1.md',
+      '/llms.mdx/docs/constructor/v1/content.md',
+      '/llms.mdx/docs/toString/v1/content.md',
+      '/llms.mdx/docs/__proto__/v1/content.md',
+      '/llms.mdx/docs/valueOf/anything/content.md',
+    ]) {
+      const response = await get(path);
+      assert.equal(response.status, 404, path);
+      await response.text();
+    }
+    const negotiated = await get('/docs/constructor/v1', { headers: { accept: 'text/markdown' } });
+    assert.equal(negotiated.status, 404);
+    await negotiated.text();
+  });
+
   await t.test('archives stay out of discovery and generated image routes', async () => {
     for (const path of ['/sitemap.xml', '/llms.txt', '/llms-full.txt']) {
       const response = await get(path);

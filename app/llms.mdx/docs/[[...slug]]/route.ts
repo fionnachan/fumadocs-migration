@@ -10,6 +10,18 @@ import {
 } from '@/lib/source';
 
 export const revalidate = false;
+/**
+ * The same static-routing contract the HTML route carries (`app/docs/[[...slug]]/page.tsx`): a path
+ * outside `generateStaticParams` is a 404 Next answers by itself, before this handler runs.
+ * `dynamicParams` applies to a route handler that has a `generateStaticParams`, not only to a page.
+ *
+ * Without it, every miss costs an invocation and, worse, hands an arbitrary URL segment to the
+ * resolver chain. That is how a slug naming an `Object.prototype` key reached `getArchive` and
+ * turned a 404 into an unhandled 500. `versionSources` now guards that lookup, so this is the
+ * second half of a two-part fix rather than the whole of it: the guard is where the invariant
+ * belongs, and this is what keeps the next defect in the resolver chain off the public path too.
+ */
+export const dynamicParams = false;
 
 export async function GET(_req: Request, { params }: RouteContext<'/llms.mdx/docs/[[...slug]]'>) {
   const { slug } = await params;
