@@ -29,7 +29,9 @@ test('every sidebar resource link resolves to a real page under content/docs', (
   const valid = collectValidUrls(path.join(repoRoot, 'content/docs'));
   const missing = sidebarResourceLinks
     .map((link) => link.url)
-    .filter((url) => !resolveUrl(valid, url));
+    // resolveUrl is case-insensitive for the legacy corpus; Next routes are not, so require the
+    // exact string back rather than any truthy match.
+    .filter((url) => resolveUrl(valid, url) !== url);
   assert.deepEqual(missing, []);
 });
 
