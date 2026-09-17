@@ -42,14 +42,14 @@ and the body disagree, this section wins.
 | `src/components/ImageCaptions/styles.module.scss` | `components/mdx/ImageZoom/styles.module.css`                                                                           |
 | `src/css/custom.css` and its `img-*px` classes    | no equivalent. Pages still pass `className="img-600px"` / `img-900px`, but nothing in this repo defines them           |
 | `var(--ifm-*)` theme tokens                       | `--color-fd-*` (Fumadocs). Never use `--ifm-*` here                                                                    |
+| `docs/Offchain-pattern-guide.md`                  | [`STYLE-GUIDE.md`](../../../STYLE-GUIDE.md) at the repo root, ported under FS-2708                                     |
 
 Four things in the body have **no** local equivalent at all:
 
-- **`docs/Offchain-pattern-guide.md`** was not ported. The nearest local guidance is the
-  "Style conventions" section of [`CONTRIBUTE.md`](../../../CONTRIBUTE.md), which links to
-  the upstream copy. There is also no editorial hook here that blocks an MDX write; the
-  only pre-commit hook is `.husky/pre-commit`, which runs Prettier and `pnpm content:lint`
-  on staged files.
+- **The editorial hook** the body says blocks an MDX write does not exist here. Nothing
+  enforces [`STYLE-GUIDE.md`](../../../STYLE-GUIDE.md) automatically: the only pre-commit
+  hook is `.husky/pre-commit`, which runs Prettier and `pnpm content:lint` on staged files,
+  and neither reads the style guide. Applying it is on you.
 - **`src/css/partials/_misc-classes.scss`** and its `.ascii-diagram` class do not exist
   here, so retiring an ASCII diagram orphans no local CSS.
 - **The `DrawioReactFlow` component** was not ported to this repo.
@@ -372,14 +372,14 @@ _report_ it — don't delete shared CSS unasked.
 
 ### Diagram labels are prose — the pattern guide applies
 
-`docs/Offchain-pattern-guide.md` governs text inside the diagram, not just the
-page. An editorial hook enforces it on the MDX and will block your write.
+[`STYLE-GUIDE.md`](../../../STYLE-GUIDE.md) at the repo root governs text inside
+the diagram, not just the page. Nothing in this repo enforces it on a write, so
+nothing will stop you shipping labels that break it.
 
-**Read the guide before you draft labels and `alt` text, not after.** The hook
-fires on the **MDX** write, not on the SVG — so you can generate, round, and
-verify a whole diagram, then get blocked on the one-line tag at the end and have
-to rewrite label text you already baked into the file (and into its `<desc>`).
-Reading it up front costs one tool call; discovering it late costs a regenerate.
+**Read the guide before you draft labels and `alt` text, not after.** Label text
+is baked into the SVG and into its `<desc>`, so a rule you apply late costs a
+regenerate of the whole file, not a one-line edit. Reading it up front costs one
+tool call.
 
 The rules that bite hardest on labels:
 
@@ -870,8 +870,10 @@ regex. Researched replacements, if this graduates to a `tools/diagram_kit.py`:
 
 In this repo:
 
-- `docs/Offchain-pattern-guide.md` — editorial rules that govern diagram labels
-  and `alt` text (see "Diagram labels are prose" above).
+- [`STYLE-GUIDE.md`](../../../STYLE-GUIDE.md) at the repo root: the editorial
+  rules that govern diagram labels and `alt` text (see "Diagram labels are
+  prose" above). [`CONTRIBUTE.md`](../../../CONTRIBUTE.md) covers the
+  contribution workflow around them.
 - `src/theme/MDXComponents.js` — the globally registered `<ImageZoom>` /
   `<ImageWithCaption>` components.
 - `src/css/custom.css` — the `img-*px` width classes.
