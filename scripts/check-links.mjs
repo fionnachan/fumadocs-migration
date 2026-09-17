@@ -7,14 +7,16 @@
  *
  * Replicates Docusaurus's `onBrokenLinks: 'throw'`, which the Fumadocs build does not do. Walks every
  * `content/docs/**` `.md(x)` file and asserts that each internal link (markdown, JSX `href`/`to`,
- * `<include>`) resolves to an existing file. External links, fragments, JSX expression attrs, and
- * relative-URL links inside partials (which have no fixed URL) are skipped. Anchors are not validated.
+ * `<include>`) resolves to an existing file. Fragments are checked against the site's MDX pipeline,
+ * including nested partials and custom heading ids. External links and dynamic JSX attrs are skipped.
  */
+import { findBrokenAnchors } from './lib/doc-anchors.mjs';
 import { buildIndex, findBrokenLinks } from './lib/doc-links.mjs';
 
-function main() {
+async function main() {
   const json = process.argv.slice(2).includes('--json');
-  const broken = findBrokenLinks(buildIndex(process.cwd()));
+  const index = buildIndex(process.cwd());
+  const broken = [...findBrokenLinks(index), ...(await findBrokenAnchors(index))];
 
   if (json) {
     console.log(JSON.stringify(broken.map(({ rel, line, url }) => ({ rel, line, url }))));
@@ -27,8 +29,15 @@ function main() {
   }
 
   console.error(`check-links: ${broken.length} broken internal link(s):`);
-  for (const b of broken) console.error(`  ${b.rel}:${b.line}  ->  ${b.url}`);
+  for (const b of broken) {
+    console.error(
+      `  ${b.rel}:${b.line}  ->  ${b.url}${b.reason ? ` (${b.reason}; on ${b.page})` : ''}`,
+    );
+  }
   process.exit(1);
 }
 
-main();
+main().catch((error) => {
+  console.error(`check-links: ${error.message}`);
+  process.exitCode = 1;
+});

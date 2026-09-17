@@ -108,7 +108,7 @@ pnpm vars:check        # every <Var name> resolves
 pnpm nav:check         # meta.json navigation integrity
 pnpm partials:check    # includes resolve, no routing leak, catalog fresh
 pnpm references:check  # glossary ids + <Reference> targets
-pnpm check-links       # broken internal doc links
+pnpm check-links       # broken internal doc links and MDX fragments
 ```
 
 These seven are exactly what `.github/workflows/ci.yml`'s blocking `Gates` job runs (it also runs

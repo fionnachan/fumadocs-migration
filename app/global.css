@@ -199,7 +199,8 @@ body {
 
   :where(h1, h2, h3, h4, h5, h6) {
     font-weight: 500;
-    scroll-margin-top: 80px;
+    /* Include the announcement, header, and mobile TOC so anchor targets stay visible. */
+    scroll-margin-top: calc(var(--fd-docs-row-3, 56px) + 24px);
     text-wrap: balance;
   }
 
