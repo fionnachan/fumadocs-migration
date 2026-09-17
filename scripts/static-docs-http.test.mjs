@@ -56,8 +56,13 @@ test('built static docs routing', { skip: !baseUrl }, async (t) => {
   });
 
   await t.test('unknown docs and prototype-named slugs serve visible 404s', async () => {
+    // FS-2688. `dynamicParams = false` is what makes these land on the prerendered `/_not-found`
+    // entry instead of the empty `__next_error__` shell a mid-render `notFound()` produces. The
+    // copy has to be in the document with scripts stripped: a *200* page carries it too, inside the
+    // router's prefetched flight payload.
     for (const path of [
       '/docs/does-not-exist',
+      '/docs/does/not/exist/deep',
       `${livePath}/v99`,
       '/docs/constructor?v=v1',
       '/docs/__proto__?v=v1',
@@ -67,6 +72,18 @@ test('built static docs routing', { skip: !baseUrl }, async (t) => {
       const doc = documentOnly(await response.text());
       assert.match(doc, /Start somewhere else/);
       assert.doesNotMatch(doc, /__next_error__/);
+    }
+  });
+
+  await t.test('the docs 404 is the same response as the root 404', async () => {
+    // Both are the one prerendered `/_not-found` output, so they are byte identical. A divergence
+    // means `/docs/*` has stopped falling through to it, which is how FS-2688 regresses.
+    const [root, docs] = await Promise.all([get('/does-not-exist'), get('/docs/does-not-exist')]);
+    assert.equal(root.status, 404);
+    assert.equal(docs.status, 404);
+    assert.equal(await docs.text(), await root.text());
+    for (const response of [root, docs]) {
+      assert.match(response.headers.get('cache-control') ?? '', /no-store/);
     }
   });
 
