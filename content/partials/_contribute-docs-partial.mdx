@@ -10,7 +10,7 @@ Thank you for considering to contribute to the Arbitrum documentation! We're exc
 
 The [`docs.arbitrum.io`](https://docs.arbitrum.io/) docs portal is the **single source of truth** for documentation that supports Offchain Labs' product portfolio. Contributions are welcome from the entire Ethereum community.
 
-This document shows you how to craft and publish Arbitrum documentation. Familiarity with [Markdown](https://www.markdownguide.org/basic-syntax/) syntax, Github, and [Docusaurus](https://docusaurus.io/docs) is expected.
+This document shows you how to craft and publish Arbitrum documentation. Familiarity with [Markdown](https://www.markdownguide.org/basic-syntax/) syntax and Github is expected.
 
 ### Add a new core document
 
@@ -187,9 +187,17 @@ Some important disclaimers:
 
 ### Banner conventions
 
-You can use banners (Docusaurus refers to them as ["admonitions"](https://docusaurus.io/docs/markdown-features/admonitions)) to set expectations for your readers and to emphasize important callouts. Use these conservatively, as they interrupt the flow of the document.
+{/* The github.com URLs in this section hardcode the owner, repo and branch that gitConfig in lib/shared.ts owns. The Var component cannot sit inside a markdown link destination (CommonMark tokenises the destination before MDX evaluates it), so retarget these by hand if the repo or default branch moves. */}
+
+Use banners to set expectations for your readers or emphasize an important callout, but use them conservatively, since they interrupt the flow of the document. This site renders a banner with the `<VanillaAdmonition>` component; the same callout-syntax rule appears in [STYLE-GUIDE.md](https://github.com/OffchainLabs/Fumadocs-test/blob/main/STYLE-GUIDE.md#what-is-not-here). Docusaurus `:::` directives do not render here and fail the `content:lint` A3 gate, so never write one. The `type` prop is one of `note`, `tip`, `info`, `warning`, or `danger`; pick the type that matches the message, not the page's subject. `title` is optional and defaults to the capitalized type name (`note` becomes "Note", and so on).
+
+**Before writing a new banner, search [`content/partials/CATALOG.md`](https://github.com/OffchainLabs/Fumadocs-test/blob/main/content/partials/CATALOG.md) for one that already says what you need**, and reuse it instead of duplicating the prose. CONTRIBUTE.md's [partial-reuse guide](https://github.com/OffchainLabs/Fumadocs-test/blob/main/CONTRIBUTE.md#reuse-a-partial-before-you-write-new-prose) has the copy-paste include snippet for pulling a cataloged partial into a page.
+
+Two banners come up often enough to be worth naming directly.
 
 #### Under construction banner
+
+Use `type="warning"` when a page's steps are incomplete or likely to change soon, so readers know to expect gaps.
 
 Example:
 
@@ -198,33 +206,37 @@ Example:
 The following steps are under construction and will be updated with more detailed guidance soon. Stay tuned, and don't hesitate to click the **Request an update** at the top of this document if you have any feedback along the way.
 
 </VanillaAdmonition>
+
 Usage:
 
-```markdown
-:::caution UNDER CONSTRUCTION
+```mdx
+<VanillaAdmonition type="warning" title="UNDER CONSTRUCTION">
 
 The following steps are under construction and will be updated with more detailed guidance soon. Stay tuned, and don't hesitate to click the **Request an update** at the top of this document if you have any feedback along the way.
 
-:::
+</VanillaAdmonition>
 ```
 
 #### Community member contribution banner
+
+Use `type="info"` at the top of a third-party or community-submitted document to credit the author.
 
 Example:
 
 <VanillaAdmonition type="info" title="Community member contribution">
 
-The following document was contributed by @todo-twitter-handle. Give them a shoutout if you find it useful!
+Shoutout to [@handle](https://github.com/handle) for contributing the following [third-party document](/docs/third-party-docs/contribute)!
 
 </VanillaAdmonition>
+
 Usage:
 
-```markdown
-:::info Community member contribution
+```mdx
+<VanillaAdmonition type="info" title="Community member contribution">
 
-The following document was contributed by @todo-twitter-handle. Give them a shoutout if you find it useful!
+Shoutout to [@handle](https://github.com/handle) for contributing the following [third-party document](/docs/third-party-docs/contribute)!
 
-:::
+</VanillaAdmonition>
 ```
 
 ### Frequently asked questions
