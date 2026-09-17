@@ -15,6 +15,7 @@ governs it. `CLAUDE.md` is machine-facing and duplicates parts of this file for 
 - [Coming from Docusaurus](#coming-from-docusaurus)
 - [The pipeline](#the-pipeline)
 - [`source` is a choke point](#source-is-a-choke-point)
+- [The sidebar and its roots](#the-sidebar-and-its-roots)
 - [The frontmatter contract](#the-frontmatter-contract)
 - [Last modified dates](#last-modified-dates)
 - [Page metadata](#page-metadata)
@@ -75,6 +76,8 @@ source be swapped (local MDX, Notion, Sanity) without touching route code. See
 directory layout and refined by a `meta.json` in each directory. `meta.json` controls **order and
 grouping** — its `pages: []` array takes basename slugs and supports `...` rest-globs,
 `---Separator---`, `[text](url)` external links, and `!exclude`. There is no global sidebar file.
+A `"root": true` in a `meta.json` also makes that directory a sidebar root, which is what the root
+switcher above the sidebar names. See [The sidebar and its roots](#the-sidebar-and-its-roots).
 
 **The catch-all route.** One file, `app/docs/[[...slug]]/page.tsx`, renders every docs page. It
 takes the slug segments, calls `source.getPage()`, and renders. Adding an `.mdx` file creates a
@@ -153,6 +156,56 @@ and nothing else reads content. The constraints that follow are deliberate:
 client component: it drags the compiled collection into the browser bundle. One such import once
 cost a 24 MB chunk on every docs page. No gate catches this — see
 [What nothing catches](#what-nothing-catches).
+
+## The sidebar and its roots
+
+A `meta.json` carrying `"root": true` makes its directory a **sidebar root**. The notebook layout
+renders one such root at a time: the sidebar tree is that folder's subtree, and the dropdown above
+it (the root switcher) names the folder and lists every sibling root. Twelve directories declare it.
+
+**How Fumadocs picks the root for a page.** `TreeContextProvider` in `fumadocs-ui/contexts/tree`
+runs `searchPath` over the page tree to find the path to the current URL, then takes
+`path.findLast((item) => item.type === 'folder' && item.root)`. With no root folder on that path it
+falls back to the whole tree, and the switcher renders nothing at all, because `useTabsGroups`
+builds one group per root folder on the path and there is none. Nothing about either outcome is
+visible to `types:check` or to the build.
+
+**Two things put a page outside every root**, and before FS-2716 both were true here:
+
+1. Nothing in the page's ancestry declared `"root": true`. `arbitrum-bridge`, `notices`, `oracles`
+   and the four loose pages at the top of `content/docs` were all in that position.
+2. A `pages` link entry somewhere else pointed at the page's own URL. A `[Title](/docs/x)` entry
+   becomes a real page node in the tree, so the depth-first `searchPath` finds that copy before it
+   reaches the page itself and hands the page the linking folder's sidebar. Every root folder used
+   to repeat `"[Chain info](/docs/chain-info)"`, `"[Audit reports](/docs/audit-reports)"` and
+   `"[Contribute](/docs/contribute)"`, which is how `/docs/chain-info` came to serve the Get started
+   tree under a switcher reading "Third-party docs". `isLayoutTabActive` matches a tab when any page
+   inside it is active, so those repeated links also made every tab match at once and the label fell
+   to whichever root sorted last.
+
+**A `pages` entry can reach across directories.** `resolveFolderItem` in `fumadocs-core` joins the
+entry onto the directory holding the meta.json, and `joinPath` pops on `..`, so
+`"../chain-info"` in `content/docs/resources/meta.json` claims `content/docs/chain-info.mdx`. That
+is what gives the four loose reference pages a root without moving a file or changing a URL:
+`content/docs/resources/` holds a meta.json and nothing else.
+
+**Claims are arbitrated by priority, and order decides ties.** `own()` records the first folder to
+claim a node; an explicit `pages` entry claims at priority 2, the `"..."` rest operator at priority
+0, and a later claim at equal or lower priority is refused. Directories are built in the order
+their parent lists them, so `"resources"` has to appear in `content/docs/meta.json` before anything
+else could claim those pages, and the four names must not also be listed at the top level. Get it
+wrong and the pages silently revert to the top level, which is why `nav:check` now checks the
+result rather than the rule.
+
+**The docs index is the one page with no root, by design.** `/docs` is the section list, so the
+sidebar there is the whole tree and no switcher renders. `ROOTLESS_BY_DESIGN` in
+`scripts/lib/nav.mjs` names it, and nothing else is exempt.
+
+**`nav:check` gained two rules** (`checkRoots` in `scripts/lib/nav.mjs`). It reports any page that
+no `"root": true` folder owns, following cross-directory claims as Fumadocs does, and any link
+entry that points at a real docs page. On the commit before FS-2716 the first rule names 26 pages
+and the second names 33 entries. Neither rule can see what a browser sees, so a change to the root
+layout still wants a look at the rendered switcher.
 
 ## The frontmatter contract
 
@@ -1077,7 +1130,7 @@ blocks.**
 | `types:check`              | Frontmatter schema violations, TypeScript errors                              |
 | `test`                     | Regressions in the tooling scripts themselves                                 |
 | `vars:check`               | A `<Var name>` with no matching key in `vars.json`                            |
-| `nav:check`                | `meta.json` navigation integrity                                              |
+| `nav:check`                | `meta.json` navigation integrity, including sidebar root coverage             |
 | `partials:check`           | Unresolved includes, routing leaks, stale catalog, `cwd` include in a partial |
 | `versioned-docs-check.mjs` | Archived-page registry drift                                                  |
 | `references:check`         | Glossary ids and `<Reference>` targets                                        |

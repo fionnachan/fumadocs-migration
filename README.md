@@ -134,7 +134,9 @@ sme: reviewing-sme-handle
 `content_type` must be one of: `how-to`, `concept`, `quickstart`, `tutorial`, `reference`,
 `troubleshooting`, `faq`. Optional: `sidebar_label`, `user_story`, `draft`.
 
-Sidebar order comes from `meta.json` in each directory, not from file names.
+Sidebar order comes from `meta.json` in each directory, not from file names. A top-level section
+also carries `"root": true`, which is what the root switcher above the sidebar names; see
+[The sidebar and its roots](INTERNALS.md#the-sidebar-and-its-roots).
 
 ## Use a partial
 

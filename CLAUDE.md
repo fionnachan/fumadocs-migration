@@ -38,7 +38,7 @@ pnpm content:lint      # MDX structural defects (stray :::, admonition shape)
 pnpm images:check      # report unreachable remote images (exit 1 only with --strict)
 pnpm images:presence   # offline gate: fail on a markdown image with a remote src
 pnpm vars:check        # every <Var name> resolves in content/vars.json
-pnpm nav:check         # meta.json nav integrity
+pnpm nav:check         # meta.json nav integrity + sidebar root coverage
 pnpm references:check  # glossary ids + <Reference> targets
 pnpm faq:check         # every faqsId in content/docs has a matching, well-formed data file
 pnpm redirects:check   # every redirect destination is a real page (needs `pnpm dev` running)
@@ -122,7 +122,7 @@ Design: [`.claude/docs/superpowers/specs/2026-07-09-partials-registry-design.md`
 
 **Generated pages.** `content/docs/run-a-node/nitro/cli-flags-reference.mdx` is written by `pnpm cli:generate` from the Nitro source at the tag pinned as `nitroVersionTag` in `content/vars.json` (it materialises the pinned tag plus its go-ethereum submodule, where the `execution.rpc.*` flags live). Only the region between `{/* GENERATED:START */}` and `{/* GENERATED:END */}` is replaced — the frontmatter and any prose outside the markers are preserved, so the five required fields survive a regeneration. Flags whose default is not a static value (`util.GoMaxProcs()`) and flags registered with `f.Var` are declared in `scripts/data/nitro-cli-reference.data.mjs`; anything else the reader cannot evaluate fails the run rather than rendering a blank cell.
 
-**Sidebar ordering** is controlled by `meta.json` in each content directory, not by file names.
+**Sidebar ordering** is controlled by `meta.json` in each content directory, not by file names. **A `"root": true` in a `meta.json` makes that directory a sidebar root**, and the root switcher above the sidebar names the last root folder on the page's tree path (`path.findLast` in `fumadocs-ui/contexts/tree`); a page outside every root falls back to the whole tree and renders no switcher. Twelve directories declare it. `content/docs/resources/` is a meta.json and nothing else: it claims the four loose pages at the top of `content/docs` through `"../chain-info"`-style references, because a `pages` entry is joined onto the directory holding the meta.json and `..` pops a segment, so a page gets a root without moving and without a redirect. **Never write a `[Title](/docs/…)` entry pointing at a page in this repo**. A link entry becomes a real tree node, so the depth-first path search finds it first and hands that page the linking folder's sidebar; that is what made `/docs/chain-info` serve the Get started tree under a "Third-party docs" label (FS-2716). Claims are arbitrated by `own()` on a first-come basis at equal priority, so `"resources"` must precede the pages it claims in `content/docs/meta.json` and those names must not also be listed there. `pnpm nav:check` fails on a page no root covers and on a link entry that shadows a real page; `content/docs/index.mdx` is the one exemption (`ROOTLESS_BY_DESIGN` in `scripts/lib/nav.mjs`), because the docs index is the section list. See [INTERNALS](INTERNALS.md#the-sidebar-and-its-roots).
 
 ## Static routing under `/docs`
 

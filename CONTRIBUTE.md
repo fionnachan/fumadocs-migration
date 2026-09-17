@@ -45,6 +45,14 @@ new page's basename to the `pages` array in the `meta.json` for that directory, 
 you want it to appear. `meta.json` also supports `...` rest-globs, `---Separator---` headings,
 `[text](url)` external links, and `!exclude`. Run `pnpm nav:check` after touching one.
 
+**A new top-level section needs `"root": true` in its `meta.json`.** That is what makes the
+sidebar show only that section and what the root switcher above the sidebar names. A page that
+sits under no such directory gets an arbitrary sidebar, so `pnpm nav:check` fails on it and names
+the file. A page that belongs in an existing section needs nothing extra. Do not add a
+`[Title](/docs/…)` entry pointing at a page in this repo: a link entry becomes a real tree node
+and steals that page's sidebar root, which `nav:check` also fails on. Reference it as
+`"../name"` from the one section that should own it instead.
+
 ## Reuse a partial before you write new prose
 
 Reusable `_`-prefixed fragments live in `content/partials/`, outside the routed doc tree so they
