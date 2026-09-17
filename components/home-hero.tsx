@@ -46,12 +46,21 @@ export function HomeHero() {
     <div className="w-full px-5 pt-2">
       <section className="relative overflow-hidden rounded-[24px] bg-linear-to-b from-arbitrum-blue to-arbitrum-navy text-white">
         <div aria-hidden className="absolute inset-0 mix-blend-color-dodge">
+          {/* This texture is the home page's Largest Contentful Paint element (measured), so it
+              gets all three hints rather than the one `priority` used to stand for. Next 16
+              deprecated `priority` in favour of `preload`, and `preload` alone emits the `<link>`
+              with no priority hint, which is what Lighthouse's LCP discovery check kept failing on:
+              the request was discoverable early but queued behind everything else. `preload` puts
+              the link in the head, `fetchPriority` raises the request itself, and `loading="eager"`
+              keeps it off the lazy path. See INTERNALS.md "Page weight and what loads late". */}
           <Image
             src="/img/hero-xerox-scan.webp"
             alt=""
             fill
             sizes="100vw"
-            priority
+            preload
+            fetchPriority="high"
+            loading="eager"
             className="object-cover"
           />
         </div>
