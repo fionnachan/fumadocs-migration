@@ -1,7 +1,7 @@
 # Arbitrum docs portal
 
-Arbitrum documentation portal — a Next.js 16 / Fumadocs migration of
-[`OffchainLabs/arbitrum-docs`](https://github.com/OffchainLabs/arbitrum-docs) off Docusaurus.
+Arbitrum documentation portal, on Next.js 16 and Fumadocs. It replaced the Docusaurus site at
+[`OffchainLabs/arbitrum-docs`](https://github.com/OffchainLabs/arbitrum-docs), which is archived.
 Serves English MDX docs; deployed on Vercel.
 
 This file covers **how to work on the docs.** For how the codebase works and why, see
@@ -11,7 +11,7 @@ moving pages, and the gates to run before you push. For the prose itself, the ho
 standard is [STYLE-GUIDE.md](STYLE-GUIDE.md): plain-language rules, words and phrases to replace or
 cut, the terminology table, and the glossary-linking convention.
 
-New to Fumadocs, or coming from the Docusaurus site? Start with
+New to Fumadocs, or arriving from the old Docusaurus site? Start with
 [What Fumadocs is](INTERNALS.md#what-fumadocs-is) and
 [Coming from Docusaurus](INTERNALS.md#coming-from-docusaurus) — they take about five minutes and
 cover the differences that cause the most mistakes.
@@ -109,7 +109,7 @@ where you can.
 | ----------------------- | ---------------------------------------------------------- |
 | `content/docs/`         | MDX pages + `meta.json` sidebars                           |
 | `content/partials/`     | Reusable `_`-prefixed fragments + generated `CATALOG.md`   |
-| `content/glossary/`     | Glossary terms for `<Reference>` / `<Term>`                |
+| `content/glossary/`     | Glossary terms for `<Reference>` / `<Term>` (hand-written) |
 | `content/vars.json`     | Global variables                                           |
 | `app/docs/[[...slug]]/` | Docs route                                                 |
 | `components/mdx/`       | Custom MDX components (registered in `components/mdx.tsx`) |
@@ -245,24 +245,22 @@ pnpm move-doc <from> <to>
 ```
 
 This rewrites inbound links, re-bases the moved page's own relative links and includes, updates
-`meta.json`, writes the redirect, and retargets every hand-written map that names the page: the two
-upstream-drift maps and the two legacy-redirect destination maps. Add `--dry-run` to see all of it
-without touching a file. One map it cannot fix is `VERSIONED` in
-`lib/versions-constants.ts`: if the page you moved has a version dropdown, retarget its key by
+`meta.json`, writes the redirect, and retargets the two legacy-redirect destination maps if either
+names the page. Add `--dry-run` to see all of it without touching a file. One map it cannot fix is
+`VERSIONED` in `lib/versions-constants.ts`. If the page you moved has a version dropdown, retarget its key by
 hand. Forgetting is not silent, at least. `pnpm test` fails on a registry key that names no live
 page.
 
-If it reports retargeting a legacy destination, run `pnpm redirects:legacy` afterwards, whenever you
-next have a sibling `arbitrum-docs` checkout. Readers are fine until you do: the legacy URL still
-reaches the page through the redirect just written, one hop longer. `pnpm redirects:check` is not.
-It follows one hop only, so every legacy source still pointing at the old URL reports `DEAD` until
-you regenerate. If an earlier move's redirect in `redirects.config.mjs`
-pointed at the page you just moved, `move-doc` prints a second note naming it: it reports `DEAD` for
-the same reason, and regenerating will not fix that one, so point it at the new URL. No such note
-means there is no such entry.
+Readers are fine either way: a legacy `docs.arbitrum.io` URL still reaches the page through the
+redirect just written, one hop longer. `pnpm redirects:check` is not. It follows one hop only, so
+every entry in `redirects.legacy.mjs` still pointing at the old URL reports `DEAD`. That file is
+hand-maintained, so either retarget those entries or accept the extra hop and the report. If an
+earlier move's redirect in `redirects.config.mjs` pointed at the page you just moved, `move-doc`
+prints a second note naming it: it reports `DEAD` for the same reason, so point it at the new URL.
+No such note means there is no such entry.
 
-**Never hand-edit `redirects.config.mjs`** — both blocks in it are generated.
-([Details](INTERNALS.md#redirects).)
+**Never hand-edit between the `AUTO-GENERATED` markers in `redirects.config.mjs`**, since `move-doc`
+owns that block. ([Details](INTERNALS.md#redirects).)
 
 ## Commands
 
@@ -283,18 +281,18 @@ pnpm test                # tooling script test suites
 
 pnpm partials:catalog    # regenerate CATALOG.md + manifest.json
 pnpm move-doc <from> <to>
-pnpm drift               # compare content tree against upstream arbitrum-docs
+pnpm redirects:check     # every redirect destination is a real page (needs a running site)
 ```
 
-Redirect and precompile tooling runs by hand only — see
+Precompile, CLI and Stylus tooling runs by hand only. See
 [The gates](INTERNALS.md#the-gates).
 
 ## Conventions
 
 - Theme tokens are `--color-fd-*` (Fumadocs). Never `--ifm-*` (legacy Docusaurus).
 - Route constants live in `lib/shared.ts` — reference these rather than hardcoding paths.
-- Never hand-edit generated files: `.source/`, `CATALOG.md`, `manifest.json`,
-  `redirects.config.mjs`, `redirects.legacy.mjs`, and every page under
+- Never hand-edit generated files: `.source/`, `CATALOG.md`, `manifest.json`, the
+  `AUTO-GENERATED` block in `redirects.config.mjs`, and every page under
   `content/docs/stylus/stylus-by-example/` (republished from
   [`offchainlabs/stylus-by-example`](https://github.com/offchainlabs/stylus-by-example) by
   `pnpm stylus:generate` — fix those upstream, or they are overwritten the next Monday).

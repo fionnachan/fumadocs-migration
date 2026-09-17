@@ -11,18 +11,17 @@
  *   2. moves the file (via `git mv`), recomputing the file's *own* relative links so they stay valid;
  *   3. updates the doc's entry in the surrounding `meta.json` navigation;
  *   4. records the old→new URL in `redirects.config.mjs`;
- *   5. retargets the moved path in `scripts/lib/tree-compare.mjs`'s `RENAME_MAP` and
- *      `scripts/data/upstream.config.json`'s `guttedAllowlist`, if either names it (see
- *      `scripts/lib/drift-maps.mjs`) — otherwise a move silently orphans a drift exemption, which
- *      `pnpm test` only catches in whatever unrelated PR happens to run next;
- *   6. retargets the moved page's *URL* in `scripts/lib/legacy-redirects.mjs`'s
+ *   5. retargets the moved page's *URL* in `scripts/lib/legacy-redirects.mjs`'s
  *      `MANUAL_DESTINATIONS` and `SECTION_LANDINGS`, if either names it (see
  *      `scripts/lib/legacy-destinations.mjs`) — otherwise a move leaves a legacy docs.arbitrum.io
- *      URL pointing at a 404, with the same fails-in-someone-else's-PR delay.
+ *      URL pointing at a 404, which `pnpm test` only catches in whatever unrelated PR happens to
+ *      run next.
  *
- * Steps 5 and 6 run last, in that order, because they are the only steps that can legitimately
- * refuse: each verifies its own rewrite and formats through Prettier before writing, and aborting
- * there must not cost the redirect. One hand-written map is still on the mover: `VERSIONED` in
+ * Step 5 runs last because it is the only step that can legitimately refuse: it verifies its own
+ * rewrite and formats through Prettier before writing, and aborting there must not cost the
+ * redirect. It used to be preceded by a sixth step retargeting the drift exemption maps; those maps
+ * were deleted with the upstream comparison (FS-2706). One hand-written map is still on the mover:
+ * `VERSIONED` in
  * `lib/versions.ts` (keyed by canonical slug), where nothing fails at all —
  * `versioned-docs-check.mjs` always exits 0, so a moved versioned page just loses its version
  * dropdown. Retarget that one by hand.
@@ -51,7 +50,6 @@ import {
   stringifyMeta,
   toPosix,
 } from './lib/doc-links.mjs';
-import { updateDriftMaps } from './lib/drift-maps.mjs';
 import {
   REDIRECTS_CONFIG_PATH,
   REDIRECTS_END,
@@ -291,9 +289,6 @@ async function main() {
 
   const fromMeta = computeFileMeta(docsRoot, fromAbs);
   const toMeta = computeFileMeta(docsRoot, toAbs);
-  const docsRelFrom = toPosix(path.relative(docsRoot, fromAbs));
-  const docsRelTo = toPosix(path.relative(docsRoot, toAbs));
-
   const records = scanLinks(index);
   const { editsByFile, changes, unrenderable } = planMove(records, index, fromAbs, toAbs);
 
@@ -344,8 +339,6 @@ async function main() {
       );
     }
     // Reported last, mirroring the order a real run applies the steps in.
-    for (const n of await updateDriftMaps(repoRoot, docsRelFrom, docsRelTo, true))
-      console.log(`  ${n}`);
     for (const n of await updateLegacyDestinations(repoRoot, fromMeta.url, toMeta.url, true))
       console.log(`  ${n}`);
     console.log('\n[dry-run] no files were changed.');
@@ -379,19 +372,14 @@ async function main() {
     );
   }
 
-  // Last on purpose. This step reads two files, verifies its own rewrite against the parsed
-  // RENAME_MAP, and runs both results through Prettier, any of which can throw; running it after the
-  // redirect is appended means a failure here costs only this step, and it writes both maps or
-  // neither. Everything before it has already landed, so the fix is to retarget the maps by hand.
-  for (const n of await updateDriftMaps(repoRoot, docsRelFrom, docsRelTo, false))
-    console.log(`  ${n}`);
-
-  // Same reasoning, one step further out, and after the drift maps so their abort semantics are
-  // unchanged. This one works in site URLs rather than content-relative paths, because that is what
-  // the two legacy maps store, and it writes nothing but those two maps — deleting the legacy
-  // redirect *generator* (which needs a sibling arbitrum-docs checkout) leaves it working as is. It
-  // also reads back the AUTO-GENERATED block appended just above, to report any earlier move's
-  // redirect this one has just turned into a two-hop chain.
+  // Last on purpose. This step reads two files, verifies its own rewrite against the parsed maps,
+  // and runs the result through Prettier, any of which can throw; running it after the redirect is
+  // appended means a failure here costs only this step, and it writes both maps or neither.
+  // Everything before it has already landed, so the fix is to retarget the maps by hand. It works
+  // in site URLs rather than content-relative paths, because that is what the two legacy maps
+  // store, and it writes nothing but those two maps, which is why deleting the legacy redirect
+  // *generator* left it working as is. It also reads back the AUTO-GENERATED block appended just
+  // above, to report any earlier move's redirect this one has just turned into a two-hop chain.
   for (const n of await updateLegacyDestinations(repoRoot, fromMeta.url, toMeta.url, false))
     console.log(`  ${n}`);
 

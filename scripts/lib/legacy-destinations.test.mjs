@@ -322,9 +322,9 @@ test('updateLegacyDestinations writes the file and reports one note per map that
   assert.equal(notes.length, 2, JSON.stringify(notes));
   assert.match(notes[0], /legacy-redirects\.mjs: retargeted 1 MANUAL_DESTINATIONS destination/);
   assert.match(notes[1], /NOTE: redirects\.legacy\.mjs/);
-  assert.match(notes[1], /pnpm redirects:legacy/);
+  assert.match(notes[1], /hand-maintained/);
   // The note has to name the gate it puts red, not just the extra hop: `redirects:check` follows
-  // one hop, so the orphaned legacy sources report DEAD until the legacy map is regenerated.
+  // one hop, so the orphaned legacy sources report DEAD until someone retargets them.
   assert.match(notes[1], /pnpm redirects:check/);
   assert.match(notes[1], /DEAD/);
   // ...and it must not also claim an earlier move's redirect chained onto this page. This fixture

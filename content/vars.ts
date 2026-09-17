@@ -22,9 +22,9 @@ import varsJson from './vars.json';
  * case (a name used in MDX with no key at all), which no type system can see
  * because .mdx never passes through tsc.
  *
- * Values mirror upstream `arbitrum-docs/src/resources/globalVars.js`, which is
- * regenerated there by `yarn update-variable-refs` on every release. Keep them
- * in sync while that site is still live.
+ * Values started as a copy of the Docusaurus site's
+ * `src/resources/globalVars.js`. That site is archived, so this file is the
+ * only copy and there is nothing left to keep it in sync with.
  */
 const varsSchema = z.strictObject({
   arbOneChainId: z.number(),
