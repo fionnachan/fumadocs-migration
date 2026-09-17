@@ -1405,15 +1405,16 @@ component looks broken.
 ## Static routing under `/docs`
 
 Every live docs page and every archived version is prerendered at build, and a slug that is in
-neither list matches no route at all. Two exports in `app/docs/[[...slug]]/page.tsx` do that, and
-each one closes a different ticket:
+neither list returns 404 without the page ever rendering. Two exports in
+`app/docs/[[...slug]]/page.tsx` do that, and each one closes a different ticket:
 
 - **`generateStaticParams()`** returns `source.generateParams()` plus `archiveParams()`, so the
   build enumerates all 349 live pages and all three archived versions (FS-2698). This became
   possible only when `?v=` moved off `searchParams` and onto a path segment in the same change: a
   page that awaits `searchParams` is dynamic by definition, and a dynamic route prerenders nothing
   whatever `generateStaticParams` returns.
-- **`dynamicParams = false`** makes every other slug stop matching this route (FS-2688).
+- **`dynamicParams = false`** makes Next answer 404 for every slug outside that generated set,
+  without rendering the page (FS-2688).
 
 Measured on Next 16.3.4 (2026-09-17) with a full `pnpm build`, counting
 `.next/prerender-manifest.json` rather than reading the route table:
@@ -1431,10 +1432,10 @@ The 352 is 349 live pages plus the three archives. The seven are `/`, `/_not-fou
 
 ### The `/docs/*` 404 is a real page (FS-2688)
 
-**`dynamicParams = false` is what gives an unknown `/docs` URL a visible body.** The slug stops
-matching the docs route before rendering starts, so the request lands on Next's internal
-`/_not-found` entry and `app/not-found.tsx` is served as an ordinary prerendered page, with the
-status set before any render happens.
+**`dynamicParams = false` is what gives an unknown `/docs` URL a visible body.** The slug is absent
+from the generated param set, so Next answers 404 before rendering starts: the request lands on
+Next's internal `/_not-found` entry and `app/not-found.tsx` is served as an ordinary prerendered
+page, with the status set before any render happens.
 
 What that replaced was not a styling problem. `notFound()` thrown from a **dynamically** rendered
 page, outside a Suspense boundary, aborts the flight render, and Next discards the response in
@@ -1447,7 +1448,10 @@ Verified by building and serving the production output:
 
 ```bash
 pnpm build
-npx next start -p 3000     # `npx`, not `pnpm start --port`: pnpm forwards the `--` and Next misreads it
+# `pnpm start --port 3000` works too; only an explicit `pnpm start -- --port 3000` fails, with
+# "Invalid project directory provided". CI reaches for `npx` for a different reason: backgrounded,
+# `$!` would be the pnpm wrapper's PID and killing that orphans the server (ci.yml).
+npx next start -p 3000
 curl -sS -D - -o body.html http://localhost:3000/docs/does-not-exist
 ```
 
@@ -1498,20 +1502,23 @@ and without the header against a preview deployment and checking that the bare o
   `dynamicParams = false` and it is the trade the ticket accepted.
 - **Build time and disk.** Roughly +25 s and +370 MB of `.next` against the pre-FS-2698 build (three
   interleaved cold builds each: 48.2/44.8/37.2 s and 653 MB before, 78.5/66.3/68.3 s and 1.0 GB
-  after). The bought work is 349 page renders, 349 satori images and 349 markdown files that used to
-  happen on first request.
+  after). The bought work is 352 page renders (349 live pages plus the three archives), 349 satori
+  images and 349 markdown files that used to happen on first request.
 
-**Do not count prerendered pages from the route table.** It prints `● /docs/[[...slug]]` under
-"(SSG) prerendered as static HTML" whenever `generateStaticParams` exists, whatever it returns. That
-output shape is what produced both the old "339 docs pages prerendered" misreading and its
-correction. Count `.next/prerender-manifest.json`, or `find .next/server/app/docs -name '*.html'`.
+**Do not count prerendered pages from the route table.** It never states the total: the parent line
+prints bare as `/docs/[[...slug]]`, with no `●` marker at all, and the markers sit on three sample
+child paths plus a `[+349 more paths]` line, so the count is only recoverable by adding the samples
+to the remainder. An earlier shape of that same output produced the old "339 docs pages prerendered"
+misreading and its correction. Count `.next/prerender-manifest.json`, or
+`find .next/server/app/docs -name '*.html'`.
 
 ### What was tried and rejected
 
 - **A Suspense boundary** (`app/docs/loading.tsx`) removes the error shell but answers **200**,
   which is worse than an empty 404.
-- **`global-not-found`** never runs here: the `/docs/[[...slug]]` catch-all matches everything under
-  `/docs`, so the URL is a matched route, not an unmatched one.
+- **`global-not-found`** never runs here: the `/docs/[[...slug]]` segment pattern still matches
+  everything under `/docs`, so the URL is a matched route whose params were rejected, not an
+  unmatched one.
 - **Checking the slug in `proxy.ts`** needs the page list, and importing `lib/source` there takes
   the traced proxy closure from 1.70 MB to 28.26 MB with a 26.6 MB chunk on every cold start. A
   generated slug manifest instead is a feature whose failure mode is 404ing a live page.
