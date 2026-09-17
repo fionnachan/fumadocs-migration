@@ -249,6 +249,13 @@ test('pathInfo: Accept text/markdown outside /docs is ignored', () => {
   assert.deepEqual(pathInfo('/', 'text/markdown'), ignored);
 });
 
+test('pathInfo: a .well-known path is ignored even with a markdown Accept', () => {
+  // `proxy.ts` bypasses `/.well-known/` outright, so the request never becomes a markdown read and
+  // must not be counted as one. Asserted for the Accept header too, because that is the only
+  // classification branch a non-`.md` path outside `/docs` could otherwise fall into.
+  assert.deepEqual(pathInfo('/.well-known/mcp/server-card.json', 'text/markdown'), ignored);
+});
+
 // --- pathInfo: everything else -----------------------------------------------------------------
 
 test('pathInfo: static and metadata routes are ignored', () => {
@@ -260,6 +267,9 @@ test('pathInfo: static and metadata routes are ignored', () => {
     '/robots.txt',
     '/og/docs/get-started/image.png',
     '/api/search',
+    // Well-known URIs (public/.well-known/). The MCP discovery card is a static JSON fetch, not a
+    // markdown read, so it must never join the `llms_file_fetched` series.
+    '/.well-known/mcp/server-card.json',
   ]) {
     assert.deepEqual(pathInfo(path, ''), ignored, path);
   }

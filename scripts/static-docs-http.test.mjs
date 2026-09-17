@@ -97,3 +97,33 @@ test('built static docs routing', { skip: !baseUrl }, async (t) => {
     }
   });
 });
+
+test('well-known MCP discovery card', { skip: !baseUrl }, async (t) => {
+  const cardPath = '/.well-known/mcp/server-card.json';
+
+  await t.test('serves the card as JSON, whatever the client will accept', async () => {
+    // `/.well-known/` is on the proxy's bypass list. A client discovering the MCP server sends
+    // whatever Accept header it likes, and every one of them must get the file on disk rather than
+    // a negotiated markdown body, so both headers are asserted here.
+    for (const accept of ['application/json', 'text/markdown']) {
+      const response = await get(cardPath, { headers: { accept } });
+      assert.equal(response.status, 200, accept);
+      assert.match(response.headers.get('content-type') ?? '', /application\/json/, accept);
+      const card = JSON.parse(await response.text());
+      assert.equal(card.transport.type, 'streamable-http');
+      assert.equal(card.transport.endpoint, 'https://mcp.inkeep.com/offchainlabs/mcp');
+    }
+  });
+
+  await t.test('a well-known path with no file behind it is a 404', async () => {
+    const response = await get('/.well-known/nope.json');
+    assert.equal(response.status, 404);
+    await response.text();
+  });
+
+  await t.test('robots.txt does not disallow the well-known tree', async () => {
+    const response = await get('/robots.txt');
+    assert.equal(response.status, 200);
+    assert.doesNotMatch(await response.text(), /Disallow:\s*\/\.well-known/i);
+  });
+});

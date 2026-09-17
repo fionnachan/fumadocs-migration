@@ -630,14 +630,46 @@ with the `ja` and `zh-CN` trees.
 
 1. **Request tracking** for markdown and `llms*.txt` fetches, production only (below).
 2. An explicit **bypass list** of routes served verbatim: `/_next/`, `/img/`, `/favicon.ico`,
-   `/sitemap.xml`, `/robots.txt`, `/llms*`, `/og/`, `/api/`.
+   `/icon.png`, `/apple-icon.png`, `/nitro-whitepaper.pdf`, `/audit-reports/`, `/data/`,
+   `/.well-known/`, `/sitemap.xml`, `/robots.txt`, `/llms*`, `/og/`, `/api/`.
 3. `.md`-suffix rewrites plus `Accept: text/markdown` content negotiation to the markdown route.
 
 **A new top-level route belongs in that bypass list**, or markdown negotiation will try to rewrite
-it.
+it. `proxy.ts` exports no `config.matcher`, and Next's proxy reference is explicit that without one
+the proxy runs on every request, `public/` assets included, so nothing else keeps a static file out
+of the rewrite branches.
 
 Re-adding localization means restoring `defineI18n`, the `i18n` argument to `loader()`, a `[lang]`
 segment, and `createI18nMiddleware`.
+
+### `/.well-known/` and the MCP discovery card
+
+`public/.well-known/mcp/server-card.json` is the MCP server discovery card, ported verbatim from
+upstream `static/.well-known/mcp/server-card.json` in OffchainLabs/arbitrum-docs (FS-2704). It is
+the document a client finds when it has only the site origin and wants to know whether the docs
+expose an MCP server: it names `https://mcp.inkeep.com/offchainlabs/mcp` as a `streamable-http`
+endpoint, which is the same Inkeep service behind the site's search. Without it, a discovery fetch
+of `/.well-known/mcp/server-card.json` against docs.arbitrum.io 404s after cutover while the search
+it advertises works, which is an inconsistency rather than a decision.
+
+The path is a well-known URI (RFC 8615), so it is fixed and cannot be moved. Two consequences:
+
+- **It is on the bypass list**, not by the convention that covers `/sitemap.xml` and `/data/`, but
+  because a discovery client sends whatever `Accept` header it likes and must still get the JSON on
+  disk. The rewrite patterns are anchored at `/docs` today, so the bypass is defence in depth, and
+  the assertion that it holds is in `scripts/static-docs-http.test.mjs`, which requests the card
+  under `Accept: text/markdown` as well as `application/json`.
+- **The card is untracked.** `pathInfo()` in `lib/llms-tracking.ts` classifies it as `ignored`,
+  which its tests pin: a discovery fetch is not a markdown read and must not join the
+  `llms_file_fetched` series.
+
+**Nothing regenerates or checks this file.** It is a hand-copied snapshot of somebody else's
+document, so an upstream edit to the card goes unnoticed here. Its two facts that can rot are the
+endpoint URL and the transport type; both were confirmed live when it landed, by sending an MCP
+`initialize` to the endpoint. Upstream's `capabilities` block lists `tools` only, while the live
+server also advertises `prompts` and `resources`; the copy stays byte-identical to upstream anyway,
+because capabilities are negotiated at `initialize` and a divergent copy would be harder to re-sync
+than it is worth.
 
 ### Request tracking
 
