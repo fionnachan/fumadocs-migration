@@ -118,18 +118,18 @@ pnpm references:check  # glossary ids + <Reference> targets
 pnpm check-links       # broken internal doc links and MDX fragments
 ```
 
-These seven are exactly what `.github/workflows/ci.yml`'s blocking `Gates` job runs (it also runs
-`versioned-docs-check.mjs`, which only matters if you touched `content/_versions/`). A green PR
+These seven are the ones a content change usually trips. `.github/workflows/ci.yml`'s blocking
+`Gates` job runs them alongside `versioned-docs-check.mjs`, `faq:check`, `images:presence`,
+`contracts:check`, `format:check` and `content:lint`. A green PR
 does not by itself mean the content renders correctly: `types:check` proves the frontmatter
 schema, not the render — it exits 0 on a page that serves a literal `:::` or the string
 `undefined`. **Always open a changed page on `http://localhost:3000` and confirm it looks right**,
 in light and dark mode if you touched styling.
 
-Two more checks report in CI without blocking merges yet — `pnpm format:check` and
-`pnpm content:lint` — because both still fail on pre-existing debt elsewhere in the repo. Run
-`pnpm format` on the files you touched and `pnpm content:lint` over the tree anyway, and read past
-the pre-existing findings to check you didn't add one; don't grow the backlog even though CI won't
-stop you.
+Two of those, `pnpm format:check` and `pnpm content:lint`, reported without blocking while they
+still failed on pre-existing debt. Both reached zero on 2026-09-15 and moved into `Gates`, so a
+finding in either now means your change introduced it. Run `pnpm format` on the files you touched
+and `pnpm content:lint` over the tree before you push.
 
 ## Document type conventions
 

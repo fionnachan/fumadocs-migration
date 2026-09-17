@@ -1307,8 +1307,10 @@ Monday.
 ## The content-lint rules
 
 `pnpm content:lint` (`scripts/content-lint.mjs`, rules in `scripts/lib/content-lint.mjs`) is the
-gate for MDX that compiles and type-checks but renders wrong. Every rule ignores fenced blocks and
-inline code spans, so a page that documents syntax is never mistaken for a page that uses it.
+gate for MDX that compiles and type-checks but renders wrong. Every rule but `A6` ignores fenced
+blocks and inline code spans, so a page that documents syntax is never mistaken for a page that uses
+it. `A6` is the deliberate exception and reads inside them, because a `<Var>` that ships as a
+literal tag is exactly the defect it looks for.
 
 | Rule  | What it catches                                                               |
 | ----- | ----------------------------------------------------------------------------- |
@@ -1341,10 +1343,14 @@ reader sees a flash and loses any client state in it.
 
 - **`A8`, a link inside a heading.** Fumadocs wraps every heading's content in its own
   `<a href="#slug">`, so a heading that already contains a link renders `<a><a>…</a></a>`, which no
-  HTML parser can represent. A markdown link, a bare URL (GFM autolinks those) and a raw `<a>` all
-  count. A markdown **image** does not: `<img>` nests inside an anchor legally. The fix is to keep
-  the heading as plain text and move the link into the prose under it, which also leaves the
-  heading's slug untouched.
+  HTML parser can represent. A markdown link, a reference link, a bare URL or angle autolink (GFM
+  anchors both) and a raw `<a>` all count. A markdown **image** does not: `<img>` nests inside an
+  anchor legally, and neither does `[#custom-id]`, which is how a heading pins its slug. The fix is
+  to keep the heading as plain text and move the link into the prose under it, which also leaves the
+  heading's slug untouched. Where a slug is load-bearing and the heading has to change anyway,
+  `## Heading text [#old-slug]` keeps the old anchor. One shape stays out of reach: a shortcut
+  reference link (`[ref]` alone) is indistinguishable from `[#custom-id]` without resolving link
+  definitions, and the tree holds no link definitions at all.
 - **`A9`, a hand-written `<p>` around block content.** MDX parses a JSX element's children as flow
   content when they start on their own line, so remark wraps the prose in a paragraph and the
   element becomes `<p><p>…</p></p>`. Written inline, `<p>text</p>` renders one paragraph and is not
