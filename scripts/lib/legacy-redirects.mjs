@@ -1,41 +1,62 @@
 /**
- * Resolves legacy docs.arbitrum.io URLs to pages on this site. Drives `pnpm redirects:legacy`.
+ * The hand-maintained overlay that decides where legacy docs.arbitrum.io URLs point.
  *
  * Legacy URLs were served at the site root (`/stylus/using-cli`); this site serves docs under
- * `/docs`. So sources stay root-level (that is what real inbound links look like) and
- * destinations are rewritten to `/docs/...`.
+ * `/docs`. `redirects.legacy.mjs` carries the resulting 4,424 entries and is committed, permanent
+ * and now **hand-maintained**: the generator that derived it read a sibling `arbitrum-docs`
+ * checkout (its `vercel.json` for redirect sources and its `docs/` tree for canonical page URLs),
+ * and that repo is archived. Adding a legacy redirect now means appending one
+ * `{ source, destination, permanent }` object to `redirects.legacy.mjs` by hand, then proving the
+ * destination with `pnpm redirects:check`, which resolves it against the router's own URL
+ * inventory rather than against a guess at what is routable.
  *
- * Two kinds of source feed in, and both flow through the same resolution order:
+ * What survives here are the two judgement maps and the page inventory that keeps them honest.
+ * `MANUAL_DESTINATIONS` and `SECTION_LANDINGS` are read by `scripts/lib/legacy-destinations.mjs`,
+ * which retargets them whenever `pnpm move-doc` moves a page one of them names, and by the tripwire
+ * in `legacy-redirects.test.mjs`, which fails the suite the moment either names a page that is no
+ * longer there.
  *
- *  - **Upstream's own redirect sources**, read from the sibling repo's `vercel.json`. These are
- *    URLs upstream had already moved before the migration.
- *  - **Upstream's canonical page URLs**, derived from its `docs/` tree by
- *    `scripts/lib/upstream-pages.mjs`. These were never redirect sources anywhere, so nothing
- *    mapped them, and every one of them would have 404'd at cutover purely because of the `/docs`
- *    prefix. They are the larger half of the corpus.
+ * ## How the committed map was resolved
  *
- * Only redirects whose destination provably exists in `content/docs` are emitted. Everything else
- * lands in the `.todo.json` worklist rather than being guessed at, because a redirect to a
- * merely-plausible page is worse than a 404: it silently sends readers somewhere wrong, and
- * `redirects:check` cannot catch it, because the destination exists.
+ * Recorded because it explains where every one of those entries points, and because a hand-added
+ * entry should follow the same order. Each legacy URL was resolved by the first rule that matched,
+ * and a rule that could not decide declined rather than guessing: a redirect to a merely-plausible
+ * page is worse than a 404, since it sends readers somewhere wrong and `redirects:check` cannot
+ * catch it, because the destination exists.
+ *
+ *  1. `MANUAL_DESTINATIONS`: hand-verified against the upstream page's frontmatter title, so it
+ *     beat everything.
+ *  2. Self-URL: the legacy path names a live page here under `/docs`. This resolved nearly every
+ *     canonical upstream URL, which had only ever needed the `/docs` prefix.
+ *  3. `SECTION_RENAMES`: whole sections that moved wholesale.
+ *  4. Exact frontmatter title: exactly one page here carried the upstream page's title, verbatim,
+ *     and exactly one page upstream carried it. Ahead of the basename, because a title identifies a
+ *     page and a basename only suggests one. This is what kept a `configuration/…` how-to from
+ *     being answered with the `features/…/choose-…` page explaining why someone might want it.
+ *  5. Unique basename: only when exactly one page here carried that slug *and* the basename was
+ *     unique upstream too. Where the legacy path was doing the disambiguating, the basename could
+ *     not, so it declined.
+ *  6. `SECTION_LANDINGS`: the nearest live section landing, for a page this site never ported.
+ *     Last on purpose, so it never masked a page that does exist here, and so it goes inert on its
+ *     own the day that page lands.
+ *
+ * Anything no rule resolved was parked rather than pointed at a plausible page.
  */
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-import {
-  deriveCanonicalPages,
-  normaliseTitle,
-  parseRoutingFrontmatter,
-  reservedRouteReason,
-} from './upstream-pages.mjs';
-
 /**
- * Legacy arbitrum-docs section -> this site's section.
+ * Legacy section -> this site's section: rule 3 of the resolution order above.
  *
  * Only renames where the whole section moved wholesale and the target section
  * exists. Deep restructures (launch-arbitrum-chain, build-decentralized-apps)
  * are deliberately absent: their pages moved individually, so a section-level
  * rename would produce confidently-wrong destinations.
+ *
+ * Kept as the record of which sections moved, and load-bearing for one test:
+ * `legacy-destinations.test.mjs` pins the `move-doc` retargeter against this declaration, proving
+ * it edits only inside the two `new Map([...])` literals and cannot wander into a neighbouring
+ * array of URL-shaped strings.
  */
 export const SECTION_RENAMES = [
   ['/run-arbitrum-node', '/run-a-node'],
@@ -398,7 +419,7 @@ export function collectValidUrls(contentDir) {
     const clash = urls.get(key);
     if (clash && clash !== url) {
       throw new Error(
-        `generate-legacy-redirects: two pages differ only by case (${clash} vs ${url}); ` +
+        `legacy-redirects: two pages differ only by case (${clash} vs ${url}); ` +
           `case-insensitive matching cannot pick between them.`,
       );
     }
@@ -410,9 +431,8 @@ export function collectValidUrls(contentDir) {
 /**
  * Every routable page on this site as `{ url, file }`.
  *
- * `build()` walks the tree twice through this, once for `collectValidUrls` and once for
- * `indexByTitle`, which also reads every page file for its frontmatter. At 339 pages that is not
- * worth caching; it is worth not believing it happens once.
+ * The same walk `collectValidUrls` is built from, exported separately because the tripwire test
+ * wants the file paths as well as the URLs.
  */
 export function collectLocalPages(contentDir) {
   const pages = [];
@@ -434,438 +454,8 @@ export function collectLocalPages(contentDir) {
   return pages;
 }
 
-/**
- * Normalised frontmatter title -> every page here carrying it.
- *
- * This site pairs a `features/…/choose-X` page answering "why would I want X" with a
- * `configuration/…/X` how-to, and the two often share a basename or differ only by a `config-`
- * prefix. The basename fallback cannot tell them apart and has picked the "why" half, sending a
- * reader after a configuration procedure to a page that does not contain one. The titles are not
- * ambiguous at all: upstream's "Configure Sequencer timing adjustments" is titled exactly that
- * here, while the page the basename found is "Why choose to customize the Sequencer timing…".
- */
-export function indexByTitle(contentDir) {
-  const byTitle = new Map();
-  for (const { url, file } of collectLocalPages(contentDir)) {
-    const { title } = parseRoutingFrontmatter(readFileSync(file, 'utf8'));
-    if (!title) continue;
-    const key = normaliseTitle(title);
-    if (!byTitle.has(key)) byTitle.set(key, []);
-    byTitle.get(key).push(url);
-  }
-  return byTitle;
-}
-
 /** Resolve a URL to its real casing on this site, or undefined when no page serves it. */
 export const resolveUrl = (valid, url) => valid.get(url.toLowerCase());
 
-/** `/(a/b/?)` and `/a/b/` both normalise to `/a/b`. */
-export function normaliseSource(source) {
-  const group = source.match(/^\/\((.*)\)$/);
-  const bare = group ? `/${group[1]}` : source;
-  return bare.replace(/\/\?$/, '').replace(/\/+$/, '') || '/';
-}
-
+/** A destination that leaves this site, which no page inventory can be expected to resolve. */
 export const isAbsolute = (value) => /^https?:\/\//.test(value);
-
-/**
- * Destinations the legacy corpus records as paths but that are not paths: an absolute URL with a
- * stray leading slash (`/https://…`) or a doubled root (`//launch-…`). Slug-matching these would
- * find a real page and emit a confidently-wrong redirect, so they are rejected outright.
- */
-export const isMalformed = (value) => value.startsWith('//') || /^\/https?:/.test(value);
-
-/**
- * Page basename, reduced for comparison: lowercase, punctuation dropped. `Gas-Fees.mdx` and
- * `gas_fees.mdx` collapse to the same key.
- */
-export const slugKey = (url) =>
-  url
-    .replace(/\/+$/, '')
-    .split('/')
-    .pop()
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
-
-/** slug -> every routable URL ending in that slug. Built once from the same page inventory. */
-export function indexBySlug(valid) {
-  const bySlug = new Map();
-  for (const url of valid.values()) {
-    const key = slugKey(url);
-    if (!bySlug.has(key)) bySlug.set(key, []);
-    bySlug.get(key).push(url);
-  }
-  return bySlug;
-}
-
-/**
- * How many legacy pages carried each slug, read from the sibling repo's `docs/` tree.
- *
- * The slug fallback assumes a basename identifies a page. That holds only if the basename was
- * unique upstream too. It was not always: upstream had both
- * `launch-arbitrum-chain/chain-config/costs/gas-optimization` and
- * `stylus/best-practices/gas-optimization`, and only the Stylus one was ported — so matching on
- * basename alone sends a chain-config page to a Stylus page. Where the legacy path was doing the
- * disambiguating, the fallback cannot, and must decline.
- *
- * Returns null when the tree is unavailable, which makes the fallback decline everything rather
- * than match unverified.
- */
-/**
- * How many upstream pages carried each normalised title, from `deriveCanonicalPages`.
- *
- * The mirror of `countUpstreamSlugs`, for the same reason. The title rule assumes a title
- * identifies a page; that holds only if the title was unique upstream too. If it was not, and
- * exactly one page here carries it, every one of those upstream URLs would resolve to that single
- * page with nothing in the output to say so. Upstream may well have folded two pages into one here,
- * but that is a judgement, and this repo records judgements in `MANUAL_DESTINATIONS` rather than
- * inferring them. So the rule declines, the basename gets its turn, and if that declines too the
- * source lands in `redirects.legacy.todo.json`, where the tripwire makes someone decide.
- *
- * Zero collisions upstream today, so this changes no current output; the map is regenerated against
- * a moving upstream, which is the point of the generator.
- */
-export function countUpstreamTitles(canonicalPages) {
-  const counts = new Map();
-  for (const title of canonicalPages.values()) {
-    if (!title) continue;
-    const key = normaliseTitle(title);
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  return counts;
-}
-
-export function countUpstreamSlugs(docsDir) {
-  const counts = new Map();
-  const walk = (dir) => {
-    for (const entry of readdirSync(dir)) {
-      const full = join(dir, entry);
-      if (statSync(full).isDirectory()) walk(full);
-      else if (/\.mdx?$/.test(entry) && !entry.startsWith('_')) {
-        const key = slugKey(entry.replace(/\.mdx?$/, ''));
-        counts.set(key, (counts.get(key) ?? 0) + 1);
-      }
-    }
-  };
-  try {
-    walk(docsDir);
-  } catch {
-    return null;
-  }
-  return counts;
-}
-
-/**
- * Follow the legacy corpus's own redirect chain to its terminal destination.
- *
- * 219 of the upstream redirects point at a URL that is itself a redirect source, up to three hops
- * deep — upstream restructured after those entries were written and never collapsed them, relying
- * on the browser to follow. So a `destination` is often not where a reader ends up. Resolving the
- * chain first turns a guess into upstream's own answer, and is far stronger evidence than matching
- * a basename.
- */
-export function followChain(destination, bySource) {
-  const seen = new Set();
-  let current = destination;
-  while (bySource.has(current) && !seen.has(current)) {
-    seen.add(current);
-    current = bySource.get(current);
-  }
-  return current;
-}
-
-/** Candidate destinations, most-literal first. */
-export function candidateDestinations(destination) {
-  const base = destination.replace(/\/+$/, '');
-  const out = [`/docs${base}`];
-  for (const [from, to] of SECTION_RENAMES) {
-    if (base === from || base.startsWith(`${from}/`)) {
-      out.push(`/docs${to}${base.slice(from.length)}`);
-    }
-  }
-  return out;
-}
-
-/**
- * Resolve one legacy URL to a page on this site, declining rather than guessing.
- *
- * `source` is the inbound URL; `target` is where the reader was trying to land. For an upstream
- * redirect that is the end of upstream's own chain, and for a canonical upstream URL the two are
- * the same, because the page was live there. The order below is the whole policy:
- *
- *  1. `MANUAL_DESTINATIONS`: hand-verified, so it beats everything.
- *  2. Self-URL: the legacy path names a live page here under `/docs`. Serving our own copy beats
- *     following upstream anywhere else, and is the rule that resolves nearly every canonical URL.
- *  3. Section renames: whole sections that moved wholesale.
- *  4. Exact title: exactly one page here carries the upstream page's frontmatter title, verbatim,
- *     and exactly one page upstream carried it. Ahead of the basename, because a title identifies a
- *     page and a basename only suggests one. `upstreamTitles` is omitted only by tests exercising
- *     one rule in isolation; `build()` always has it, because a known `upstreamTitle` means the
- *     upstream tree was read.
- *  5. Basename fallback: only when exactly one page here carries that slug *and* the basename was
- *     unique upstream too.
- *  6. `SECTION_LANDINGS`: the section the reader was heading for, for a page this site has not
- *     ported. Last, so it never masks a page that does exist here.
- *
- * Returns `{ destination, via }` or `{ reason, ... }`, where `reason` is the todo entry's reason.
- */
-export function resolveTarget(args) {
-  const result = resolveMechanically(args);
-  if (!result.reason) return result;
-
-  const landing = SECTION_LANDINGS.get(args.target.replace(/\/+$/, ''));
-  if (!landing) return result;
-  const resolved = resolveUrl(args.valid, landing);
-  if (!resolved) {
-    throw new Error(
-      `generate-legacy-redirects: SECTION_LANDINGS points at a missing page: ${landing}`,
-    );
-  }
-  return { destination: resolved, via: 'landing' };
-}
-
-function resolveMechanically({
-  source,
-  target,
-  valid,
-  bySlug,
-  byTitle,
-  upstreamTitle,
-  upstreamTitles,
-  upstreamSlugs,
-}) {
-  const manual = MANUAL_DESTINATIONS.get(target.replace(/\/+$/, ''));
-  if (manual) {
-    const [manualPage, anchor] = manual.split('#');
-    const resolved = resolveUrl(valid, manualPage);
-    if (!resolved) {
-      throw new Error(
-        `generate-legacy-redirects: MANUAL_DESTINATIONS points at a missing page: ${manual}`,
-      );
-    }
-    return { destination: anchor ? `${resolved}#${anchor}` : resolved, via: 'manual' };
-  }
-
-  const self = resolveUrl(valid, `/docs${source}`);
-  if (self) return { destination: self, via: 'self' };
-
-  if (isMalformed(target)) return { reason: 'malformed-destination', legacyDestination: target };
-
-  const candidates = candidateDestinations(target);
-  const index = candidates.findIndex((candidate) => resolveUrl(valid, candidate));
-  if (index !== -1) {
-    // Emit the tree's real casing, not the legacy corpus's.
-    return {
-      destination: resolveUrl(valid, candidates[index]),
-      via: index > 0 ? 'rename' : 'direct',
-    };
-  }
-
-  // No prefix rule resolved it, so the page moved individually. Before guessing from the basename,
-  // use the upstream page's own title: when exactly one page here is titled the same thing, that is
-  // the page, and it beats a basename that merely looks similar. This is what keeps a
-  // `configuration/…` how-to from being answered with the `features/…/choose-…` page that explains
-  // why someone might want it. Two matches means the title is not identifying anything, so decline
-  // and let the basename try. The title must have been unique upstream too, for the same reason the
-  // basename must be: if two upstream pages shared it, the path was doing the disambiguating and
-  // the title cannot.
-  if (upstreamTitle && byTitle) {
-    const key = normaliseTitle(upstreamTitle);
-    const titled = byTitle.get(key) ?? [];
-    const uniqueUpstream = !upstreamTitles || (upstreamTitles.get(key) ?? 0) <= 1;
-    if (titled.length === 1 && uniqueUpstream) return { destination: titled[0], via: 'title' };
-  }
-
-  // Fall back to the basename, and accept it only when exactly one page carries that slug: two
-  // candidates means the generator would be picking, and a plausible-but-wrong redirect is worse
-  // than none.
-  const key = slugKey(target);
-  const hits = bySlug.get(key) ?? [];
-  if (hits.length !== 1) {
-    return {
-      reason: hits.length === 0 ? 'destination-not-in-tree' : 'ambiguous-slug',
-      legacyDestination: target,
-      ...(hits.length > 1 ? { candidates: hits } : {}),
-    };
-  }
-  // The basename only identifies a page if it was unique upstream too.
-  if (!upstreamSlugs || (upstreamSlugs.get(key) ?? 0) > 1) {
-    return {
-      reason: upstreamSlugs ? 'ambiguous-upstream-slug' : 'slug-fallback-unverifiable',
-      legacyDestination: target,
-      ...(upstreamSlugs ? { wouldMatch: hits[0] } : {}),
-    };
-  }
-  return { destination: hits[0], via: 'slug' };
-}
-
-/**
- * Gather every inbound URL worth mapping, most-authoritative first.
- *
- * Upstream's redirect entries come first because they carry a destination, upstream's own answer
- * to where the page went. A canonical URL that is also a redirect source (upstream redirecting a
- * page it still serves) is therefore deduplicated in favour of the redirect entry, and counted.
- */
-export function collectSources({ legacy, canonicalUrls }) {
-  const inputs = [];
-  for (const entry of legacy.redirects ?? []) {
-    if (entry.source.includes('__redirects-autogen')) continue;
-    // The SDK reference was never ported and has no on-site home: arbitrum-docs deleted its
-    // /sdk section and links readers to the GitHub repo from the sidebar. These legacy entries
-    // are not a gap to close, so drop them instead of parking them in the worklist forever.
-    if (entry.destination === '/sdk' || entry.destination.startsWith('/sdk/')) continue;
-    inputs.push({
-      kind: 'redirect',
-      source: normaliseSource(entry.source),
-      destination: entry.destination,
-      // Upstream records all but one of its redirects as temporary; matching that keeps the two
-      // halves of the emitted map consistent while the content tree is still moving.
-      permanent: !!entry.permanent,
-    });
-  }
-  for (const url of canonicalUrls) {
-    inputs.push({
-      kind: 'canonical',
-      source: normaliseSource(url),
-      destination: null,
-      permanent: false,
-    });
-  }
-  return inputs;
-}
-
-/**
- * Build the redirect map.
- *
- * `upstreamDocsDir` is optional only in tests; the CLI always passes it, and without it no
- * canonical URLs are seeded and the basename fallback declines everything.
- */
-export function build({ sourcePath, contentDir, upstreamDocsDir, sidebarsPath }) {
-  const legacy = JSON.parse(readFileSync(sourcePath, 'utf8'));
-  const valid = collectValidUrls(contentDir);
-  const bySlug = indexBySlug(valid);
-  const byTitle = indexByTitle(contentDir);
-  const upstreamSlugs = upstreamDocsDir ? countUpstreamSlugs(upstreamDocsDir) : null;
-  // url -> upstream frontmatter title, for every page upstream serves. A redirect's target is
-  // often one of these paths too, which is how a redirect entry also gets a title to match on.
-  const canonicalPages = upstreamDocsDir
-    ? deriveCanonicalPages({ docsDir: upstreamDocsDir, sidebarsPath })
-    : new Map();
-  const canonicalUrls = [...canonicalPages.keys()];
-  const upstreamTitles = countUpstreamTitles(canonicalPages);
-
-  const bySource = new Map();
-  for (const entry of legacy.redirects ?? []) {
-    const key = normaliseSource(entry.source);
-    if (!bySource.has(key)) bySource.set(key, entry.destination);
-  }
-
-  const redirects = [];
-  const todo = [];
-  const renamed = [];
-  const slugMatched = [];
-  const titleMatched = [];
-  const landings = [];
-  const shadowed = [];
-  const seen = new Set();
-  let duplicates = 0;
-  let canonicalAlreadyMapped = 0;
-  let canonicalEmitted = 0;
-
-  for (const input of collectSources({ legacy, canonicalUrls })) {
-    const { kind, source } = input;
-    if (seen.has(source)) {
-      if (kind === 'canonical') canonicalAlreadyMapped += 1;
-      else duplicates += 1;
-      continue;
-    }
-    seen.add(source);
-
-    // A source that names a live route here must never be redirected: Next runs `redirects()`
-    // before anything renders, so the redirect would win and the route would become unreachable.
-    // Two ways to be live: a reserved root-level route or asset, or a real page under `/docs`.
-    const reserved = reservedRouteReason(source) ?? (resolveUrl(valid, source) && 'live doc page');
-    if (reserved) {
-      shadowed.push({ source, kind, reason: reserved });
-      continue;
-    }
-
-    if (kind === 'redirect' && isAbsolute(input.destination)) {
-      redirects.push({ source, destination: input.destination, permanent: input.permanent });
-      continue;
-    }
-
-    // For a canonical URL the reader was already where they meant to be, so the target is the
-    // source itself. For a redirect, follow upstream's own chain to its terminal destination.
-    const target = kind === 'canonical' ? source : followChain(input.destination, bySource);
-
-    const result = resolveTarget({
-      source,
-      target,
-      valid,
-      bySlug,
-      byTitle,
-      upstreamTitle: canonicalPages.get(target.replace(/\/+$/, '')),
-      upstreamTitles,
-      upstreamSlugs,
-    });
-    if (result.reason) {
-      todo.push({
-        source,
-        kind,
-        legacyDestination: result.legacyDestination,
-        reason: result.reason,
-        ...(result.candidates ? { candidates: result.candidates } : {}),
-        ...(result.wouldMatch ? { wouldMatch: result.wouldMatch } : {}),
-      });
-      continue;
-    }
-
-    if (result.via === 'rename') renamed.push({ source, from: target, to: result.destination });
-    if (result.via === 'slug') slugMatched.push({ source, from: target, to: result.destination });
-    if (result.via === 'title') titleMatched.push({ source, from: target, to: result.destination });
-    if (result.via === 'landing') landings.push({ source, to: result.destination });
-    if (kind === 'canonical') canonicalEmitted += 1;
-
-    redirects.push({ source, destination: result.destination, permanent: input.permanent });
-  }
-
-  redirects.sort((a, b) => a.source.localeCompare(b.source));
-  todo.sort((a, b) => a.source.localeCompare(b.source));
-  shadowed.sort((a, b) => a.source.localeCompare(b.source));
-  return {
-    redirects,
-    todo,
-    renamed,
-    slugMatched,
-    titleMatched,
-    landings,
-    shadowed,
-    duplicates,
-    canonicalCount: canonicalUrls.length,
-    canonicalAlreadyMapped,
-    canonicalEmitted,
-    validCount: valid.size,
-  };
-}
-
-/** The committed `redirects.legacy.mjs`, as text. */
-export function render(redirects) {
-  const body = redirects
-    .map(
-      (r) =>
-        `  {\n    source: '${r.source}',\n    destination: '${r.destination}',\n` +
-        `    permanent: ${r.permanent},\n  },`,
-    )
-    .join('\n');
-  return (
-    `// GENERATED by scripts/generate-legacy-redirects.mjs — do not edit by hand.\n` +
-    `// Regenerate with \`pnpm redirects:legacy\`.\n` +
-    `//\n` +
-    `// Legacy docs.arbitrum.io URLs (root-level) -> this site's /docs paths. Seeded from both\n` +
-    `// upstream's own redirect sources and every canonical upstream page URL.\n` +
-    `// Unportable entries are listed in redirects.legacy.todo.json.\n` +
-    `/** @type {{ source: string, destination: string, permanent: boolean }[]} */\n` +
-    `export const legacyRedirects = [\n${body}\n];\n`
-  );
-}

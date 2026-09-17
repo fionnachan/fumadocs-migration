@@ -277,8 +277,8 @@ test('move-doc retargets MANUAL_DESTINATIONS and SECTION_LANDINGS for the moved 
   assert.match(output, /legacy-redirects\.mjs: retargeted 1 SECTION_LANDINGS destination\(s\)/);
   assert.match(
     output,
-    /pnpm redirects:legacy/,
-    'tells the mover the generated file is a hop stale',
+    /hand-maintained/,
+    'tells the mover the committed legacy map is a hop stale and is theirs to fix',
   );
 });
 

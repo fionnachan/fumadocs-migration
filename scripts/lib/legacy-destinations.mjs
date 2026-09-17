@@ -11,15 +11,13 @@
  * fix it in the same commit as the move. Sibling of `scripts/lib/drift-maps.mjs`, deliberately the
  * same shape.
  *
- * **This module outlives the legacy redirect *generator*.** The generator half — the code that reads
- * a sibling arbitrum-docs checkout to derive upstream's URL corpus (`upstream-pages.mjs`,
- * `resolveUpstreamRepo`, `build`) — is scheduled for deletion once this repo replaces upstream and
- * upstream is archived. The two maps are not: docs.arbitrum.io URLs have to keep resolving forever,
- * so the hand-maintained overlay and `resolveTarget`'s ordering are permanent. Accordingly this
- * module reads nothing but the two named exports and `redirects.config.mjs` (read-only, and itself
- * permanent), and rewrites nothing but the two object literals that declare those exports. It never
- * calls `build()`, never touches `upstream.config.json`, `vercel.json`, or any upstream checkout,
- * and so needs no change the day the generator is deleted.
+ * **This module outlived the legacy redirect *generator*, as designed.** The generator half (the
+ * code that read a sibling arbitrum-docs checkout to derive upstream's URL corpus) was deleted in
+ * FS-2706 when that repo was archived. The two maps were not: docs.arbitrum.io URLs have to keep
+ * resolving forever, so the hand-maintained overlay is permanent. This module reads nothing but the
+ * two named exports and `redirects.config.mjs` (read-only, and itself permanent), and rewrites
+ * nothing but the two object literals that declare those exports, which is why the generator's
+ * deletion cost it no change at all.
  *
  * Map *keys* are legacy root-level URLs and are never touched: only this site's pages move. Every
  * property `drift-maps` holds, this holds too, for the same reasons:
@@ -37,13 +35,13 @@
  *    against the real parsed maps, so a miss throws instead of passing silently.
  *  - **Nothing is written until every rewrite, and its Prettier pass, has succeeded.**
  *
- * What this module does *not* do is regenerate `redirects.legacy.mjs`. That is generator output, and
- * regenerating it needs the sibling checkout this module refuses to depend on — a move would then
- * fail for anyone without one. Readers do not need it: `move-doc` appends `oldUrl -> newUrl` to
+ * What this module does *not* do is retarget `redirects.legacy.mjs` itself, the committed map of
+ * 4,424 legacy URLs. Readers do not need it: `move-doc` appends `oldUrl -> newUrl` to
  * `redirects.config.mjs`, and Next serves one redirect per request, so a legacy URL still reaches the
- * moved page in two hops. `pnpm redirects:check` does need it. It compares a destination against
- * the routable pages and never follows a second hop, so every legacy source still naming the moved page
- * reports DEAD until `pnpm redirects:legacy` is rerun. The note printed on the CLI says so.
+ * moved page in two hops. `pnpm redirects:check` does care. It compares a destination against
+ * the routable pages and never follows a second hop, so every legacy source still naming the moved
+ * page reports DEAD. The note printed on the CLI says so, and says the file is hand-maintained, so
+ * the fix is to retarget those entries or accept the extra hop.
  *
  * The same one-hop reading reaches `redirects.config.mjs`'s own `AUTO-GENERATED` block, where an
  * earlier move's redirect whose destination is the page now being moved becomes a two-hop chain that
@@ -264,8 +262,8 @@ export function findChainedAutoRedirects(repoRoot, url) {
 /**
  * The CLI note for those chained entries, or null when there are none. Separate from the
  * `redirects.legacy.mjs` note because the two are independent: this one is about an earlier move's
- * own redirect, so it holds whether or not either legacy map names the page, and regenerating
- * cannot fix it either way (`pnpm redirects:legacy` writes `redirects.legacy.mjs`, not this file).
+ * own redirect, so it holds whether or not either legacy map names the page, and it lives in a
+ * different file from the legacy map, so the two are retargeted separately.
  */
 function chainedRedirectNote(repoRoot, oldUrl, newUrl) {
   const sources = findChainedAutoRedirects(repoRoot, oldUrl);
@@ -275,8 +273,8 @@ function chainedRedirectNote(repoRoot, oldUrl, newUrl) {
     `NOTE: the AUTO-GENERATED block in ${REDIRECTS_CONFIG_PATH} has ${sources.length} redirect(s) ` +
     `pointing at '${oldUrl}' (from ${list}), so each of them now chains on to '${newUrl}', ` +
     `correct for readers, but one hop longer, and \`pnpm redirects:check\` follows only one hop, ` +
-    `so it reports each of them DEAD. \`pnpm redirects:legacy\` writes redirects.legacy.mjs, not ` +
-    `this file, so regenerating does not fix these: retarget them to '${newUrl}'.`
+    `so it reports each of them DEAD. They live in this file, not redirects.legacy.mjs: retarget ` +
+    `them to '${newUrl}'.`
   );
 }
 
@@ -335,8 +333,8 @@ export async function updateLegacyDestinations(repoRoot, oldUrl, newUrl, dryRun)
   notes.push(
     `NOTE: redirects.legacy.mjs still sends those legacy URLs to '${oldUrl}', which now redirects on ` +
       `to '${newUrl}', correct for readers, but one hop longer, and \`pnpm redirects:check\` follows ` +
-      `only one hop, so it reports each of them DEAD until you run \`pnpm redirects:legacy\` (needs a ` +
-      `sibling arbitrum-docs checkout).`,
+      `only one hop, so it reports each of them DEAD. That file is hand-maintained now: retarget ` +
+      `those entries to '${newUrl}', or accept the extra hop and the DEAD report.`,
   );
   if (chained) notes.push(chained);
 

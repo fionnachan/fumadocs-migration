@@ -35,7 +35,6 @@
     "edge-challenge:fetch": "node scripts/fetch-edge-challenge-data.mjs",
     "references:check": "node scripts/references-check.mjs",
     "faq:check": "node scripts/faq-data-check.mjs",
-    "redirects:legacy": "node scripts/generate-legacy-redirects.mjs",
     "redirects:check": "node scripts/redirects-check.mjs",
     "vars:check": "node scripts/vars-check.mjs",
     "content:lint": "node scripts/content-lint.mjs",
