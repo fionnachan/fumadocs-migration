@@ -317,7 +317,10 @@ place the suite runs automatically. `article:published_time` is deliberately not
 nothing in the frontmatter or either collection records when a page was first published, only git's
 last-touched date, which is what `modifiedTime` already is. Archives get all three new tags too:
 `noindex` controls crawling, not what kind of object the URL is, and an archive's own `lastModified`
-is a real per-document date, not the live page's.
+is a real per-document date, not the live page's. That leaves an archive's OG object naming the
+live page's URL while dating the archive itself, and the two coincide today only because one commit
+last touched both files; accepted, because `og:url` is the OG object's canonical, which for an
+archive is its live page, while the date describes the document actually served.
 
 **The site root publishes the same set, from a static `metadata` object in `app/(home)/page.tsx`**
 (FS-2713). It shipped with none of it: measured on a production build of `3064177`, the only
