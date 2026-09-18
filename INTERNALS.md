@@ -1073,7 +1073,8 @@ every docs page.** Measured, not inferred: adding a single 46-byte stylesheet to
 splits the module chunk back out and takes `/docs/stylus` from three stylesheets to four. Put the
 rules in `app/global.css` instead, or put the component behind a `next/dynamic` boundary the way
 `VendingMachine`, `EdgeChallengeFlow`, `CentralizedAuction` and `Twoslash` already are. Check with
-`curl -s <origin>/docs/stylus | grep -c '<link rel="stylesheet"'`, which should read 3.
+`curl -s <origin>/docs/stylus | grep -o '<link rel="stylesheet"' | wc -l`, which should read 3.
+The whole document is one line, so `grep -c` answers 1 whatever the count is.
 
 **`lucide-react` is pinned to the version `fumadocs-ui` resolves.** `package.json` asked for
 `^1.33.0` while `fumadocs-ui` requires `^1.43.0`, so pnpm installed both and both shipped to the
