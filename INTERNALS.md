@@ -1003,8 +1003,24 @@ same busy window looks like a regression. **A local server is a floor, not the n
 CDN in front of it, so every request pays a full round trip under simulated throttling, which is why
 a 1.3 KB stylesheet can be charged 300 ms here and almost nothing in production.
 
+**Three runs is not enough on `cli-flags-reference`, and the reason is in the change itself.** Across
+eighteen interleaved runs of that page (nine a side, two independent sessions) the median moved from
+76 to 82, about **+6**. But the two sides do not have the same shape: the baseline's nine scores span
+74 to 77, and this branch's span 75 to 92. The spread is in simulated First Contentful Paint, which
+the score tracks one for one on this page, because the Largest Contentful Paint element is text
+painted at first paint. In one session the baseline's FCP sat at 1.66 to 1.68 s on all five runs
+while ours landed at 1.97 s on four and 1.67 s on the fifth, and that fifth run is the one that
+scored 92. The cause is the font change below: this page is dense with inline code, so it genuinely
+needs Aeonik Fono, which is no longer preloaded and therefore starts at 127 to 146 ms discovered by
+CSS instead of 62 ms discovered by a preload link. Whether Lighthouse's simulator charges that later
+start to FCP varies run to run. **It is not the Inkeep chunk**, which was the first guess: that chunk
+downloads at `Low` priority starting 251 to 337 ms on _both_ builds, while observed LCP equals
+observed FCP at 119 to 185 ms on both, so it is outside the paint window either way. Take nine runs
+on this page, not three, and do not read a single preview run on it as evidence of anything.
+
 **The Inkeep chat widget is loaded on idle, after `load`.** `@inkeep/cxkit-react` is by a wide margin
-the heaviest thing this site ships: 1.19 MB on disk, about 321 KiB transferred, of which Lighthouse
+the heaviest thing this site ships: its built chunk is 1.19 MB on disk (the package directory itself
+is only 200 KB, so measure the chunk, not `node_modules`), about 321 KiB transferred, of which Lighthouse
 measured 190 KiB as unused on a page where nobody has asked a question. It used to be requested
 during hydration on every page, putting a third of a megabyte in direct contention with LCP for a
 floating button that is worth nothing until it is clicked. `components/inkeep/inkeep-chat-button.tsx`
@@ -1019,8 +1035,12 @@ and is untouched.
 families and every one of them preloaded on every route, which is 230 KiB of high-priority requests
 racing the LCP element. Three are now `preload: false`: Aeonik Fono (inline code), JetBrains Mono
 (fenced blocks) and FK Screamer (the home hero heading, and nothing at all on the other 349 pages).
-The browser still fetches them at high priority the moment the CSS asks for them, so a code-heavy
-page is no slower; it is the 349 pages that never use them that stop paying.
+The 349 pages that never use them stop paying entirely. **A page that does use one pays a little
+more, so this is a trade and not a free win.** On `cli-flags-reference`, which is dense with inline
+code, Aeonik Fono is now discovered by the CSS rather than by a preload link, so it starts at 127 to
+146 ms instead of 62 ms, at `VeryHigh` rather than `High`. Simulated FCP on that page moved from
+1.66 to 1.68 s on the baseline to about 1.97 s on four of five runs here. LCP still improves by
+roughly a second, so the page is a clear net win, but "no slower" would be wrong.
 
 **The italic face is its own `next/font` declaration.** `preload` is per declaration in `next/font`,
 not per `src` entry, so while Aeonik Italic sat beside the two uprights it was preloaded wherever
@@ -1035,12 +1055,25 @@ upright. Delete one and you must delete the other.
 `components/mdx.tsx` is a server module, so Next cannot code-split anything it imports (the same
 wall the comment in `components/mdx/Twoslash.tsx` describes). Every client component reachable from
 that registry therefore contributes its CSS to the critical path of all 349 docs pages, whether or
-not the page renders the component. `components/HoverPopover` was costing a separate 3 KB stylesheet
-and a measured 319 ms round trip for that reason, so its rules moved into `app/global.css`, which the
-page already blocks on. **Adding a plain `.css` import to a component in that registry adds a
-render-blocking request to every docs page.** Put the rules in `app/global.css` instead, or put the
-component behind a `next/dynamic` boundary the way `VendingMachine`, `EdgeChallengeFlow`,
-`CentralizedAuction` and `Twoslash` already are.
+not the page renders the component. Two did: `components/HoverPopover/styles.css` (glossary
+popovers) and `components/mdx/reference-list.css` (two rules, for the one page that renders
+`<ReferenceList>`). Both moved into `app/global.css`, which the page already blocks on.
+
+**Folding one of them was not enough, and that is the part worth remembering.** Turbopack groups
+these imports into a shared chunk, so with `reference-list.css` still importing, the chunk simply
+got smaller and `/docs/stylus` still blocked on four stylesheets. Folding the second one deleted the
+chunk: the CSS _modules_ left behind (`VanillaAdmonition`, `ImageZoom`, `PdfModal`) merged into the
+chunk that already carried the image-zoom vendor CSS, and the page went to **three**. Total CSS
+bytes are the same either way, near enough to the byte; what goes is one round trip, which is what
+costs on this critical path. The modules cannot be folded the same way, because their class names
+are hashed at build.
+
+**Adding a plain `.css` import to a component in that registry adds a render-blocking request to
+every docs page.** Measured, not inferred: adding a single 46-byte stylesheet to `ReferenceList`
+splits the module chunk back out and takes `/docs/stylus` from three stylesheets to four. Put the
+rules in `app/global.css` instead, or put the component behind a `next/dynamic` boundary the way
+`VendingMachine`, `EdgeChallengeFlow`, `CentralizedAuction` and `Twoslash` already are. Check with
+`curl -s <origin>/docs/stylus | grep -c '<link rel="stylesheet"'`, which should read 3.
 
 **`lucide-react` is pinned to the version `fumadocs-ui` resolves.** `package.json` asked for
 `^1.33.0` while `fumadocs-ui` requires `^1.43.0`, so pnpm installed both and both shipped to the
@@ -1052,7 +1085,13 @@ bump; a second copy reappearing is silent.
 (measured). Next 16 deprecated `priority` in favour of `preload`, and `preload` on its own emits the
 `<link>` with no priority hint, which is exactly what Lighthouse's LCP discovery check was failing
 on: discoverable early, but queued behind everything else. `components/home-hero.tsx` now passes
-`preload`, `fetchPriority="high"` and `loading="eager"` together.
+`preload`, `fetchPriority="high"` and `loading="eager"` together. **That is a deliberate deviation
+from Next's own advice**, which lists `loading` and `fetchPriority` under "when not to use"
+`preload` and says to pick one
+(`node_modules/next/dist/docs/01-app/03-api-reference/02-components/image.md`). Picking one leaves
+the audit failing, and the combination raises nothing: `get-img-props.js` throws only for `preload`
+with `loading="lazy"` or with the deprecated `priority`. Do not "fix" it back to the documented
+shape without re-running the LCP discovery audit.
 
 **What is left, and was deliberately not done.** The largest remaining render-blocking cost is
 `katex/dist/katex.css`, imported in `app/layout.tsx`: 29 KB raw, 5.7 KiB transferred, blocking on all

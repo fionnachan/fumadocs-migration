@@ -52,7 +52,13 @@ export function HomeHero() {
               with no priority hint, which is what Lighthouse's LCP discovery check kept failing on:
               the request was discoverable early but queued behind everything else. `preload` puts
               the link in the head, `fetchPriority` raises the request itself, and `loading="eager"`
-              keeps it off the lazy path. See INTERNALS.md "Page weight and what loads late". */}
+              keeps it off the lazy path. Next's own image docs deviate from this and say to pick
+              one: they list `loading` and `fetchPriority` under "when not to use" `preload`. All
+              three are here deliberately, because `preload` alone emits the `<link>` without the
+              `fetchPriority` attribute (confirmed in the built HTML for `/`) and that is the exact
+              attribute the audit asks for. The combination raises nothing: `get-img-props.js`
+              throws only for `preload` with `loading="lazy"` or with the deprecated `priority`.
+              See INTERNALS.md "Page weight and what loads late". */}
           <Image
             src="/img/hero-xerox-scan.webp"
             alt=""
