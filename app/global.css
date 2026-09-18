@@ -611,13 +611,14 @@ html > body[data-scroll-locked] {
 }
 
 /* Glossary hover popover (`components/HoverPopover`, behind `<Term>` and `<Reference>`).
-   These rules lived in `components/HoverPopover/styles.css` until FS-2715. That import made
-   Turbopack emit a separate stylesheet, and because the component is reachable from
-   `components/mdx.tsx` (a server module, so Next cannot code-split it) the browser treated that
-   3 KB file as render-blocking on every docs page. Lighthouse measured the extra round trip at
-   319 ms, two orders of magnitude more than the bytes are worth. Folding the rules into the
-   stylesheet the page already blocks on removes the request and changes nothing on screen.
-   See INTERNALS.md "Page weight and what loads late". */
+   These rules lived in `components/HoverPopover/styles.css` until FS-2715. That import fed a
+   Turbopack stylesheet chunk which, because the component is reachable from `components/mdx.tsx`
+   (a server module, so Next cannot code-split it), the browser treats as render-blocking on every
+   docs page. Moving the rules here takes them off that chunk and changes nothing on screen.
+   **Moving one was not enough.** Turbopack groups the registry's plain `.css` imports into one
+   chunk, so with `components/mdx/reference-list.css` still importing, the chunk survived at a
+   smaller size and `/docs/stylus` still blocked on four stylesheets. Folding that one as well
+   (below) took it to three. See INTERNALS.md "Page weight and what loads late". */
 
 /* Trigger */
 .hover-popover__trigger {
@@ -688,4 +689,24 @@ html > body[data-scroll-locked] {
 .hover-popover__body a:hover {
   color: var(--color-fd-primary);
   text-decoration-color: currentColor;
+}
+
+/* Glossary and reference index pages (`components/mdx/ReferenceList`, behind `<ReferenceList>`).
+   Here for the same reason as the popover rules above: `ReferenceList` is a server component in the
+   `components/mdx.tsx` registry, so its `./reference-list.css` import put these two rules on a
+   render-blocking chunk shared by all 349 docs pages, to style a list that one of them renders
+   (`content/docs/glossary.mdx`). Folding it was what finally deleted that chunk: with both plain
+   `.css` imports gone, the CSS modules left behind (`VanillaAdmonition`, `ImageZoom`, `PdfModal`)
+   merged into the chunk that already carried the image-zoom vendor CSS, and `/docs/stylus` went
+   from four render-blocking stylesheets to three. Total CSS bytes are unchanged; what went is the
+   round trip. The class names are component-scoped, so nothing outside `ReferenceList` matches. */
+.reference-list__item {
+  scroll-margin-top: 6rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--color-fd-border);
+  margin-bottom: 1.5rem;
+}
+
+.reference-list__term {
+  margin-bottom: 0.5rem;
 }
