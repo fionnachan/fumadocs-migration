@@ -115,6 +115,22 @@
   }
 }
 
+/* Italic text uses the Aeonik italic face, which `app/layout.tsx` declares as its own `next/font`
+   family so it can skip preloading (FS-2715). Naming the family here is what re-attaches it: the
+   uprights on `--font-sans` no longer carry an italic `src`, so without this rule `font-style:
+   italic` plus `font-synthesis: none` below would render `<em>` upright. Kept to the elements the
+   browser italicises by default, plus Tailwind's `italic` utility, which sets `font-style` and
+   would otherwise hit the same wall. */
+em,
+i,
+cite,
+dfn,
+var,
+address,
+.italic {
+  font-family: var(--font-sans-italic), var(--font-sans);
+}
+
 body {
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -592,4 +608,105 @@ html > body[data-scroll-locked] {
 .prose :where(table.small-table td) {
   padding: 0.5rem 0.75rem;
   vertical-align: top;
+}
+
+/* Glossary hover popover (`components/HoverPopover`, behind `<Term>` and `<Reference>`).
+   These rules lived in `components/HoverPopover/styles.css` until FS-2715. That import fed a
+   Turbopack stylesheet chunk which, because the component is reachable from `components/mdx.tsx`
+   (a server module, so Next cannot code-split it), the browser treats as render-blocking on every
+   docs page. Moving the rules here takes them off that chunk and changes nothing on screen.
+   **Moving one was not enough.** Turbopack groups the registry's plain `.css` imports into one
+   chunk, so with `components/mdx/reference-list.css` still importing, the chunk survived at a
+   smaller size and `/docs/stylus` still blocked on four stylesheets. Folding that one as well
+   (below) took it to three. See INTERNALS.md "Page weight and what loads late". */
+
+/* Trigger */
+.hover-popover__trigger {
+  border-bottom: 1px dotted var(--color-fd-primary);
+  background: none;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  /* Match docs.arbitrum.io: the term reads as inline prose, not a help affordance. */
+  cursor: text;
+}
+
+/* Popover container */
+.hover-popover__content {
+  background: var(--color-fd-popover);
+  color: var(--color-fd-popover-foreground, var(--color-fd-foreground));
+  border: 1px solid var(--color-fd-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.hover-popover__content--tooltip {
+  max-width: 380px;
+  max-height: 60vh;
+}
+
+/* Body */
+.hover-popover__body {
+  padding: 16px 20px;
+  overflow-y: auto;
+  flex: 1;
+  line-height: 1.6;
+}
+
+.hover-popover__title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 8px 0;
+  color: var(--color-fd-foreground);
+}
+
+/* Content spacing (definitions render as real MDX) */
+.hover-popover__body > :last-child {
+  margin-bottom: 0;
+}
+
+/* Links inside the popover. FloatingPortal mounts the popover on <body>, outside `.prose`, so the
+   global link treatment above never reaches these. Restated here to match prose links, because without it
+   a glossary cross-reference is indistinguishable from body text. */
+.hover-popover__body a {
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: var(--color-fd-primary);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+  transition:
+    color 0.2s ease,
+    text-decoration-color 0.2s ease;
+}
+
+.hover-popover__body a:hover {
+  color: var(--color-fd-primary);
+  text-decoration-color: currentColor;
+}
+
+/* Glossary and reference index pages (`components/mdx/ReferenceList`, behind `<ReferenceList>`).
+   Here for the same reason as the popover rules above: `ReferenceList` is a server component in the
+   `components/mdx.tsx` registry, so its `./reference-list.css` import put these two rules on a
+   render-blocking chunk shared by all 349 docs pages, to style a list that one of them renders
+   (`content/docs/glossary.mdx`). Folding it was what finally deleted that chunk: with both plain
+   `.css` imports gone, the CSS modules left behind (`VanillaAdmonition`, `ImageZoom`, `PdfModal`)
+   merged into the chunk that already carried the image-zoom vendor CSS, and `/docs/stylus` went
+   from four render-blocking stylesheets to three. Total CSS bytes are unchanged; what went is the
+   round trip. The class names are component-scoped, so nothing outside `ReferenceList` matches. */
+.reference-list__item {
+  scroll-margin-top: 6rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--color-fd-border);
+  margin-bottom: 1.5rem;
+}
+
+.reference-list__term {
+  margin-bottom: 0.5rem;
 }
