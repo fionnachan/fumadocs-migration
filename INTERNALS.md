@@ -293,7 +293,34 @@ The machine-readable `dateTime` attribute on the `<time>` element always carries
 Open Graph image from the `og/` route, a canonical URL, and the Twitter card tags
 (`summary_large_image`, site `@arbitrum`). The canonical deliberately uses `page.url`, the live
 page's URL, so an archived view at `/docs/<slug>/<id>` canonicalizes to its live page rather than
-splitting one document in two. Archives also carry `robots: noindex, follow`.
+splitting one document in two. Archives also carry `robots: noindex, follow`. **`og:site_name`,
+`og:url` and `og:type` (FS-2724)**: `og:site_name` is `appName` from `lib/shared.ts`, the same
+constant the site root's `openGraph.siteName` uses, so the two cannot drift. `og:url` is the same
+absolute string `alternates.canonical` carries, computed once into one `canonical` constant and
+spent on both, since they are one claim addressed to two readers; an archive therefore names its
+live page in both. Next emits `og:url` only from an explicit `openGraph.url` and synthesizes
+nothing from the canonical, so before this ticket a docs page had none while `/` did. `og:type` is
+`article`, not the `website` the root uses, and it is applied **uniformly to everything the
+catch-all serves**, `/docs` and the section landing pages included. The distinction being drawn is
+root versus docs, not index versus document: nothing in either collection marks a page as an index,
+so singling out the landing pages would take a hand-kept list of URLs that goes stale the moment a
+section is added, and `og:type` drives no crawler behaviour that would pay for it.
+`scripts/static-docs-http.test.mjs` asserts `/docs` is `article` so that uniformity is recorded as
+a decision rather than read later as an oversight. `article` also unlocks `article:modified_time`,
+set from the same `lastModified` (`page.data.lastModified` for Latest, `archive.entry.lastModified`
+for an archive) the page body already renders as "Last updated on …", and omitted along with that
+line when the checkout has no full git history (`hasFullGitHistory` in source.config.ts). Because
+that makes the tag absent in CI, which checks out shallow, the test asserts it is present **if and
+only if** the body carries the "Last updated on" `<time dateTime>` and that the two instants match,
+rather than skipping the assertion when the tag is missing, which would never execute in the one
+place the suite runs automatically. `article:published_time` is deliberately not set, because
+nothing in the frontmatter or either collection records when a page was first published, only git's
+last-touched date, which is what `modifiedTime` already is. Archives get all three new tags too:
+`noindex` controls crawling, not what kind of object the URL is, and an archive's own `lastModified`
+is a real per-document date, not the live page's. That leaves an archive's OG object naming the
+live page's URL while dating the archive itself, and the two coincide today only because one commit
+last touched both files; accepted, because `og:url` is the OG object's canonical, which for an
+archive is its live page, while the date describes the document actually served.
 
 **The site root publishes the same set, from a static `metadata` object in `app/(home)/page.tsx`**
 (FS-2713). It shipped with none of it: measured on a production build of `3064177`, the only

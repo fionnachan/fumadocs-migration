@@ -2,6 +2,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+// Imported as `.ts` rather than restated as a literal, the way `scripts/lib/shared.test.mjs` does
+// and for the reason it gives: Node 22 strips types natively and `lib/shared.ts` imports only the
+// plain-JS `./site-url.mjs`, so this asserts against the exact constant the page renders instead
+// of a copy that can drift from it.
+import { appName } from '../lib/shared.ts';
+
 const baseUrl = process.env.STATIC_DOCS_TEST_URL;
 const livePath = '/docs/run-a-node/start-here';
 const archivePath = `${livePath}/v1`;
@@ -10,6 +16,48 @@ const archiveMirror = `/llms.mdx${archivePath}/content.md`;
 const archivedText = 'This archived guide targets the ArbOS 20 release series.';
 const documentOnly = (html) => html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
 const get = (path, options) => fetch(new URL(path, baseUrl), options);
+
+// Shared by the metadata tests below (FS-2713's home page test and FS-2724's docs page test), so
+// the two cannot check the tags in two different ways.
+const head = async (path) => {
+  const response = await get(path);
+  assert.equal(response.status, 200, path);
+  return await response.text();
+};
+const tag = (html, pattern) => html.match(pattern)?.[1];
+const title = (html) => tag(html, /<title>([^<]*)<\/title>/);
+const meta = (html, name) =>
+  tag(html, new RegExp(`<meta (?:name|property)="${name}" content="([^"]*)"`));
+// The instant behind the page body's "Last updated on …" line, which `generateMetadata` reads from
+// the same `lastModified` value as `article:modified_time`. Scripts are stripped first: the flight
+// payload repeats this markup, so matching the raw document would find a date on a page that
+// rendered no line at all.
+const bodyLastModified = (html) =>
+  tag(documentOnly(html), /Last updated on[\s\S]{0,40}?<time[^>]*datetime="([^"]*)"/i);
+/**
+ * `article:modified_time` is present if and only if the body rendered its "Last updated on" line,
+ * and carries the same instant (FS-2724).
+ *
+ * Asserting the equivalence rather than the tag is what makes this mean something everywhere. Both
+ * values come from one `lastModified`, which is `undefined` whenever the checkout has no full git
+ * history (`hasFullGitHistory` in source.config.ts). CI's `actions/checkout` sets no `fetch-depth`,
+ * so it runs at the default depth of 1, so the one place this suite runs automatically is the one
+ * place the tag is guaranteed absent. A bare `if (tag) assert(...)` would therefore never execute
+ * in CI and would pass silently on a regression that dropped the tag altogether.
+ */
+const assertModifiedTimeMatchesBody = (html, label) => {
+  const modified = meta(html, 'article:modified_time');
+  const rendered = bodyLastModified(html);
+  assert.equal(
+    modified !== undefined,
+    rendered !== undefined,
+    `${label}: article:modified_time is ${modified}, the body's "Last updated on" time is ${rendered}`,
+  );
+  if (modified !== undefined) {
+    assert.ok(!Number.isNaN(Date.parse(modified)), `${label}: unparseable instant ${modified}`);
+    assert.equal(modified, rendered, label);
+  }
+};
 
 test('built static docs routing', { skip: !baseUrl }, async (t) => {
   await t.test('HTML and negotiated markdown both vary on Accept', async () => {
@@ -222,17 +270,6 @@ test('home page metadata', { skip: !baseUrl }, async (t) => {
   // tags at all, while every docs page had the lot. These assertions run against the built HTML
   // because that is the only place the answer lives: `types:check` proves the Metadata object
   // compiles, not that Next emitted a tag from it.
-  const head = async (path) => {
-    const response = await get(path);
-    assert.equal(response.status, 200, path);
-    return await response.text();
-  };
-  const tag = (html, pattern) => html.match(pattern)?.[1];
-
-  const title = (html) => tag(html, /<title>([^<]*)<\/title>/);
-  const meta = (html, name) =>
-    tag(html, new RegExp(`<meta (?:name|property)="${name}" content="([^"]*)"`));
-
   await t.test('the root carries a title, description, canonical and social tags', async () => {
     const html = await head('/');
     assert.equal(title(html), 'Arbitrum documentation');
@@ -276,5 +313,54 @@ test('home page metadata', { skip: !baseUrl }, async (t) => {
     const [root, docs] = await Promise.all([head('/'), head('/docs')]);
     assert.notEqual(title(root), title(docs));
     assert.notEqual(meta(root, 'description'), meta(docs, 'description'));
+  });
+});
+
+test('docs page open graph tags', { skip: !baseUrl }, async (t) => {
+  // FS-2724. A docs page emitted og:title/description/image but neither og:site_name nor og:type,
+  // unlike the root (FS-2713, above). Follows that test's shape.
+  await t.test(
+    'a live page carries og:site_name, og:type, og:url and a modified time',
+    async () => {
+      const html = await head(livePath);
+      assert.equal(meta(html, 'og:site_name'), appName);
+      assert.equal(meta(html, 'og:type'), 'article');
+      // `og:url` is the same string the canonical carries; the two are one claim to two readers.
+      assert.equal(meta(html, 'og:url'), tag(html, /<link rel="canonical" href="([^"]*)"/));
+      assertModifiedTimeMatchesBody(html, livePath);
+      // Untouched by this ticket: still the per-page title/description/image, not the root's.
+      assert.equal(meta(html, 'og:title'), title(html));
+      assert.ok(meta(html, 'og:image'), 'no og:image on a docs page');
+    },
+  );
+
+  await t.test(
+    'an archive carries the same og:site_name and og:type as the live page',
+    async () => {
+      // Archives are noindex, follow (asserted in the "archives render their own body" test above),
+      // but og:site_name/og:type describe what the object is, not whether it should be indexed, so
+      // an archive gets them too.
+      const [live, archive] = await Promise.all([head(livePath), head(archivePath)]);
+      assert.equal(meta(archive, 'og:site_name'), meta(live, 'og:site_name'));
+      assert.equal(meta(archive, 'og:type'), meta(live, 'og:type'));
+      // An archive is a version of the live document, not a second document, so its `og:url`
+      // points at the live page exactly as its canonical does.
+      assert.equal(meta(archive, 'og:url'), meta(live, 'og:url'));
+      // The archive's own modified time, from `content/_versions/v1/...`'s own git history, not
+      // necessarily distinct from the live page's (both files can share a last-touching commit,
+      // as they do for this fixture today).
+      assertModifiedTimeMatchesBody(archive, archivePath);
+    },
+  );
+
+  await t.test('the docs landing page is typed like every other page under /docs', async () => {
+    // Deliberate and documented (INTERNALS.md, "Page metadata"): nothing in the collection marks a
+    // page as an index, so `/docs` and the section landings take the same `article` as a leaf page
+    // rather than a hand-kept list of URLs that goes stale silently. `/` is the one `website`, and
+    // the home page suite above pins that, so this assertion is what records that the split is
+    // root-versus-docs and not index-versus-document.
+    const docs = await head('/docs');
+    assert.equal(meta(docs, 'og:type'), 'article');
+    assert.equal(meta(docs, 'og:site_name'), appName);
   });
 });
