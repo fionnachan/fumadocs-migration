@@ -1003,10 +1003,12 @@ same busy window looks like a regression. **A local server is a floor, not the n
 CDN in front of it, so every request pays a full round trip under simulated throttling, which is why
 a 1.3 KB stylesheet can be charged 300 ms here and almost nothing in production.
 
-**Three runs is not enough on `cli-flags-reference`, and the reason is in the change itself.** Across
-eighteen interleaved runs of that page (nine a side, two independent sessions) the median moved from
-76 to 82, about **+6**. But the two sides do not have the same shape: the baseline's nine scores span
-74 to 77, and this branch's span 75 to 92. The spread is in simulated First Contentful Paint, which
+**Three runs is not enough on `cli-flags-reference`, and the reason is in the change itself.** The
+baseline is tight: across three independent sessions its scores span 74 to 81 with a median of 76.
+This branch is bimodal on that page, roughly 77 to 78 in the slow state and 82 to 86 in the fast one
+(one run reached 92), so a median jumps between modes from session to session (82, 81.5 and 78 in
+the three sessions) and no single "+N" is honest. Quote the two modes: the win is **+2 to +10**
+depending on the run. The spread is in simulated First Contentful Paint, which
 the score tracks one for one on this page, because the Largest Contentful Paint element is text
 painted at first paint. In one session the baseline's FCP sat at 1.66 to 1.68 s on all five runs
 while ours landed at 1.97 s on four and 1.67 s on the fifth, and that fifth run is the one that
@@ -1074,7 +1076,8 @@ splits the module chunk back out and takes `/docs/stylus` from three stylesheets
 rules in `app/global.css` instead, or put the component behind a `next/dynamic` boundary the way
 `VendingMachine`, `EdgeChallengeFlow`, `CentralizedAuction` and `Twoslash` already are. Check with
 `curl -s <origin>/docs/stylus | grep -o '<link rel="stylesheet"' | wc -l`, which should read 3.
-The whole document is one line, so `grep -c` answers 1 whatever the count is.
+Every stylesheet link sits on the document's first line, so `grep -c` counts that line once whatever
+the number is.
 
 **`lucide-react` is pinned to the version `fumadocs-ui` resolves.** `package.json` asked for
 `^1.33.0` while `fumadocs-ui` requires `^1.43.0`, so pnpm installed both and both shipped to the
