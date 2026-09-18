@@ -199,6 +199,20 @@ put `{/* sync-with-var: latestNitroNodeImage */}` anywhere in the page and `pnpm
 will rewrite it whenever it bumps that variable. Do not put that marker on a page that states a
 Nitro version as a historical fact, such as an ArbOS release note, or a bump will rewrite history.
 
+**Variables do not work in a link destination either, and that one leaves no link at all.** A
+markdown link destination may not contain a space and `<Var name="…" />` contains two, so the link
+never parses and the reader is served the literal `[text](…)` brackets. Write the variable as a
+`{var:name}` placeholder in the destination instead:
+
+```mdx
+[Interface](https://github.com/OffchainLabs/{var:nitroRepositorySlug}/blob/{var:nitroVersionTag}/precompiles/ArbSys.go)
+```
+
+Use as many placeholders as the URL needs. The same form works in an `href`, `to` or `src`
+attribute. Everywhere else on the page, the link text included, keep using `<Var name="…" />`.
+`pnpm content:lint` (rule A11) fails on a `<Var>` left in a destination, and `pnpm vars:check` reads
+placeholders too, so a mistyped name is caught the way a mistyped `<Var>` name is.
+
 **To update a value:** edit [`content/vars.json`](content/vars.json), then run `pnpm vars:check`.
 
 **To add a new variable:** add the key to `content/vars.json` **and** its type to the `varsSchema`

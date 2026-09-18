@@ -413,3 +413,79 @@ test('A10 does NOT fire on a markdown table', () => {
 test('A10 does NOT fire on a table inside a fenced code block', () => {
   assert.deepEqual(rules('```html\n<table>\n  <tr>\n    <td>a</td>\n  </tr>\n</table>\n```\n'), []);
 });
+
+test('A11 fires on a <Var> inside a markdown link destination', () => {
+  const found = lintSource(
+    '[Interface](https://github.com/OffchainLabs/<Var name="nitroRepositorySlug" />/blob/x.sol)',
+  );
+  assert.deepEqual(
+    found.map((f) => f.rule),
+    ['A11'],
+  );
+  assert.match(found[0].message, /\{var:name\} placeholder/);
+});
+
+test('A11 fires once per broken destination, not once per <Var> in it', () => {
+  // Three variables, one link, one fix: the finding is the link.
+  const found = lintSource(
+    '[Impl](https://github.com/OffchainLabs/<Var name="a" />/blob/<Var name="b" />/<Var name="c" />/x.go)',
+  );
+  assert.equal(found.length, 1);
+  assert.equal(found[0].rule, 'A11');
+});
+
+test('A11 reports one finding per broken link on a line with several', () => {
+  const found = lintSource(
+    '[A](https://x/<Var name="a" />/1.sol) and [B](https://x/<Var name="b" />/2.go)',
+  );
+  assert.deepEqual(
+    found.map((f) => f.rule),
+    ['A11', 'A11'],
+  );
+});
+
+test('A11 does NOT fire on a <Var> in the link text', () => {
+  // The label is parsed as inline content, where a component does substitute.
+  assert.deepEqual(rules('[<Var name="nitroVersionTag" />](/docs/run-a-node/start-here)'), []);
+});
+
+test('A11 does NOT fire on a placeholder destination, which is the fix', () => {
+  assert.deepEqual(
+    rules(
+      '[Interface](https://github.com/OffchainLabs/{var:nitroRepositorySlug}/blob/{var:nitroVersionTag}/x.sol)',
+    ),
+    [],
+  );
+});
+
+test('A11 does NOT fire inside a fenced code block', () => {
+  // A6 still does, and should: it is the one rule that reads inside code, because a `<Var>` shipped
+  // as a literal tag is the defect it looks for. A11 reads the code-stripped text like every other
+  // rule, so a page documenting the broken form is never told to fix its own example.
+  assert.deepEqual(
+    rules('```mdx\n[Interface](https://x/<Var name="nitroVersionTag" />/y.sol)\n```\n'),
+    ['A6'],
+  );
+});
+
+test('A11 fires on a <Var> inside an href attribute', () => {
+  const found = lintSource('<a href="https://x/<Var name="nitroVersionTag" />/y">link</a>');
+  assert.deepEqual(
+    found.map((f) => f.rule),
+    ['A11'],
+  );
+  assert.match(found[0].message, /attribute value early/);
+});
+
+test('A11 fires on a malformed placeholder, which never expands', () => {
+  const found = lintSource('[x](https://y/{var:two words}/z)');
+  assert.deepEqual(
+    found.map((f) => f.rule),
+    ['A11'],
+  );
+  assert.match(found[0].message, /not a usable placeholder/);
+});
+
+test('A11 does NOT fire on a URL that documents a path template', () => {
+  assert.deepEqual(rules('[API](https://api.example.com/v1/{chainId}/blocks)'), []);
+});

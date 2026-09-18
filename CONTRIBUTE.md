@@ -91,6 +91,16 @@ no import:
 The current Nitro release is <Var name="nitroVersionTag" />.
 ```
 
+Inside a link destination, use a `{var:name}` placeholder rather than the component. A destination
+may not contain a space, `<Var name="…" />` contains two, and the result is that the link does not
+parse and the reader sees the literal `[text](…)` brackets:
+
+```mdx
+[Interface](https://github.com/OffchainLabs/{var:nitroRepositorySlug}/blob/{var:nitroVersionTag}/precompiles/ArbSys.go)
+```
+
+`pnpm content:lint` (rule A11) fails on a `<Var>` left in a destination.
+
 To change a value, edit `vars.json` and run `pnpm vars:check`. To add a **new** variable, add the
 key to both `vars.json` **and** the `varsSchema` in `content/vars.ts` — miss either side and the
 gate fails, because the schema is a strict object that would otherwise silently drop the key and
@@ -178,9 +188,9 @@ predates them and gets brought up to spec incrementally, not all at once.
 7. **Never put a link in a heading.** Fumadocs wraps every heading in its own anchor, so a link
    inside one renders an anchor inside an anchor and breaks React hydration on the page. Keep the
    heading as plain text and put the link in the prose under it. `pnpm content:lint` rule A8 is a
-   blocking gate on this, alongside A9 (a hand-written `<p>` around block content) and A10 (a `<tr>`
-   outside a `<thead>`/`<tbody>`); see
-   [The content-lint rules](INTERNALS.md#the-content-lint-rules).
+   blocking gate on this, alongside A9 (a hand-written `<p>` around block content), A10 (a `<tr>`
+   outside a `<thead>`/`<tbody>`) and A11 (a `<Var>` in a link destination, which leaves no link at
+   all); see [The content-lint rules](INTERNALS.md#the-content-lint-rules).
 
 The long version lives in [STYLE-GUIDE.md](STYLE-GUIDE.md), at the root of this repo: the
 plain-language rules in testable form, the words and phrases to replace or cut, the

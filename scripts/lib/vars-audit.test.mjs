@@ -67,3 +67,38 @@ test('parseVarUsages accepts single quotes', () => {
 test('parseVarUsages does not match a component whose name merely starts with Var', () => {
   assert.deepEqual(parseVarUsages('<VarTable name="x" />'), []);
 });
+
+test('parseVarUsages counts a {var:name} placeholder as a usage', () => {
+  // The placeholder is the only syntax that works in a link destination (FS-2725). If this audit
+  // ignored it, a mistyped name there would render literal braces in a URL with the gate green.
+  const usages = parseVarUsages(
+    'x\n[Impl](https://github.com/OffchainLabs/{var:nitroRepositorySlug}/blob/{var:nitroVersionTag}/x.go)\n',
+  );
+  assert.deepEqual(
+    usages.map((u) => u.name),
+    ['nitroRepositorySlug', 'nitroVersionTag'],
+  );
+  assert.deepEqual(
+    usages.map((u) => u.line),
+    [2, 2],
+  );
+});
+
+test('parseVarUsages reports a malformed placeholder as a dynamic usage', () => {
+  const usages = parseVarUsages('[x](https://y/{var:})');
+  assert.equal(usages.length, 1);
+  assert.equal(usages[0].name, null);
+  assert.equal(usages[0].raw, '{var:}');
+});
+
+test('parseVarUsages leaves a URL template that is not a placeholder alone', () => {
+  assert.deepEqual(parseVarUsages('[x](https://api.example.com/{chainId}/blocks)'), []);
+});
+
+test('parseVarUsages sees both syntaxes on the same line', () => {
+  const usages = parseVarUsages('<Var name="a" /> [x](https://y/{var:b})');
+  assert.deepEqual(
+    usages.map((u) => u.name),
+    ['a', 'b'],
+  );
+});
