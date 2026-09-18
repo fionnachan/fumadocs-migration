@@ -143,18 +143,19 @@ and `pnpm content:lint` over the tree before you push.
 
 Pick the type that matches what the reader is trying to do:
 
-| Content type    | Purpose                                                                            |
-| --------------- | ---------------------------------------------------------------------------------- |
-| Quickstart      | Fast onboarding with hands-on, step-by-step instructions for one specific audience |
-| How-to          | Task-oriented procedural guidance                                                  |
-| Concept         | Explains what something is and how it works                                        |
-| Tutorial        | A comprehensive, guided learning experience                                        |
-| Reference       | Lists and tables of things — API endpoints, developer resources, flags             |
-| Troubleshooting | Common problem/solution scenarios                                                  |
-| FAQ             | Frequently asked questions                                                         |
+| Content type    | Frontmatter value | Purpose                                                                            |
+| --------------- | ----------------- | ---------------------------------------------------------------------------------- |
+| How-to          | `how-to`          | Task-oriented procedural guidance                                                  |
+| Concept         | `concept`         | Explains what something is and how it works                                        |
+| Quickstart      | `quickstart`      | Fast onboarding with hands-on, step-by-step instructions for one specific audience |
+| Tutorial        | `tutorial`        | A comprehensive, guided learning experience                                        |
+| Reference       | `reference`       | Lists and tables of things, such as API endpoints, developer resources and flags   |
+| Troubleshooting | `troubleshooting` | Common problem/solution scenarios                                                  |
+| FAQ             | `faq`             | Frequently asked questions                                                         |
 
-This isn't an exhaustive taxonomy, but it covers most of what we write. If you're unsure, look at
-an existing page of the type you think you're writing and match its shape.
+These seven types are the whole enum, so the schema accepts nothing else. The shape guidance here
+isn't exhaustive: if you're unsure, look at an existing page of the type you think you're writing
+and match its shape.
 
 ## Style conventions
 

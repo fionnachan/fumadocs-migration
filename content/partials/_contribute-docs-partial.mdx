@@ -12,12 +12,14 @@ The [`docs.arbitrum.io`](https://docs.arbitrum.io/) docs portal is the **single 
 
 This document shows you how to craft and publish Arbitrum documentation. Familiarity with [Markdown](https://www.markdownguide.org/basic-syntax/) syntax and Github is expected.
 
+{/* Every github.com URL in this file hardcodes the owner, repo and branch that gitConfig in lib/shared.ts owns. The Var component cannot sit inside a markdown link destination (CommonMark tokenises the destination before MDX evaluates it), so retarget all of them by hand if the repo or default branch moves. The Banner conventions section below repeats this warning for the URLs it holds. */}
+
 ### Add a new core document
 
 If a document isn't in a `Third-party content` sidebar node, it's a **core document**. To contribute a new core doc:
 
-1.  Begin by creating a branch (internal) or fork (external) of the [Arbitrum docs repo](https://github.com/OffchainLabs/Fumadocs-test).
-2.  Issue a `Draft` pull request into `main`. Pull requests into `main` generate a Vercel preview deployment of your changes; this preview will update as you push commits to your remote.
+1.  Begin by creating a branch (internal) or fork (external) of the Arbitrum docs repository, [`OffchainLabs/Fumadocs-test`](https://github.com/OffchainLabs/Fumadocs-test).
+2.  Issue a `Draft` pull request into `main`. A pull request from a branch in that repository gets a Vercel preview deployment of your changes, and the preview updates as you push commits. A pull request from a fork gets one once a maintainer authorizes the deployment.
 3.  Include answers to the following questions in your PR description:
     - Audience: Who am I writing for?
     - Problem: What specific problem are they trying to solve?
@@ -41,17 +43,17 @@ If you'd like to request an update or share a suggestion related to an **existin
 
 Every document should be a specific _type_ of document, set in its frontmatter as `content_type`. Each type has its own purpose:
 
-| Document type   | Purpose                                                                             |
-| --------------- | ------------------------------------------------------------------------------------ |
-| How-to          | Provide task-oriented procedural guidance                                          |
-| Concept         | Explain what things are and how they work                                          |
-| Quickstart      | Onboard a specific reader audience with step-by-step "learn by doing" instructions |
-| Tutorial        | Walk a specific reader audience through a comprehensive, guided learning experience |
-| Reference       | Lists and tables of things, such as API endpoints and developer resources          |
-| Troubleshooting | List common troubleshooting scenarios and solutions                                |
-| FAQ             | Address frequently asked questions                                                 |
+| Document type   | Frontmatter value | Purpose                                                                             |
+| --------------- | ----------------- | ----------------------------------------------------------------------------------- |
+| How-to          | `how-to`          | Provide task-oriented procedural guidance                                           |
+| Concept         | `concept`         | Explain what things are and how they work                                           |
+| Quickstart      | `quickstart`      | Onboard a specific reader audience with step-by-step "learn by doing" instructions   |
+| Tutorial        | `tutorial`        | Walk a specific reader audience through a comprehensive, guided learning experience  |
+| Reference       | `reference`       | Lists and tables of things, such as API endpoints and developer resources            |
+| Troubleshooting | `troubleshooting` | List common troubleshooting scenarios and solutions                                  |
+| FAQ             | `faq`             | Address frequently asked questions                                                   |
 
-`content_type` must be exactly one of these seven values, or the build fails. See [Document type conventions](https://github.com/OffchainLabs/Fumadocs-test/blob/main/CONTRIBUTE.md#document-type-conventions) in CONTRIBUTE.md for more on what each type owes the reader.
+`content_type` must be exactly one of the seven frontmatter values above, spelled in lowercase, or the build fails. See [Document type conventions](https://github.com/OffchainLabs/Fumadocs-test/blob/main/CONTRIBUTE.md#document-type-conventions) in CONTRIBUTE.md for more on what each type owes the reader.
 
 <VanillaAdmonition type="info" title="About Promotional Content">
 
