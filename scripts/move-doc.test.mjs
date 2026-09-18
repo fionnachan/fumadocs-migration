@@ -15,6 +15,8 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { readVars } from '../lib/var-links.mjs';
+
 const MOVE_DOC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'move-doc.mjs');
 
 const PAGE_FRONTMATTER = [
@@ -179,39 +181,67 @@ test('an aborted legacy step leaves the move and the redirect behind, and writes
 
 // --- FS-2725: `{var:name}` placeholder links --------------------------------------------------------
 
-test('move-doc warns about an inbound placeholder link to the moved page and never rewrites it', (t) => {
+test('move-doc warns about a placeholder link to the moved page and never rewrites one', (t) => {
   const { root } = fixtureRepo();
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
   // `readVars()` reads the real repo's vars.json, so the fixture borrows a real key whose value is a
-  // path segment: `nitroRepositorySlug` is "nitro", so `/docs/{var:nitroRepositorySlug}/old-name`
-  // expands to `/docs/nitro/old-name`, the page under test.
-  const nitroDir = path.join(root, 'content', 'docs', 'nitro');
-  mkdirSync(nitroDir, { recursive: true });
-  writeFileSync(path.join(nitroDir, 'old-name.mdx'), PAGE_FRONTMATTER);
+  // path segment and derives every path from it, the way the check-links fixture does, so a change
+  // to the value cannot break this test in a way that points nowhere.
+  const segment = String(readVars().nitroRepositorySlug);
+  const fromDir = path.join(root, 'content', 'docs', segment);
+  mkdirSync(fromDir, { recursive: true });
+  mkdirSync(path.join(root, 'content', 'docs', 'other'), { recursive: true });
+
+  // Outbound: the moved page carries its own relative links, one through a placeholder and one
+  // plain, both to a sibling that stays behind. Only the plain one may be re-based after the move.
+  const outboundPlaceholder = `[Sibling](./{var:nitroRepositorySlug}-sibling.mdx)`;
+  writeFileSync(path.join(fromDir, `${segment}-sibling.mdx`), PAGE_FRONTMATTER);
+  writeFileSync(
+    path.join(fromDir, 'old-name.mdx'),
+    PAGE_FRONTMATTER +
+      `${outboundPlaceholder}\n\nAnd plainly: [Sibling](./${segment}-sibling.mdx)\n`,
+  );
+
+  // Inbound: another page links to the moved page, once through a placeholder and once plainly.
   const linkerAbs = path.join(root, 'content', 'docs', 'example', 'linker.mdx');
-  const placeholderLink = '[Old](/docs/{var:nitroRepositorySlug}/old-name)';
+  const inboundPlaceholder = '[Old](/docs/{var:nitroRepositorySlug}/old-name)';
   writeFileSync(
     linkerAbs,
     PAGE_FRONTMATTER.replace('Old name', 'Linker') +
-      `${placeholderLink}\n\nAnd plainly: [Old](/docs/nitro/old-name)\n`,
+      `${inboundPlaceholder}\n\nAnd plainly: [Old](/docs/${segment}/old-name)\n`,
   );
 
-  const run = spawnSync(
-    'node',
-    [MOVE_DOC, 'content/docs/nitro/old-name.mdx', 'content/docs/nitro/new-name.mdx'],
-    { cwd: root, encoding: 'utf8' },
-  );
+  const toRel = 'content/docs/other/new-name.mdx';
+  const run = spawnSync('node', [MOVE_DOC, `content/docs/${segment}/old-name.mdx`, toRel], {
+    cwd: root,
+    encoding: 'utf8',
+  });
   assert.equal(run.status, 0, run.stderr);
 
-  // The placeholder resolves to the moved page, so it is reported with the other links that cannot
-  // be auto-rewritten, under the form the writer typed rather than an "(expression)" fallback.
+  // Inbound: the placeholder resolves to the moved page, so it is reported with the other links that
+  // cannot be auto-rewritten, under the form the writer typed rather than an "(expression)" fallback.
   assert.match(run.stderr, /1 reference\(s\) resolve to the move but can't be auto-rewritten/);
   assert.match(run.stderr, /linker\.mdx: \/docs\/\{var:nitroRepositorySlug\}\/old-name/);
-
-  // Never rewritten: `renderRef` would bake "nitro" into the file. The plain link beside it is.
   const linker = readFileSync(linkerAbs, 'utf8');
-  assert.ok(linker.includes(placeholderLink), 'placeholder link left exactly as written');
-  assert.ok(linker.includes('[Old](/docs/nitro/new-name)'), 'plain inbound link rewritten');
-  assert.ok(!linker.includes('/docs/nitro/old-name)'), 'no plain link still names the old page');
+  assert.ok(
+    linker.includes(inboundPlaceholder),
+    'inbound placeholder link left exactly as written',
+  );
+  assert.ok(linker.includes('[Old](/docs/other/new-name)'), 'plain inbound link rewritten');
+  assert.ok(
+    !linker.includes(`/docs/${segment}/old-name)`),
+    'no plain link still names the old page',
+  );
+
+  // Outbound: re-basing the placeholder link would write the variable's current value into the file.
+  const moved = readFileSync(path.join(root, toRel), 'utf8');
+  assert.ok(
+    moved.includes(outboundPlaceholder),
+    'outbound placeholder link left exactly as written',
+  );
+  assert.ok(
+    moved.includes(`[Sibling](../${segment}/${segment}-sibling.mdx)`),
+    'plain outbound link re-based from the new directory',
+  );
 });
