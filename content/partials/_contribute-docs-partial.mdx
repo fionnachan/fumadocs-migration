@@ -16,9 +16,13 @@ This document shows you how to craft and publish Arbitrum documentation. Familia
 
 ### Add a new core document
 
+{/* Deliberate exception to the "retarget all of them" note above: this repo is expected to take
+over the arbitrum-docs name and URL at cutover, so this one link is left pointing at that eventual
+destination rather than at gitConfig's current Fumadocs-test. Do not "fix" this to match gitConfig. */}
+
 If a document isn't in a `Third-party content` sidebar node, it's a **core document**. To contribute a new core doc:
 
-1.  Begin by creating a branch (internal) or fork (external) of the Arbitrum docs repository, [`OffchainLabs/Fumadocs-test`](https://github.com/OffchainLabs/Fumadocs-test).
+1.  Begin by creating a branch (internal) or fork (external) of the [Arbitrum docs repo](https://github.com/OffchainLabs/arbitrum-docs).
 2.  Issue a `Draft` pull request into `main`. A pull request from a branch in that repository gets a Vercel preview deployment of your changes, and the preview updates as you push commits. A pull request from a fork gets one once a maintainer authorizes the deployment.
 3.  Include answers to the following questions in your PR description:
     - Audience: Who am I writing for?
