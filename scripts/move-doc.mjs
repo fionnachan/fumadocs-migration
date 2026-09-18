@@ -87,13 +87,14 @@ function scanLinks(index) {
     for (const ref of extractRefs(file.content)) {
       // A destination holding a `{var:name}` placeholder resolves, because the resolver expands it
       // the way the build does, but it must never be rewritten: `renderRef` writes a literal path,
-      // which would bake the variable's current value into the file. Left alone, like a `cwd`
-      // include.
-      const rewritable = ref.range !== null && !ref.rawUrl.includes('{var:');
+      // which would bake the variable's current value into the file. It is still resolved here so
+      // that one pointing at the moved page is reported as unrenderable, like an expression
+      // include, rather than passed over in silence.
       records.push({
         fromAbs: file.abs,
         ref,
-        toAbs: rewritable ? resolveRefToFile(ref.rawUrl, file.abs, index) : null,
+        placeholder: ref.rawUrl.includes('{var:'),
+        toAbs: ref.range !== null ? resolveRefToFile(ref.rawUrl, file.abs, index) : null,
       });
     }
   }
@@ -131,7 +132,7 @@ function planMove(records, index, fromAbs, toAbs) {
 
     // Inbound: someone else links to the moved file.
     if (rec.toAbs === fromAbs && rec.fromAbs !== fromAbs) {
-      if (rec.ref.range === null) {
+      if (rec.ref.range === null || rec.placeholder) {
         unrenderable.push(rec);
         continue;
       }
@@ -145,7 +146,12 @@ function planMove(records, index, fromAbs, toAbs) {
     }
 
     // Outbound: the moved file's own relative links must survive the new location.
-    if (rec.fromAbs === fromAbs && rec.ref.range !== null && rec.toAbs !== null) {
+    if (
+      rec.fromAbs === fromAbs &&
+      rec.ref.range !== null &&
+      rec.toAbs !== null &&
+      !rec.placeholder
+    ) {
       const style = detectStyle(splitSuffix(rec.ref.rawUrl).pathPart, rec.ref.surface);
       if (style !== 'fileRel' && style !== 'urlRel' && style !== 'include') continue;
       const target = rec.toAbs === fromAbs ? toAbs : rec.toAbs;

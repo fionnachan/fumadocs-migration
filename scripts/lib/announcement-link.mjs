@@ -28,6 +28,17 @@ export function checkAnnouncementLink(href, index, repoRoot) {
     return { ok: false, reason: 'must be a non-empty string' };
   }
 
+  // The banner is not MDX: `app/layout.tsx` renders this string as-is, so the `{var:name}`
+  // placeholder that link destinations in content may use would reach the reader as literal
+  // braces. `resolveRefToFile` expands placeholders, so without this check such an href would pass
+  // the gate whenever the expansion happened to name a real page.
+  if (href.includes('{var:')) {
+    return {
+      ok: false,
+      reason: 'holds a {var:name} placeholder; the banner is not MDX, so it would render literally',
+    };
+  }
+
   if (href.startsWith('https://')) return { ok: true };
 
   if (href.startsWith('http://')) {
