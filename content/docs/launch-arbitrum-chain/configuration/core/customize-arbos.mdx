@@ -69,7 +69,7 @@ In this way, `ArbHi` and all its methods will be activated after the ArbOS versi
 
 ### 3. Create a new ArbOS state on a specific ArbOS version
 
-After you add a new state `myNumber` according to the guide in [customize precompile Option 5](./customize-precompile#option-5-call-and-modify-state), you also need to rewrite [`UpgradeArbosVersion`](https://github.com/OffchainLabs/{var:nitroRepositorySlug}/blob/v3.1.0/arbos/{var:nitroPathToArbosState}/arbosstate.go#L253) in [`arbosstate.go`](https://github.com/OffchainLabs/{var:nitroRepositorySlug}/blob/v3.1.0/{var:nitroPathToArbosState}/arbosstate.go):
+After you add a new state `myNumber` according to the guide in [customize precompile Option 5](./customize-precompile#option-5-call-and-modify-state), you also need to rewrite [`UpgradeArbosVersion`](https://github.com/OffchainLabs/{var:nitroRepositorySlug}/blob/v3.1.0/{var:nitroPathToArbosState}/arbosstate.go#L253) in [`arbosstate.go`](https://github.com/OffchainLabs/{var:nitroRepositorySlug}/blob/v3.1.0/{var:nitroPathToArbosState}/arbosstate.go):
 Add your expected ArbOS version to the switch case statement of `nextArbosVersion`. Here we will take ArbOS V21 as an example:
 
 ```go
