@@ -15,6 +15,8 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 
+import { stripCode } from './strip-code.mjs';
+
 export const DOCS_DIR = path.join('content', 'docs');
 export const PARTIALS_DIR = path.join('content', 'partials');
 export const REGISTRY_FILE = path.join('content', 'partials', 'registry.json');
@@ -57,13 +59,21 @@ export function listDocs(repoRoot) {
 /**
  * Parse every `<include …>path</include>` directive in `source`.
  *
+ * Fenced code blocks and inline code spans are skipped: an include shown as an example is
+ * documentation about the syntax, not a dependency, and `fumadocs-mdx`'s `remarkInclude` agrees.
+ * It visits JSX and directive nodes only, so a fenced `<include>` is a `code` node it never expands.
+ * Counting one would make `partials-check` R1 reject the contribute guide for quoting the syntax it
+ * teaches, and would put a phantom "used in" entry in `CATALOG.md` and `manifest.json` (FS-2723).
+ * `stripCode` blanks 1:1, so the ranges below still index the original `source`.
+ *
  * @returns {Array<{cwd:boolean, target:string, range:[number,number]}>} where `range` spans the
  * inner path text so it can be rewritten in place.
  */
 export function parseIncludes(source) {
+  const text = stripCode(source);
   const re = /<include\b([^>]*)>([\s\S]*?)<\/include>/g;
   const out = [];
-  for (let m; (m = re.exec(source));) {
+  for (let m; (m = re.exec(text));) {
     const attrs = m[1];
     const inner = m[2];
     const target = inner.trim();
@@ -105,12 +115,17 @@ export function listImporters(repoRoot) {
 /**
  * Parse `import X from '<spec>'` statements whose specifier resolves to a partial (`_*.md(x)`).
  *
+ * Code is skipped for the same reason as in `parseIncludes`: an import written inside a fence is an
+ * example. The blanking also erases a template literal in a `.ts`/`.tsx` importer, which costs
+ * nothing, since an import specifier is always a quoted string.
+ *
  * @returns {Array<{specifier:string, range:[number,number]}>} `range` spans the specifier text.
  */
 export function parsePartialImports(source) {
+  const text = stripCode(source);
   const re = /\bfrom\s*(['"])([^'"]+\.mdx?)\1/g;
   const out = [];
-  for (let m; (m = re.exec(source));) {
+  for (let m; (m = re.exec(text));) {
     const specifier = m[2];
     if (!path.basename(specifier).startsWith('_')) continue;
     const start = m.index + m[0].indexOf(specifier);

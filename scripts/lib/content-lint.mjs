@@ -58,17 +58,15 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { toPosix, walk } from './partials.mjs';
+import { stripCode } from './strip-code.mjs';
 
 export const ADMONITION_TYPES = new Set(['note', 'tip', 'info', 'warning', 'danger']);
 const isMdx = (p) => /\.mdx?$/i.test(p);
 
-/** Blank out fenced blocks and inline code, preserving line count and offsets. */
-export function stripCode(source) {
-  const blank = (m) => m.replace(/[^\n]/g, ' ');
-  return source
-    .replace(/^([ \t]*)(`{3,}|~{3,})[\s\S]*?^\1?\2[^\n]*$/gm, blank)
-    .replace(/`[^`\n]*`/g, blank);
-}
+// Re-exported so this file stays the import site every rule and test already uses. The definition
+// moved to `strip-code.mjs` (FS-2723) because the partials tooling needs the same answer to "what
+// counts as code", and `content-lint.mjs` imports `partials.mjs`, so it cannot be the shared home.
+export { stripCode };
 
 const lineOf = (source, index) => source.slice(0, index).split('\n').length;
 

@@ -398,6 +398,13 @@ tracked by the tooling:
 be compiled outside the docs pipeline when ESM-imported, and there `fumadocs-mdx`'s `cwd` context
 is undefined and crashes the build. `partials:check` enforces the distinction.
 
+**Neither scanner sees code.** `parseIncludes` and `parsePartialImports` strip fenced blocks and
+inline code spans before they match (`scripts/lib/strip-code.mjs`, the same helper `content:lint`
+uses for every A rule), so a directive quoted as an example is not validated as a real include and
+is not counted in the catalog's "used in" totals. `fumadocs-mdx` agrees at the other end:
+`remarkInclude` visits JSX and directive nodes only, so a fenced `<include>` is a `code` node it
+never expands. That is what lets the contribute guide print the syntax it teaches (FS-2723).
+
 **ESM import** as an MDX component module — `import X from '@/content/partials/…/_x.mdx'` — is
 supported by the tooling (`scripts/lib/partials.mjs` scans the importer roots) but **currently used
 by no component.** The last consumer, `FloatingHoverModal`, was deleted as dead code.

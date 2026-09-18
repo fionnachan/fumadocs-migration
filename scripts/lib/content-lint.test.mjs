@@ -72,6 +72,16 @@ test('A3 does NOT fire inside a fenced code block', () => {
   assert.deepEqual(rules('```md\n:::note\ntext\n:::\n```'), []);
 });
 
+test('A3 does NOT fire inside an inline code span', () => {
+  // The contribute guide names the syntax it forbids, so both code forms have to stay quotable.
+  assert.deepEqual(rules('Never write a `:::caution` directive here.'), []);
+});
+
+test('A3 does NOT fire inside an indented or tilde fence', () => {
+  assert.deepEqual(rules('Text:\n\n  ```md\n  :::note\n  ```\n'), []);
+  assert.deepEqual(rules('~~~md\n:::note\n~~~'), []);
+});
+
 test('A4 fires for a markdown link or inline code in title=', () => {
   assert.ok(
     lintSource(
