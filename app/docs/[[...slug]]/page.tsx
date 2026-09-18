@@ -15,7 +15,7 @@ import { VersionSwitcher } from '@/components/VersionSwitcher';
 import { Feedback } from '@/components/feedback/client';
 import { getMDXComponents } from '@/components/mdx';
 import { onPageFeedbackAction } from '@/lib/posthog';
-import { getSiteUrl, gitConfig, socialHandle } from '@/lib/shared';
+import { appName, getSiteUrl, gitConfig, socialHandle } from '@/lib/shared';
 import {
   getArchiveMarkdownUrl,
   getPageImage,
@@ -194,16 +194,24 @@ export async function generateMetadata({
   const title = archive ? archive.entry.title : page.data.title;
   const description = archive ? archive.entry.description : page.data.description;
   const image = getPageImage(page).url;
+  // Same source the page body reads for the "Last updated on …" line: the archive file's own git
+  // date for an archive, the live page's for Latest. `undefined` in a checkout without full git
+  // history (see `hasFullGitHistory` in source.config.ts), in which case `article:modified_time`
+  // is simply omitted below rather than emitted wrong.
+  const lastModified = archive ? archive.entry.lastModified : page.data.lastModified;
+  // Built absolute from `getSiteUrl()` rather than left relative for `metadataBase` to resolve,
+  // so the value a wrong canonical would depend on is read through the one helper that refuses
+  // to guess it in production. An archive canonicalizes to its live page: the two are versions of
+  // one document, not two documents, and the live one is the copy a reader should land on.
+  // One constant, used for both `alternates.canonical` and `openGraph.url` below, which are the
+  // same claim addressed to two different readers and must never disagree.
+  const canonical = new URL(page.url, getSiteUrl()).toString();
 
   return {
     title,
     description,
-    // Built absolute from `getSiteUrl()` rather than left relative for `metadataBase` to resolve,
-    // so the value a wrong canonical would depend on is read through the one helper that refuses
-    // to guess it in production. An archive canonicalizes to its live page: the two are versions of
-    // one document, not two documents, and the live one is the copy a reader should land on.
     alternates: {
-      canonical: new URL(page.url, getSiteUrl()).toString(),
+      canonical,
     },
     // Archives are reachable from the version switcher and from nothing else. These are
     // node-operator guides, so an outdated archive outranking its live page does not merely
@@ -211,7 +219,25 @@ export async function generateMetadata({
     // the links out of an archive still count.
     ...(archive ? { robots: { index: false, follow: true } } : {}),
     openGraph: {
+      // `siteName` matches the site root (`app/(home)/page.tsx`), from the same `appName` constant
+      // so the two cannot drift. `type: 'article'` (not `website`, which the root uses for the site
+      // as a whole) marks each docs page as one document rather than a site index, which is also
+      // what lets `modifiedTime` below be a meaningful tag rather than a guess: there is no
+      // `publishedTime` anywhere in the frontmatter or collection to pair it with, only git's
+      // last-touched date, which is exactly what `lastModified` already is. Archives get the same
+      // two tags: `noindex` controls crawling, not what kind of object the URL is, and an archive's
+      // own `lastModified` is a real per-document date. The type is uniform across everything the
+      // catch-all serves, `/docs` and the section indexes included: nothing in the collection marks
+      // a page as an index, so the only alternative is a hand-kept list of URLs that silently goes
+      // stale, and `og:type` drives no crawler behaviour that would pay for it.
+      type: 'article',
+      siteName: appName,
+      // The OG object's own canonical URL, the same string `alternates.canonical` carries, so an
+      // archive names its live page here too. The root has had this since FS-2713; a docs page
+      // emitted none, which was the last hole in the root/docs parity this ticket closes.
+      url: canonical,
       images: image,
+      ...(lastModified ? { modifiedTime: lastModified.toISOString() } : {}),
     },
     // Next fills twitter:title/description/image from openGraph when they are absent, but the card
     // type and the site handle have no such default and are what X needs to render a large card.
