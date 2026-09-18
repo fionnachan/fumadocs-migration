@@ -49,6 +49,36 @@ test('a closing fence indented less than three spaces still closes an unindented
   assert.deepEqual(targets(src), ['content/partials/_real.mdx']);
 });
 
+test('a fence indented four spaces still closes at its own indentation', () => {
+  const src = [
+    'Paste this into your page:',
+    '',
+    '    ```mdx',
+    '    <include cwd>content/partials/_x.mdx</include>',
+    '    ```',
+    '',
+    '<include cwd>content/partials/_real.mdx</include>',
+    '',
+  ].join('\n');
+  assert.deepEqual(targets(src), ['content/partials/_real.mdx']);
+});
+
+test('a fence indented six spaces inside a nested list item still closes', () => {
+  const src = [
+    '- Step one:',
+    '',
+    '  1. Paste this:',
+    '',
+    '      ```mdx',
+    '      <include cwd>content/partials/_x.mdx</include>',
+    '      ```',
+    '',
+    '<include cwd>content/partials/_real.mdx</include>',
+    '',
+  ].join('\n');
+  assert.deepEqual(targets(src), ['content/partials/_real.mdx']);
+});
+
 test('an include inside an MDX comment is not a directive', () => {
   assert.deepEqual(targets('{/* <include cwd>content/partials/_x.mdx</include> */}'), []);
 });
@@ -58,6 +88,28 @@ test('a multi-line MDX comment is blanked without losing a following real includ
     '{/*',
     '<include cwd>content/partials/_x.mdx</include>',
     '*/}',
+    '',
+    '<include cwd>content/partials/_real.mdx</include>',
+    '',
+  ].join('\n');
+  assert.deepEqual(targets(src), ['content/partials/_real.mdx']);
+});
+
+test('backticked comment delimiters in prose do not swallow the content between them', () => {
+  const src = [
+    'Write `{/*` to open an MDX comment.',
+    '',
+    '<include cwd>content/partials/_real.mdx</include>',
+    '',
+    'Close it with `*/}`.',
+    '',
+  ].join('\n');
+  assert.deepEqual(targets(src), ['content/partials/_real.mdx']);
+});
+
+test('an MDX comment containing an inline code span is still blanked whole', () => {
+  const src = [
+    '{/* the `<include>` form, shown here: <include cwd>content/partials/_x.mdx</include> */}',
     '',
     '<include cwd>content/partials/_real.mdx</include>',
     '',
