@@ -53,23 +53,32 @@ const DEPRECATION_NOTICE =
   '<p>Note: methods marked with ⚠️ are deprecated and their use is not supported.</p>';
 
 /**
- * Opens every `_<Precompile>.mdx` partial. Names the three `content/vars.json` pins that drive
- * `interfaceBaseUrl`/`implementationBaseUrl` above.
+ * Opens every `_<Precompile>.mdx` partial. These files take every link they emit from six pins
+ * across two files: `nitroPrecompilesRepositorySlug` and `nitroPrecompilesCommit` (the Solidity
+ * interface), `nitroRepositorySlug`, `nitroVersionTag` and `nitroPathToPrecompiles` (the Go
+ * implementation), all in `content/vars.json`, plus `NODE_INTERFACE_PINS
+ * .nitroPrecompilesPathToInterfaces` below. The marker names the two files rather than the six
+ * pins so that it cannot go stale as pins are added, and so it fits on one line in the fifteen
+ * partials that carry it.
  */
 const PRECOMPILE_MARKER = generatedMarker(
   'pnpm precompiles:generate',
-  'bumping nitroVersionTag, nitroPrecompilesCommit, or nitroPrecompilesRepositorySlug in ' +
-    'content/vars.json',
+  'bumping any pin in content/vars.json or scripts/generate-precompile-tables.mjs',
 );
 
 /**
  * Opens `_NodeInterface.mdx`. That partial's Solidity interface comes from `nitro-contracts`,
  * not `nitro-precompile-interfaces`, so it reads `NODE_INTERFACE_PINS` above instead of the
- * `nitroPrecompiles*` vars.json pins; its Go implementation still follows `nitroVersionTag`.
+ * `nitroPrecompiles*` vars.json pins; its Go implementation still follows `nitroVersionTag` and
+ * `nitroRepositorySlug`. That is a short enough list to name in full, so this marker does, and
+ * naming it is the only thing telling a `_NodeInterface.mdx` editor that `nitroPrecompilesCommit`
+ * is not their lever. Both markers name this file by path, because "this script" has no referent
+ * for somebody reading the partial.
  */
 const NODE_INTERFACE_MARKER = generatedMarker(
   'pnpm precompiles:generate',
-  'bumping nitroVersionTag in content/vars.json, or the NODE_INTERFACE_PINS in this script',
+  'bumping nitroVersionTag or nitroRepositorySlug in content/vars.json, or NODE_INTERFACE_PINS ' +
+    'in scripts/generate-precompile-tables.mjs',
 );
 
 /**
@@ -80,9 +89,15 @@ const NODE_INTERFACE_MARKER = generatedMarker(
  * owns their shape (the same arrangement the ignore file documents for CATALOG.md).
  *
  * `printWidth: 9999` keeps each `<a>` tag's attributes on one line, which is what the
- * committed tables already look like — so regenerating produces no formatting churn. The
- * `*`-escaping hazard that motivates the repo-wide MDX exclusion cannot apply here: these
- * partials are HTML tables and never contain `{/* … *\/}` expression comments.
+ * committed tables already look like, so regenerating produces no formatting churn.
+ *
+ * Every partial now opens with one `{/* … *\/}` expression comment (the do-not-edit marker), so
+ * the `*`-escaping hazard that motivates the repo-wide MDX exclusion is no longer ruled out by
+ * the file's content. It still does not bite: that hazard is Prettier escaping a `*` in prose,
+ * and these files hold an expression comment on its own line followed by HTML tables, with no
+ * prose anywhere. Measured rather than assumed, with these exact options Prettier returns the
+ * marker line byte-identical and is idempotent on the result, including for a marker carrying a
+ * literal `*\/`. `generatedMarker` rejects that input anyway, so the case cannot reach here.
  */
 const MDX_FORMAT = { parser: 'mdx', printWidth: 9999, proseWrap: 'preserve', plugins: [] };
 
