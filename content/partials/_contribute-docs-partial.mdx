@@ -12,12 +12,18 @@ The [`docs.arbitrum.io`](https://docs.arbitrum.io/) docs portal is the **single 
 
 This document shows you how to craft and publish Arbitrum documentation. Familiarity with [Markdown](https://www.markdownguide.org/basic-syntax/) syntax and Github is expected.
 
+{/* Every github.com URL in this file hardcodes the owner, repo and branch that gitConfig in lib/shared.ts owns. The Var component cannot sit inside a markdown link destination (CommonMark tokenises the destination before MDX evaluates it), so retarget all of them by hand if the repo or default branch moves. The Banner conventions section below repeats this warning for the URLs it holds. */}
+
 ### Add a new core document
+
+{/* Deliberate exception to the "retarget all of them" note above: this repo is expected to take
+over the arbitrum-docs name and URL at cutover, so this one link is left pointing at that eventual
+destination rather than at gitConfig's current Fumadocs-test. Do not "fix" this to match gitConfig. */}
 
 If a document isn't in a `Third-party content` sidebar node, it's a **core document**. To contribute a new core doc:
 
 1.  Begin by creating a branch (internal) or fork (external) of the [Arbitrum docs repo](https://github.com/OffchainLabs/arbitrum-docs).
-2.  Issue a `Draft` pull request into `master`. Pull requests into `master` generate a preview of your changes via a PR-specific Docusaurus deployment; this preview will update as you push commits to your remote.
+2.  Issue a `Draft` pull request into `main`. A pull request from a branch in that repository gets a Vercel preview deployment of your changes, and the preview updates as you push commits. A pull request from a fork gets one once a maintainer authorizes the deployment.
 3.  Include answers to the following questions in your PR description:
     - Audience: Who am I writing for?
     - Problem: What specific problem are they trying to solve?
@@ -37,89 +43,21 @@ See [Contribute third-party docs](/docs/third-party-docs/contribute) for detaile
 
 If you'd like to request an update or share a suggestion related to an **existing document** without submitting a pull request to implement the improvement yourself, click the `Request an update` button located at the top of each published document. This button will lead you to a prefilled Github issue that you can use to elaborate on your request or suggestion.
 
-### Add a new translation page
-
-If you would like to participate in translating the Arbitrum docs, you can:
-
-1. Check whether `i18n` has a corresponding language (currently there are `ja` and `zh`). If not, you can use the following command to add it (we take adding French as an example):
-
-```shell
-npm run write-translations -- --locale fr
-```
-
-It will help generate folder `i18n/fr`.
-
-2. Create the folders `current` and `translated` under the newly generated folder `i18n/fr/docusaurus-plugin-content-docs`:
-
-```shell
-mkdir i18n/{Your_language}/docusaurus-plugin-content-docs/current && mkdir i18n/{Your_language}/docusaurus-plugin-content-docs/translated
-```
-
-3. Translate one of more docs files located in `docs/`.
-
-4. Place the translated document into the folder `i18n/{Your_language}/docusaurus-plugin-content-docs/translated` according to its relative path in `arbitrum-docs`. For example, if you translated `/arbitrum-docs/how-arbitrum-works/arbos/introduction.md`, then its path in i18n should be `i18n/{Your_language}/docusaurus-plugin-content-docs/translated/how-arbitrum-works/arbos/introduction.md`.
-
-Test run:
-
-1. Check that the i18n settings in `docusaurus.config.js` have included your new language:
-
-```js
-i18n: {
-    defaultLocale: 'en',
-    // locales: ['en', 'ja', 'zh'],
-    locales: ['en'], // You can add your new language to this array
-  },
-```
-
-2. Check whether the `locale Dropdown` component exists in navbar, if not, add it:
-
-```js
-navbar: {
-    title: 'Arbitrum Docs',
-    logo: {
-        alt: 'My Site Logo',
-        src: 'img/logo.svg',
-        href: '/get-started/arbitrum-introduction',
-    },
-    items: [
-        // note:  we can uncomment this when we want to display the locale dropdown in the top navbar
-        //        if we enable this now, the dropdown will appear above every document; if `ja` is selected for a document that isn't yet translated, it will 404
-        //        there may be a way to show the dropdown only on pages that have been translated, but that's out of scope for the initial version
-        {
-        type: 'localeDropdown',
-        position: 'right',
-        }
-    ],
-},
-```
-
-2. Build translation and docs:
-
-```shell
-yarn build-translation && yarn build
-```
-
-6. Start docs:
-
-```shell
-npm run serve
-```
-
 ### Document type conventions
 
-Every document should be a specific _type_ of document. Each type of document has its own purpose:
+Every document should be a specific _type_ of document, set in its frontmatter as `content_type`. Each type has its own purpose:
 
-| Document type       | Purpose                                                                            |
-| ------------------- | ---------------------------------------------------------------------------------- |
-| Gentle introduction | Onboard a specific reader audience with tailored questions and answers             |
-| Quickstart          | Onboard a specific reader audience with step-by-step "learn by doing" instructions |
-| How-to              | Provide task-oriented procedural guidance                                          |
-| Concept             | Explain what things are and how they work                                          |
-| FAQ                 | Address frequently asked questions                                                 |
-| Troubleshooting     | List common troubleshooting scenarios and solutions                                |
-| Reference           | Lists and tables of things, such as API endpoints and developer resources          |
+| Document type   | Frontmatter value | Purpose                                                                             |
+| --------------- | ----------------- | ----------------------------------------------------------------------------------- |
+| How-to          | `how-to`          | Provide task-oriented procedural guidance                                           |
+| Concept         | `concept`         | Explain what things are and how they work                                           |
+| Quickstart      | `quickstart`      | Onboard a specific reader audience with step-by-step "learn by doing" instructions   |
+| Tutorial        | `tutorial`        | Walk a specific reader audience through a comprehensive, guided learning experience  |
+| Reference       | `reference`       | Lists and tables of things, such as API endpoints and developer resources            |
+| Troubleshooting | `troubleshooting` | List common troubleshooting scenarios and solutions                                  |
+| FAQ             | `faq`             | Address frequently asked questions                                                   |
 
-This isn't an exhaustive list, but it includes most of the document types that we use.
+`content_type` must be exactly one of the seven frontmatter values above, spelled in lowercase, or the build fails. See [Document type conventions](https://github.com/OffchainLabs/Fumadocs-test/blob/main/CONTRIBUTE.md#document-type-conventions) in CONTRIBUTE.md for more on what each type owes the reader.
 
 <VanillaAdmonition type="info" title="About Promotional Content">
 
@@ -183,7 +121,7 @@ Don't stress too much about checking off all of these boxes; we periodically rev
 Some important disclaimers:
 
 - This isn't an exhaustive list. These are just the min-bar guidelines that will be applied to all new content moving forward.
-- Many of our docs don't yet follow this guidance. Our team is working on it! If you notice an obvious content bug, feel free to submit an [issue](https://github.com/OffchainLabs/arbitrum-docs/issues) or [PR](https://github.com/OffchainLabs/arbitrum-docs/pulls).
+- Many of our docs don't yet follow this guidance. Our team is working on it! If you notice an obvious content bug, feel free to submit an [issue](https://github.com/OffchainLabs/Fumadocs-test/issues) or [PR](https://github.com/OffchainLabs/Fumadocs-test/pulls).
 
 ### Banner conventions
 
