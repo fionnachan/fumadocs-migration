@@ -1,5 +1,5 @@
 /**
- * partials — the include/import parsers behind `partials-check`, the catalog generator and the
+ * partials. The include/import parsers behind `partials-check`, the catalog generator and the
  * `used in N pages` counts. Every case here is about one thing: code is documentation about the
  * syntax, never a use of it (FS-2723).
  */
@@ -35,6 +35,34 @@ test('an include inside a tilde fence is not a directive', () => {
 
 test('an include inside an inline code span is not a directive', () => {
   assert.deepEqual(targets('Write `<include>../_x.mdx</include>` in a partial.'), []);
+});
+
+test('a closing fence indented less than three spaces still closes an unindented opener', () => {
+  const src = [
+    '```',
+    '<include cwd>content/partials/_x.mdx</include>',
+    '  ```',
+    '',
+    '<include cwd>content/partials/_real.mdx</include>',
+    '',
+  ].join('\n');
+  assert.deepEqual(targets(src), ['content/partials/_real.mdx']);
+});
+
+test('an include inside an MDX comment is not a directive', () => {
+  assert.deepEqual(targets('{/* <include cwd>content/partials/_x.mdx</include> */}'), []);
+});
+
+test('a multi-line MDX comment is blanked without losing a following real include', () => {
+  const src = [
+    '{/*',
+    '<include cwd>content/partials/_x.mdx</include>',
+    '*/}',
+    '',
+    '<include cwd>content/partials/_real.mdx</include>',
+    '',
+  ].join('\n');
+  assert.deepEqual(targets(src), ['content/partials/_real.mdx']);
 });
 
 test('a real include after a fence is still a directive, with a range into the original source', () => {

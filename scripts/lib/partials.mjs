@@ -60,8 +60,8 @@ export function listDocs(repoRoot) {
  * Parse every `<include …>path</include>` directive in `source`.
  *
  * Fenced code blocks and inline code spans are skipped: an include shown as an example is
- * documentation about the syntax, not a dependency, and `fumadocs-mdx`'s `remarkInclude` agrees —
- * it visits JSX and directive nodes only, so a fenced `<include>` is a `code` node it never expands.
+ * documentation about the syntax, not a dependency, and `fumadocs-mdx`'s `remarkInclude` agrees.
+ * It visits JSX and directive nodes only, so a fenced `<include>` is a `code` node it never expands.
  * Counting one would make `partials-check` R1 reject the contribute guide for quoting the syntax it
  * teaches, and would put a phantom "used in" entry in `CATALOG.md` and `manifest.json` (FS-2723).
  * `stripCode` blanks 1:1, so the ranges below still index the original `source`.
