@@ -22,7 +22,7 @@ import {
   nodeInterfaceInformation,
   precompilesInformation,
 } from './data/precompiles-information.mjs';
-import { isCheckMode, runScript, writeOrCheck } from './lib/generated-partial.mjs';
+import { generatedMarker, isCheckMode, runScript, writeOrCheck } from './lib/generated-partial.mjs';
 
 const OUTPUT_DIR = path.join('content', 'partials', 'precompile-tables');
 
@@ -51,6 +51,26 @@ const nodeInterfaceImplementationBaseUrl = `https://github.com/OffchainLabs/${va
 
 const DEPRECATION_NOTICE =
   '<p>Note: methods marked with ⚠️ are deprecated and their use is not supported.</p>';
+
+/**
+ * Opens every `_<Precompile>.mdx` partial. Names the three `content/vars.json` pins that drive
+ * `interfaceBaseUrl`/`implementationBaseUrl` above.
+ */
+const PRECOMPILE_MARKER = generatedMarker(
+  'pnpm precompiles:generate',
+  'bumping nitroVersionTag, nitroPrecompilesCommit, or nitroPrecompilesRepositorySlug in ' +
+    'content/vars.json',
+);
+
+/**
+ * Opens `_NodeInterface.mdx`. That partial's Solidity interface comes from `nitro-contracts`,
+ * not `nitro-precompile-interfaces`, so it reads `NODE_INTERFACE_PINS` above instead of the
+ * `nitroPrecompiles*` vars.json pins; its Go implementation still follows `nitroVersionTag`.
+ */
+const NODE_INTERFACE_MARKER = generatedMarker(
+  'pnpm precompiles:generate',
+  'bumping nitroVersionTag in content/vars.json, or the NODE_INTERFACE_PINS in this script',
+);
 
 /**
  * Prettier options for the generated `.mdx` partials.
@@ -311,10 +331,11 @@ async function generatePrecompile(name, check, methodOverrides, eventOverrides) 
     eventOverrides,
   );
 
-  await writeOrCheck(path.join(OUTPUT_DIR, `_${name}.mdx`), methodsTable + eventsTable, {
-    check,
-    overrides: MDX_FORMAT,
-  });
+  await writeOrCheck(
+    path.join(OUTPUT_DIR, `_${name}.mdx`),
+    `${PRECOMPILE_MARKER}\n\n${methodsTable}${eventsTable}`,
+    { check, overrides: MDX_FORMAT },
+  );
 }
 
 async function generateNodeInterface(check, methodOverrides) {
@@ -335,10 +356,11 @@ async function generateNodeInterface(check, methodOverrides) {
     methodOverrides,
   );
 
-  await writeOrCheck(path.join(OUTPUT_DIR, '_NodeInterface.mdx'), methodsTable, {
-    check,
-    overrides: MDX_FORMAT,
-  });
+  await writeOrCheck(
+    path.join(OUTPUT_DIR, '_NodeInterface.mdx'),
+    `${NODE_INTERFACE_MARKER}\n\n${methodsTable}`,
+    { check, overrides: MDX_FORMAT },
+  );
 }
 
 async function main() {
