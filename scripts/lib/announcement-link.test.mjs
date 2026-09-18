@@ -66,3 +66,9 @@ test('rejects an empty or non-string value', () => {
   assert.equal(checkAnnouncementLink(undefined, index, repoRoot).ok, false);
   assert.equal(checkAnnouncementLink(42, index, repoRoot).ok, false);
 });
+
+test('rejects a {var:name} placeholder, which the banner would render literally', () => {
+  const result = checkAnnouncementLink('/docs/{var:x}/gentle-introduction', index, repoRoot);
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /placeholder/);
+});

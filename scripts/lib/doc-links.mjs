@@ -14,9 +14,30 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 
+import { expandVarPlaceholders, readVars } from '../../lib/var-links.mjs';
 import { isPartial } from './partials.mjs';
 
 const posix = path.posix;
+
+/**
+ * The variable values the site builds with, read once. `scripts/lib/doc-anchors.mjs` already imports
+ * from `lib/` for the same reason: a checker that does not share the site's transforms checks a
+ * different document than the one the reader gets.
+ */
+let varValues;
+
+/**
+ * Resolve a raw link URL the way the reader's browser will see it, by expanding any `{var:name}`
+ * placeholder the way `remarkVarLinks` does at build (FS-2725). Every consumer that *resolves* a
+ * link has to go through this, or a placeholder in an internal destination is reported broken even
+ * though the built page carries a working URL. Rewriting consumers must not: the written form is
+ * what belongs in the file.
+ */
+export function expandRefUrl(rawUrl) {
+  if (typeof rawUrl !== 'string' || !rawUrl.includes('{var:')) return rawUrl;
+  varValues ??= readVars();
+  return expandVarPlaceholders(rawUrl, varValues);
+}
 
 export const CONTENT_DIR = path.join('content', 'docs');
 
@@ -274,7 +295,7 @@ export function extractRefs(source) {
  * Resolve a link's raw URL to the absolute doc file it points at, or `null` if external/unresolvable.
  */
 export function resolveRefToFile(rawUrl, fromAbs, index) {
-  const { pathPart } = splitSuffix(rawUrl);
+  const { pathPart } = splitSuffix(expandRefUrl(rawUrl));
   if (isExternalOrFragment(pathPart)) return null;
 
   if (!pathPart.startsWith('/')) {
@@ -385,7 +406,7 @@ export function findBrokenLinks(index) {
   for (const file of index.files) {
     for (const ref of extractRefs(file.content)) {
       if (ref.range === null) continue;
-      const { pathPart } = splitSuffix(ref.rawUrl);
+      const { pathPart } = splitSuffix(expandRefUrl(ref.rawUrl));
       if (isExternalOrFragment(pathPart)) continue;
       // A literal `.md`/`.mdx` suffix always 404s at runtime: `proxy.ts` only rewrites a bare `.md`
       // suffix, so the URL falls through to Fumadocs with an extension no page owns. `<include>`

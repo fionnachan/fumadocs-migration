@@ -513,6 +513,74 @@ the other four projects would take is written up in that file's commit message; 
 version is that the Docker-Hub tag resolution at the heart of the script is Nitro-specific and
 does not generalize.
 
+### A variable in a link destination is a placeholder, not a component
+
+`<Var>` cannot be used in a link destination, and nothing about the failure is loud:
+
+```mdx
+[Interface](https://github.com/OffchainLabs/<Var name="nitroRepositorySlug" />/blob/x.sol)
+```
+
+CommonMark reads an unbracketed link destination as one raw token that may not contain a space, and
+the tag holds two. The resource never parses, so the whole construct falls back to literal text: the
+reader sees the `[Interface](…)` brackets, with only the bare URL prefix before the first `<Var>`
+autolinked by GFM, and there is no working `<a>` for the intended target at all. Seventy-three links
+across five pages shipped that way with every gate green (FS-2725), because `vars:check` only proves
+the key exists, `check-links` skips an external destination, and rule A6 reads code fences and spans.
+
+The destination takes a `{var:name}` placeholder instead. It holds no space, so the link parses
+normally and the braces survive verbatim in the mdast `link` node's `url`:
+
+```mdx
+[Interface](https://github.com/OffchainLabs/{var:nitroRepositorySlug}/blob/{var:nitroVersionTag}/x.sol)
+```
+
+`remarkVarLinks` (`lib/var-links.mjs`) expands it. What follows from where it is wired:
+
+- It sits in `lib/mdx-options.mjs`, the transform set the site and the fragment half of
+  `check-links` share, so `scripts/lib/doc-anchors.mjs` validates the `#anchor` of an expanded URL.
+  The path half is a separate code path: `scripts/lib/doc-links.mjs` reads destinations out of the
+  raw MDX with regexes, because it also has to rewrite them in place for `pnpm move-doc`, so it
+  expands a placeholder itself through `expandRefUrl`, which calls the plugin's own
+  `expandVarPlaceholders`. Without that an internal destination written with a placeholder was
+  reported broken even though the built page carried a working URL. One expansion function, two
+  callers. A component that built the `href` itself would be invisible to both, which is the blind
+  spot rule `A7` already exists for.
+- `move-doc` resolves such a link but never rewrites it. `renderRef` writes a literal path, which
+  would bake the variable's current value into the file, so a destination holding `{var:` is passed
+  over the way a `cwd` include is.
+- It runs after fumadocs-mdx splices `<include>`, so a placeholder inside a partial expands too.
+  Verified by adding one to an included partial and reading the served HTML, not inferred from the
+  plugin order.
+- It rewrites the url and title of a `link`, `image` or `definition` node, and the `href`, `to` and
+  `src` attributes of a JSX element. The `image` case only reaches a remote src: fumadocs runs its
+  own remark-image first, so a local src is already an import of the written path by the time this
+  plugin sees the tree, and a placeholder in one fails the build on a file that does not exist.
+  Nothing silent survives either way, and `pnpm images:presence` blocks a markdown image with a
+  remote src regardless.
+- A placeholder is expanded nowhere else, and the two contexts a writer might reach for by mistake
+  both fail loudly rather than shipping. In prose the MDX compiler reads `{…}` as an expression and
+  throws `Could not parse expression with acorn`, so the page cannot build; use `<Var name="…" />`
+  there, which is what it is for. In a fenced block or an inline code span it stays literal, which
+  is correct, and matches what `<Var>` does in the same place.
+
+The `var:` prefix is what lets the gate be strict. A bare `{name}` is indistinguishable from a URL
+documenting a path template (`…/{chainId}/…`), so `vars:check` would have to choose between letting
+a mistyped name ship and failing on a real template. With the prefix, `scripts/lib/vars-audit.mjs`
+counts a placeholder as a variable reference and an unknown name is unambiguously a mistake.
+
+One thing does not follow the component: **a `vars.json` edit does not reach a placeholder until the
+dev server restarts.** fumadocs-mdx caches one processor per collection, so `readVars()` runs once at
+attach time, while `<Var>` reads the imported `content/vars.ts` on every render. Measured on `pnpm
+dev`: with one page holding both forms, changing `nitroVersionTag` updated the prose immediately and
+left the link on the old value until a restart. A production build reads the file once and is
+unaffected.
+
+An unknown name is left in place rather than thrown on, which matches what `<Var>` does with one:
+the defect reaches the page and `vars:check` fails on it. Throwing inside a plugin that loads before
+any page is rendered would take the whole site down for a single typo. `content:lint` rule `A11`
+blocks the old syntax, and a placeholder whose name is not an identifier, so neither can come back.
+
 ### Announcement banner
 
 `app/layout.tsx` renders Fumadocs' `Banner` above everything else in `RootProvider`, which puts it
@@ -1374,7 +1442,7 @@ blocks.**
 | `check-links`              | Broken internal doc links and MDX fragments                                   |
 | `contracts:check`          | The generated contract-address partial matches `@arbitrum/sdk`                |
 | `format:check`             | Prettier style drift                                                          |
-| `content:lint`             | MDX structural defects, rules A1 through A10 except A7                        |
+| `content:lint`             | MDX structural defects, rules A1 through A11 except A7                        |
 
 `check-links` exists because Fumadocs has no equivalent of Docusaurus's `onBrokenLinks: 'throw'`.
 `pnpm build` chains it ahead of `next build`, so a broken link or fragment also fails the Vercel deploy.
@@ -1611,6 +1679,7 @@ literal tag is exactly the defect it looks for.
 | `A8`  | A link inside a heading                                                       |
 | `A9`  | A hand-written `<p>` around block content                                     |
 | `A10` | A `<tr>` that is a direct child of `<table>`                                  |
+| `A11` | `<Var>` in a link destination, which never substitutes and never parses       |
 
 `A7` is the one rule the bare command does not run. It has three findings left, all on
 `content/docs/stylus/cli-tools/verify-contracts.mdx`, tracked as FS-2709; the command prints a note

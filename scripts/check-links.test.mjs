@@ -4,7 +4,14 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 
-import { extractRefs, resolvesToPublicAsset } from './lib/doc-links.mjs';
+import { readVars } from '../lib/var-links.mjs';
+import {
+  buildIndex,
+  expandRefUrl,
+  extractRefs,
+  resolveRefToFile,
+  resolvesToPublicAsset,
+} from './lib/doc-links.mjs';
 
 test('link extraction preserves source ranges after Unicode frontmatter and prose', () => {
   const source =
@@ -80,4 +87,39 @@ test('traversal cannot escape public/', () => {
 test('a directory is not a servable asset', () => {
   const root = fixture();
   assert.equal(resolvesToPublicAsset('/audit-reports', root), false);
+});
+
+/**
+ * A throwaway repo root holding two doc pages, the second of them under a directory named after a
+ * real variable value, so a link written with a placeholder has something to resolve to.
+ */
+function varFixture(segment) {
+  const root = mkdtempSync(path.join(tmpdir(), 'doc-links-vars-'));
+  const docsRoot = path.join(root, 'content', 'docs');
+  mkdirSync(path.join(docsRoot, segment), { recursive: true });
+  writeFileSync(path.join(docsRoot, 'from.mdx'), '# from\n');
+  writeFileSync(path.join(docsRoot, segment, 'target.mdx'), '# target\n');
+  return { root, fromAbs: path.join(docsRoot, 'from.mdx') };
+}
+
+test('expandRefUrl substitutes a placeholder and leaves everything else alone', () => {
+  const vars = readVars();
+  assert.equal(
+    expandRefUrl('/docs/a/{var:nitroVersionTag}/b'),
+    `/docs/a/${vars.nitroVersionTag}/b`,
+  );
+  assert.equal(expandRefUrl('/docs/a/b'), '/docs/a/b');
+  // A URL documenting a path template keeps its braces: only the `var:` prefix is a placeholder.
+  assert.equal(expandRefUrl('/docs/a/{chainId}/b'), '/docs/a/{chainId}/b');
+  assert.equal(expandRefUrl('/docs/a/{var:noSuchVariable}/b'), '/docs/a/{var:noSuchVariable}/b');
+});
+
+test('an internal link written with a placeholder resolves to the page it expands to', () => {
+  const segment = String(readVars().nitroRepositorySlug);
+  const { root, fromAbs } = varFixture(segment);
+  const index = buildIndex(root);
+  const target = path.join(root, 'content', 'docs', segment, 'target.mdx');
+  assert.equal(resolveRefToFile('/docs/{var:nitroRepositorySlug}/target', fromAbs, index), target);
+  // And an expansion that names no page is still reported, so the gate stays honest.
+  assert.equal(resolveRefToFile('/docs/{var:nitroRepositorySlug}/missing', fromAbs, index), null);
 });

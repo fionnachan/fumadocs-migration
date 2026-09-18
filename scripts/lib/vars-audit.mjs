@@ -11,6 +11,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
+import { MALFORMED_VAR_PLACEHOLDER, VAR_PLACEHOLDER } from '../../lib/var-links.mjs';
 import { toPosix, walk } from './partials.mjs';
 
 export const VARS_TS = path.join('content', 'vars.ts');
@@ -32,7 +33,19 @@ export function parseSchemaKeys(source) {
   return [...body[1].matchAll(/^\s*([A-Za-z_][\w]*)\s*:/gm)].map((m) => m[1]);
 }
 
-/** Every `<Var …>` occurrence in a source string, with 1-indexed line numbers. */
+/**
+ * Every variable reference in a source string, with 1-indexed line numbers.
+ *
+ * Two syntaxes, one audit. `<Var name="…" />` is the component. `{var:…}` is the placeholder a link
+ * destination needs, because a `<Var>` tag holds a space and a space ends an unbracketed CommonMark
+ * destination, so that form never parses as a link at all (FS-2725; `lib/var-links.mjs` expands the
+ * placeholder and `content:lint` rule A11 blocks the broken form). Both name a key that has to
+ * resolve, and a placeholder naming a key that does not exist leaves literal braces in a URL, so
+ * both belong here or the newer syntax would be the one thing this gate cannot see.
+ *
+ * A `{var:…}` whose name is not an identifier is reported as a dynamic (uncheckable) usage rather
+ * than ignored: it is a placeholder that can never expand.
+ */
 export function parseVarUsages(source) {
   const out = [];
   const lines = source.split('\n');
@@ -41,6 +54,12 @@ export function parseVarUsages(source) {
       const attrs = m[1];
       const named = attrs.match(/\bname\s*=\s*["']([^"']+)["']/);
       out.push({ line: i + 1, name: named ? named[1] : null, raw: m[0].slice(0, 80) });
+    }
+    for (const m of line.matchAll(VAR_PLACEHOLDER)) {
+      out.push({ line: i + 1, name: m[1], raw: m[0].slice(0, 80) });
+    }
+    for (const m of line.matchAll(MALFORMED_VAR_PLACEHOLDER)) {
+      out.push({ line: i + 1, name: null, raw: m[0].slice(0, 80) });
     }
   }
   return out;

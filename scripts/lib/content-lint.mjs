@@ -53,10 +53,21 @@
  *   A10 A `<tr>` sitting directly inside a `<table>`. The parser inserts the `<tbody>` the source
  *       omitted, so the client tree gains an element the server tree does not have. Put every row in
  *       a `<thead>`, `<tbody>` or `<tfoot>`.
+ *   A11 `<Var>` inside a link destination, which never substitutes. An unbracketed CommonMark
+ *       destination may not contain a space and `<Var name="…" />` holds two, so the resource fails
+ *       to parse and the construct falls back to literal `[text](…)` text, with only the URL prefix
+ *       before the first `<Var>` autolinked by GFM. Seventy-three links shipped that way (FS-2725)
+ *       with every gate green: `vars:check` only proves the key exists, `check-links` skips external
+ *       destinations, and A6 reads code fences and spans, not destinations. The fix is a
+ *       `{var:name}` placeholder, which holds no space and so parses; `lib/var-links.mjs` expands
+ *       it. The `href=`/`to=` attribute form is flagged too, where the `<Var>` tag's own quotes end
+ *       the attribute value early and truncate the URL, and so is a placeholder whose name is not an
+ *       identifier: that one is left unexpanded by design and reaches the reader as literal braces.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
+import { MALFORMED_VAR_PLACEHOLDER } from '../../lib/var-links.mjs';
 import { toPosix, walk } from './partials.mjs';
 import { stripCode } from './strip-code.mjs';
 
@@ -168,6 +179,35 @@ export function lintSource(source) {
         '<Var> inside an inline code span renders as a literal tag, not its value',
       );
     }
+  }
+
+  // A11: `<Var>` inside a link destination. Read from the code-stripped text like every rule but
+  // A6, so a page documenting the broken form inside a fence is not flagged for it.
+  //
+  // The markdown probe stops at the first `)` or newline, which is where a destination ends, so a
+  // `<Var>` in the link *text* (`[<Var name="x" />](/docs/y)`) is outside the match and stays legal:
+  // the label is parsed as inline content, where a component does substitute.
+  for (const m of text.matchAll(/\]\([^)\n]*<Var\b/g)) {
+    add(
+      'A11',
+      m.index,
+      '<Var> inside a link destination: the destination holds a space, so the link never parses and ships as literal [text](…). Use a {var:name} placeholder instead',
+    );
+  }
+  // The attribute form. The value class excludes both quote characters, so the match ends at the
+  // `<Var>` tag's own `name="` quote, which is precisely why this shape is broken.
+  for (const m of text.matchAll(/\b(?:href|to|src)\s*=\s*(["'])[^"'<>]*<Var\b/g)) {
+    add(
+      'A11',
+      m.index,
+      '<Var> inside an href/to/src attribute: its quotes end the attribute value early, truncating the URL. Use a {var:name} placeholder instead',
+    );
+  }
+  // A placeholder whose name is not an identifier. `expandVarPlaceholders` leaves it alone by
+  // design, so it reaches the reader as literal braces inside a URL, the same silent shape as the
+  // two probes above, reached by a typo rather than by the old syntax.
+  for (const m of text.matchAll(MALFORMED_VAR_PLACEHOLDER)) {
+    add('A11', m.index, `${m[0]} is not a usable placeholder; the name must be a variable key`);
   }
 
   // A8: a link inside an ATX heading, which Fumadocs renders as an anchor inside its own anchor.

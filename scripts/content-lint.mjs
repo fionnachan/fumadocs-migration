@@ -28,6 +28,7 @@ const RULE_TITLES = {
   A8: 'link inside a heading nests <a> inside <a>',
   A9: 'hand-written <p> nests inside the paragraph markdown already emits',
   A10: '<tr> is a direct child of <table>',
+  A11: '<Var> in a link destination, which never substitutes and never parses as a link',
 };
 
 /**
