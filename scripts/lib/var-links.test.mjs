@@ -157,3 +157,27 @@ test('remarkVarLinks defaults to the real content/vars.json', () => {
   remarkVarLinks()(tree);
   assert.equal(tree.children[0].url, `https://x/${vars.nitroRepositorySlug}`);
 });
+
+test('remarkVarLinks rewrites an image destination', () => {
+  // Only ever reached by a remote src. Fumadocs runs its own remark-image before this plugin, so a
+  // local src has already become an import of the written path by the time the tree gets here, and
+  // a placeholder in one fails the build on a missing file instead of expanding.
+  const tree = {
+    type: 'root',
+    children: [{ type: 'image', url: 'https://x/{var:nitroVersionTag}/i.png', alt: 'a' }],
+  };
+  assert.equal(run(tree).children[0].url, 'https://x/v3.11.3/i.png');
+});
+
+test('remarkVarLinks rewrites a link title, and leaves a link without one untouched', () => {
+  const tree = {
+    type: 'root',
+    children: [
+      { type: 'link', url: 'https://x/y', title: 'Nitro {var:nitroVersionTag}', children: [] },
+      link('https://x/{var:nitroVersionTag}'),
+    ],
+  };
+  const [titled, plain] = run(tree).children;
+  assert.equal(titled.title, 'Nitro v3.11.3');
+  assert.equal(plain.title, undefined);
+});

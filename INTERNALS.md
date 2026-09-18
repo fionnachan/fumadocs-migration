@@ -501,22 +501,46 @@ normally and the braces survive verbatim in the mdast `link` node's `url`:
 [Interface](https://github.com/OffchainLabs/{var:nitroRepositorySlug}/blob/{var:nitroVersionTag}/x.sol)
 ```
 
-`remarkVarLinks` (`lib/var-links.mjs`) expands it. Three things follow from where it is wired:
+`remarkVarLinks` (`lib/var-links.mjs`) expands it. What follows from where it is wired:
 
-- It sits in `lib/mdx-options.mjs`, the transform set the site and `check-links` share, so the
-  checker resolves the same URL the reader gets. A component that built the `href` itself would be
-  invisible to both, which is the blind spot rule `A7` already exists for.
+- It sits in `lib/mdx-options.mjs`, the transform set the site and the fragment half of
+  `check-links` share, so `scripts/lib/doc-anchors.mjs` validates the `#anchor` of an expanded URL.
+  The path half is a separate code path: `scripts/lib/doc-links.mjs` reads destinations out of the
+  raw MDX with regexes, because it also has to rewrite them in place for `pnpm move-doc`, so it
+  expands a placeholder itself through `expandRefUrl`, which calls the plugin's own
+  `expandVarPlaceholders`. Without that an internal destination written with a placeholder was
+  reported broken even though the built page carried a working URL. One expansion function, two
+  callers. A component that built the `href` itself would be invisible to both, which is the blind
+  spot rule `A7` already exists for.
+- `move-doc` resolves such a link but never rewrites it. `renderRef` writes a literal path, which
+  would bake the variable's current value into the file, so a destination holding `{var:` is passed
+  over the way a `cwd` include is.
 - It runs after fumadocs-mdx splices `<include>`, so a placeholder inside a partial expands too.
   Verified by adding one to an included partial and reading the served HTML, not inferred from the
   plugin order.
-- It rewrites `link` and `definition` urls and the `href`, `to` and `src` attributes of a JSX
-  element, but not markdown `image` nodes: fumadocs' own remark-image plugin owns those, this plugin
-  has no pinned position relative to it, and no image in `content/` uses a variable.
+- It rewrites the url and title of a `link`, `image` or `definition` node, and the `href`, `to` and
+  `src` attributes of a JSX element. The `image` case only reaches a remote src: fumadocs runs its
+  own remark-image first, so a local src is already an import of the written path by the time this
+  plugin sees the tree, and a placeholder in one fails the build on a file that does not exist.
+  Nothing silent survives either way, and `pnpm images:presence` blocks a markdown image with a
+  remote src regardless.
+- A placeholder is expanded nowhere else, and the two contexts a writer might reach for by mistake
+  both fail loudly rather than shipping. In prose the MDX compiler reads `{…}` as an expression and
+  throws `Could not parse expression with acorn`, so the page cannot build; use `<Var name="…" />`
+  there, which is what it is for. In a fenced block or an inline code span it stays literal, which
+  is correct, and matches what `<Var>` does in the same place.
 
 The `var:` prefix is what lets the gate be strict. A bare `{name}` is indistinguishable from a URL
 documenting a path template (`…/{chainId}/…`), so `vars:check` would have to choose between letting
 a mistyped name ship and failing on a real template. With the prefix, `scripts/lib/vars-audit.mjs`
 counts a placeholder as a variable reference and an unknown name is unambiguously a mistake.
+
+One thing does not follow the component: **a `vars.json` edit does not reach a placeholder until the
+dev server restarts.** fumadocs-mdx caches one processor per collection, so `readVars()` runs once at
+attach time, while `<Var>` reads the imported `content/vars.ts` on every render. Measured on `pnpm
+dev`: with one page holding both forms, changing `nitroVersionTag` updated the prose immediately and
+left the link on the old value until a restart. A production build reads the file once and is
+unaffected.
 
 An unknown name is left in place rather than thrown on, which matches what `<Var>` does with one:
 the defect reaches the page and `vars:check` fails on it. Throwing inside a plugin that loads before

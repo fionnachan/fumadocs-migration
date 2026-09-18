@@ -489,3 +489,17 @@ test('A11 fires on a malformed placeholder, which never expands', () => {
 test('A11 does NOT fire on a URL that documents a path template', () => {
   assert.deepEqual(rules('[API](https://api.example.com/v1/{chainId}/blocks)'), []);
 });
+
+test('A11 fires on a <Var> inside a src attribute, which the plugin also rewrites', () => {
+  const found = lintSource('<ImageZoom src="https://x/<Var name="nitroVersionTag" />/i.png" />');
+  assert.deepEqual(
+    found.map((f) => f.rule),
+    ['A11'],
+  );
+  assert.match(found[0].message, /attribute value early/);
+});
+
+test('A11 fires on a <Var> inside a markdown image destination', () => {
+  // `![alt](…)` ends in the same `](` the link probe reads, so an image is covered by it.
+  assert.deepEqual(rules('![a](https://x/<Var name="nitroVersionTag" />/i.png)'), ['A11']);
+});

@@ -209,9 +209,17 @@ never parses and the reader is served the literal `[text](…)` brackets. Write 
 ```
 
 Use as many placeholders as the URL needs. The same form works in an `href`, `to` or `src`
-attribute. Everywhere else on the page, the link text included, keep using `<Var name="…" />`.
-`pnpm content:lint` (rule A11) fails on a `<Var>` left in a destination, and `pnpm vars:check` reads
-placeholders too, so a mistyped name is caught the way a mistyped `<Var>` name is.
+attribute, in a link title, and in an internal `/docs/…` destination, which `pnpm check-links`
+expands before it resolves. Everywhere else on the page, the link text included, keep using
+`<Var name="…" />`: a placeholder written in prose is read as a JavaScript expression and fails the
+build with an acorn parse error. The one destination it cannot do is a local image path
+(`![a](/img/…)`), which is imported before the placeholder is expanded, so write that path out in
+full. `pnpm content:lint` (rule A11) fails on a `<Var>` left in a destination, and `pnpm vars:check`
+reads placeholders too, so a mistyped name is caught the way a mistyped `<Var>` name is.
+
+**After editing a value in `vars.json`, restart `pnpm dev` to see it in a placeholder.** A `<Var>`
+in prose updates on the next reload, but the placeholders are expanded by a cached MDX processor
+that reads the file once, so a link keeps the old value until the server is restarted.
 
 **To update a value:** edit [`content/vars.json`](content/vars.json), then run `pnpm vars:check`.
 

@@ -197,16 +197,16 @@ export function lintSource(source) {
     );
   }
   // The attribute form. The value class excludes both quote characters, so the match ends at the
-  // `<Var>` tag's own `name="` quote — which is precisely why this shape is broken.
-  for (const m of text.matchAll(/\b(?:href|to)\s*=\s*(["'])[^"'<>]*<Var\b/g)) {
+  // `<Var>` tag's own `name="` quote, which is precisely why this shape is broken.
+  for (const m of text.matchAll(/\b(?:href|to|src)\s*=\s*(["'])[^"'<>]*<Var\b/g)) {
     add(
       'A11',
       m.index,
-      '<Var> inside an href/to attribute: its quotes end the attribute value early, truncating the URL. Use a {var:name} placeholder instead',
+      '<Var> inside an href/to/src attribute: its quotes end the attribute value early, truncating the URL. Use a {var:name} placeholder instead',
     );
   }
   // A placeholder whose name is not an identifier. `expandVarPlaceholders` leaves it alone by
-  // design, so it reaches the reader as literal braces inside a URL — the same silent shape as the
+  // design, so it reaches the reader as literal braces inside a URL, the same silent shape as the
   // two probes above, reached by a typo rather than by the old syntax.
   for (const m of text.matchAll(MALFORMED_VAR_PLACEHOLDER)) {
     add('A11', m.index, `${m[0]} is not a usable placeholder; the name must be a variable key`);

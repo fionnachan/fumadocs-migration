@@ -85,10 +85,15 @@ function scanLinks(index) {
   const records = [];
   for (const file of index.files) {
     for (const ref of extractRefs(file.content)) {
+      // A destination holding a `{var:name}` placeholder resolves, because the resolver expands it
+      // the way the build does, but it must never be rewritten: `renderRef` writes a literal path,
+      // which would bake the variable's current value into the file. Left alone, like a `cwd`
+      // include.
+      const rewritable = ref.range !== null && !ref.rawUrl.includes('{var:');
       records.push({
         fromAbs: file.abs,
         ref,
-        toAbs: ref.range === null ? null : resolveRefToFile(ref.rawUrl, file.abs, index),
+        toAbs: rewritable ? resolveRefToFile(ref.rawUrl, file.abs, index) : null,
       });
     }
   }

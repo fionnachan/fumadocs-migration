@@ -99,7 +99,10 @@ parse and the reader sees the literal `[text](…)` brackets:
 [Interface](https://github.com/OffchainLabs/{var:nitroRepositorySlug}/blob/{var:nitroVersionTag}/precompiles/ArbSys.go)
 ```
 
-`pnpm content:lint` (rule A11) fails on a `<Var>` left in a destination.
+The same form works in an `href`, `to` or `src` attribute and in an internal `/docs/…`
+destination. Everywhere else, prose and link text included, use the component: a placeholder in
+prose fails the build. `pnpm content:lint` (rule A11) fails on a `<Var>` left in a destination.
+After you edit a value in `vars.json`, restart `pnpm dev` or a link keeps showing the old one.
 
 To change a value, edit `vars.json` and run `pnpm vars:check`. To add a **new** variable, add the
 key to both `vars.json` **and** the `varsSchema` in `content/vars.ts` — miss either side and the
