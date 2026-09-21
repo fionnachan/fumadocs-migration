@@ -5,10 +5,14 @@
  *   pnpm nitro:check-release
  *
  * Reads the latest published Nitro release, and if it is newer than the pinned
- * `nitroVersionTag`, updates two values in content/vars.json:
+ * `nitroVersionTag`, updates the release values in content/vars.json:
  *
  *   nitroVersionTag       the git tag, which also drives the precompile source links
  *   latestNitroNodeImage  the published node Docker image, read from Docker Hub
+ *   goEthereumCommit     the go-ethereum submodule commit at nitroVersionTag
+ *
+ * The submodule pin is also repaired when Nitro is already current, so a stale or missing
+ * goEthereumCommit does not have to wait for another release. Resolve all pins before writing.
  *
  * It then rewrites hardcoded copies of the **outgoing** image tag, but only in the files that opt in
  * with a `sync-with-var: latestNitroNodeImage` marker. Those copies exist because `<Var>` does not
@@ -114,22 +118,37 @@ async function main() {
   console.log(`pinned:  ${vars.nitroVersionTag}`);
   console.log(`latest:  ${latest} (published ${release.published_at?.slice(0, 10) ?? 'unknown'})`);
 
-  if (!isNewer(latest, vars.nitroVersionTag)) {
-    console.log('nitro pin is up to date.');
+  const bumpRelease = isNewer(latest, vars.nitroVersionTag);
+  const targetTag = bumpRelease ? latest : vars.nitroVersionTag;
+  const submodule = await githubJson(`contents/go-ethereum?ref=${encodeURIComponent(targetTag)}`);
+  if (
+    submodule.type !== 'submodule' ||
+    submodule.submodule_git_url !== 'https://github.com/OffchainLabs/go-ethereum.git' ||
+    !/^[0-9a-f]{40}$/.test(submodule.sha ?? '')
+  ) {
+    throw new Error(`Invalid go-ethereum submodule at Nitro ${targetTag}`);
+  }
+
+  if (!bumpRelease && vars.goEthereumCommit === submodule.sha) {
+    console.log('nitro and go-ethereum pins are up to date.');
     setOutput('updates_made', 'false');
     return;
   }
 
   const updated = {
     ...vars,
-    nitroVersionTag: latest,
-    latestNitroNodeImage: await resolvePublishedNodeImage(latest),
+    nitroVersionTag: targetTag,
+    latestNitroNodeImage: bumpRelease
+      ? await resolvePublishedNodeImage(targetTag)
+      : vars.latestNitroNodeImage,
+    goEthereumCommit: submodule.sha,
   };
 
   await writeOrCheck(VARS_PATH, JSON.stringify(updated, null, 2), { check: false });
 
   console.log(`updated nitroVersionTag      → ${updated.nitroVersionTag}`);
   console.log(`updated latestNitroNodeImage → ${updated.latestNitroNodeImage}`);
+  console.log(`updated goEthereumCommit    → ${updated.goEthereumCommit}`);
 
   // A `docker run` line a reader copies has to carry the image tag literally, because `<Var>` does
   // not evaluate inside a code fence (content-lint A6). Those copies would otherwise keep the old
@@ -151,7 +170,7 @@ async function main() {
   console.log('Regenerate the precompile tables: pnpm precompiles:generate');
 
   setOutput('updates_made', 'true');
-  setOutput('updated_version', latest);
+  setOutput('updated_version', targetTag);
 }
 
 runScript(main);

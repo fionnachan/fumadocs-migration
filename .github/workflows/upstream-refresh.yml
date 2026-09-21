@@ -95,7 +95,7 @@ jobs:
           body: |
             Automated refresh of content generated from upstream sources.
 
-            - `content/vars.json`: pinned Nitro release and node Docker image
+            - `content/vars.json`: pinned Nitro release, node Docker image and go-ethereum submodule
             - `content/partials/precompile-tables/`: regenerated from the Solidity
               interfaces and Go implementations at the pinned refs
             - `content/partials/_reference-arbitrum-contract-addresses-partial.mdx`:
