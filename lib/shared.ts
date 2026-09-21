@@ -37,7 +37,7 @@ export const gitConfig = {
  */
 export const sidebarResourceLinks = [
   { text: 'Chain info', url: '/docs/chain-info' },
-  { text: 'Audit reports', url: '/docs/audit-reports' },
+  { text: 'Glossary', url: '/docs/glossary' },
   { text: 'Contribute', url: '/docs/contribute' },
 ];
 

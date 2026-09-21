@@ -7,27 +7,12 @@ import type { ComponentProps } from 'react';
 import { sidebarResourceLinks } from '@/lib/shared';
 
 /**
- * The cross-section links pinned under every section sidebar, passed to the notebook layout as
- * `sidebar.footer` from app/docs/layout.tsx.
+ * Chain info, Glossary and Contribute shortcuts shared by the section sidebars.
+ * Keep these outside the page tree so they cannot claim their destination's sidebar root.
  *
- * These three used to be `"[Chain info](/docs/chain-info)"`-style entries repeated in all eleven
- * root `meta.json` files (commit 6b83156). A `pages` link entry becomes a real `type: "page"` node
- * in the page tree, so the depth-first path search found the duplicate before the real page and
- * handed each target the linking section's sidebar root; that is the defect FS-2716 fixes, and
- * `pnpm nav:check` now fails on it. The footer slot renders after the page tree and never enters
- * it, so the affordance comes back with no way to shadow anything.
- *
- * Passed as a component, not as an element. fumadocs-ui's `renderFooter`
- * (`fumadocs-ui/dist/layouts/notebook/slots/sidebar.js`) wraps a plain ReactNode in its own
- * container, whose className starts with `hidden` and only gains a display class when there are
- * icon menu items (desktop) or a language/theme slot (drawer). This app declares no icon items, so
- * a ReactNode footer would be in the DOM and invisible on desktop. The function form gets
- * `createElement(footer, props)` instead, which puts the className under our control. The
- * library's own footer row is still rendered below, with its props untouched, so the theme switch
- * in the mobile drawer is unaffected.
- *
- * The link data itself lives in `lib/shared.ts` as `sidebarResourceLinks`, not here, so
- * `scripts/lib/shared.test.mjs` can pin each `url` against the real content tree.
+ * Passed as a component: the notebook layout hides its default ReactNode footer container on
+ * desktop when there are no icon links. We render our links separately, then retain that
+ * container and its children for the mobile theme switch.
  */
 
 // Copied from `itemVariants({ variant: 'link' })` in the notebook sidebar slot, minus the depth

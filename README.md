@@ -107,7 +107,7 @@ where you can.
 
 | Path                    | Purpose                                                    |
 | ----------------------- | ---------------------------------------------------------- |
-| `content/docs/`         | MDX pages + `meta.json` sidebars                           |
+| `content/docs/`         | MDX pages + source-folder `meta.json` metadata             |
 | `content/partials/`     | Reusable `_`-prefixed fragments + generated `CATALOG.md`   |
 | `content/glossary/`     | Glossary terms for `<Reference>` / `<Term>` (hand-written) |
 | `content/vars.json`     | Global variables                                           |
@@ -134,8 +134,8 @@ sme: reviewing-sme-handle
 `content_type` must be one of: `how-to`, `concept`, `quickstart`, `tutorial`, `reference`,
 `troubleshooting`, `faq`. Optional: `sidebar_label`, `user_story`, `draft`.
 
-Sidebar order comes from `meta.json` in each directory, not from file names. A top-level section
-also carries `"root": true`, which is what the root switcher above the sidebar names; see
+Sidebar order, labels and groups come from `lib/docs-navigation.json`. Directory `meta.json` files
+supply the underlying content tree; see
 [The sidebar and its roots](INTERNALS.md#the-sidebar-and-its-roots).
 
 ## Use a partial
