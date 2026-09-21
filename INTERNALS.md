@@ -77,9 +77,8 @@ source be swapped (local MDX, Notion, Sanity) without touching route code. See
 **The page tree.** The hierarchical structure behind the sidebar and breadcrumbs, derived from the
 directory layout and refined by a `meta.json` in each directory. `meta.json` controls **order and
 grouping** — its `pages: []` array takes basename slugs and supports `...` rest-globs,
-`---Separator---`, `[text](url)` external links, and `!exclude`. There is no global sidebar file.
-A `"root": true` in a `meta.json` also makes that directory a sidebar root, which is what the root
-switcher above the sidebar names. See [The sidebar and its roots](#the-sidebar-and-its-roots).
+`---Separator---`, `[text](url)` external links, and `!exclude`. The visible hierarchy is applied by `lib/docs-navigation.json` and its source transformer.
+The transformer creates the visible section roots, one per navbar section. See [The sidebar and its roots](#the-sidebar-and-its-roots).
 
 **The catch-all route.** One file, `app/docs/[[...slug]]/page.tsx`, renders every docs page. It
 takes the slug segments, calls `source.getPage()`, and renders. Adding an `.mdx` file creates a
@@ -161,79 +160,55 @@ cost a 24 MB chunk on every docs page. No gate catches this — see
 
 ## The sidebar and its roots
 
-A `meta.json` carrying `"root": true` makes its directory a **sidebar root**. The notebook layout
-renders one such root at a time: the sidebar tree is that folder's subtree, and the dropdown above
-it (the root switcher) names the folder and lists every sibling root. Twelve directories declare it.
+The visible sidebar hierarchy is declared in `lib/docs-navigation.json`. It preserves the
+section menus, labels, ordering and nested categories from the original Arbitrum documentation.
+The `reference` field records the exact `arbitrum-docs` revision used for the migration; this is
+provenance only. Builds and runtime do not fetch or import that repository.
 
-**How Fumadocs picks the root for a page.** `TreeContextProvider` in `fumadocs-ui/contexts/tree`
-runs `searchPath` over the page tree to find the path to the current URL, then takes
-`path.findLast((item) => item.type === 'folder' && item.root)`. With no root folder on that path it
-falls back to the whole tree, and the switcher renders nothing at all, because `useTabsGroups`
-builds one group per root folder on the path and there is none. Nothing about either outcome is
-visible to `types:check` or to the build.
+`meta.json` files still describe the content folders consumed by Fumadocs. The single loader in
+`lib/source.ts` applies `buildDocsNavigation` as a page-tree root transformer, arranging those real
+page nodes into the editorial hierarchy. The sidebar, breadcrumbs and previous/next navigation
+therefore share the same tree. Page URLs and MDX files do not change when a menu category changes.
 
-**Two things put a page outside every root**, and before FS-2716 both were true here:
+**There is no root switcher.** Fumadocs would render a dropdown above the tree (its `tabs` option,
+one entry per section root) that names the current section and lists every sibling. That is a
+second copy of the navbar's section list, and it let a reader hop between main-menu sections from
+inside the sidebar, which is not what a sidebar is for. `app/docs/layout.tsx` passes `tabs={false}`:
+the navbar chooses the section and the sidebar shows that section's tree, as the Docusaurus site
+behaved. Roots still decide which tree a page gets, because `TreeContextProvider` picks the last
+root on the page's path whether or not a switcher renders.
 
-1. Nothing in the page's ancestry declared `"root": true`. `arbitrum-bridge`, `notices`, `oracles`
-   and the four loose pages at the top of `content/docs` were all in that position.
-2. A `pages` link entry somewhere else pointed at the page's own URL. A `[Title](/docs/x)` entry
-   becomes a real page node in the tree, so the depth-first `searchPath` finds that copy before it
-   reaches the page itself and hands the page the linking folder's sidebar. Every root folder used
-   to repeat `"[Chain info](/docs/chain-info)"`, `"[Audit reports](/docs/audit-reports)"` and
-   `"[Contribute](/docs/contribute)"`, which is how `/docs/chain-info` came to serve the Get started
-   tree under a switcher reading "Third-party docs". `isLayoutTabActive` matches a tab when any page
-   inside it is active, so those repeated links also made every tab match at once and the label fell
-   to whichever root sorted last.
+Each manifest section has an `id` naming its source folder and `sourceFolders` assigning local
+content to it. Entries use `page` for a canonical page, `href` for a shortcut, `children` for a
+nested category, or `folder` to include a local subtree such as third-party docs or Stylus examples.
+An optional `name` supplies the shorter sidebar label; otherwise page `sidebar_label` metadata is
+honored. A folder entry with `flatten: true` inserts its children directly into the category. Missing pages, references or folders throw
+an error instead of silently dropping menu items.
 
-**A `pages` entry can reach across directories.** `resolveFolderItem` in `fumadocs-core` joins the
-entry onto the directory holding the meta.json, and `joinPath` pops on `..`, so
-`"../chain-info"` in `content/docs/resources/meta.json` claims `content/docs/chain-info.mdx`. That
-is what gives the four loose reference pages a root without moving a file or changing a URL:
-`content/docs/resources/` holds a meta.json and nothing else.
+**Cross-section links must use `href`.** Fumadocs finds a page's sidebar by walking the tree to the
+first matching page node, then taking its last root folder. Repeating a canonical `page` in another
+section can therefore give the destination the wrong sidebar. The transformer represents `href`
+entries as display-only separator nodes carrying a URL. `SidebarNavigationReference`, configured
+in `app/docs/layout.tsx`, renders these as normal sidebar links; Fumadocs' page lookup and
+previous/next traversal ignore them. For example, the Stylus quickstart link under Get started
+opens the Stylus sidebar, while Chain info, Glossary, and Audit reports belong to Get started.
 
-**Claims are arbitrated by priority, and order decides ties.** `own()` records the first folder to
-claim a node; an explicit `pages` entry claims at priority 2, the `"..."` rest operator at priority
-0, and a later claim at equal or lower priority is refused. Directories are built in the order
-their parent lists them, so `"resources"` has to appear in `content/docs/meta.json` before anything
-else could claim those pages, and the four names must not also be listed at the top level. Get it
-wrong and the pages silently revert to the top level, which is why `nav:check` now checks the
-result rather than the rule.
+Local pages not explicitly listed in the manifest remain available under **Additional guides**
+inside their assigned section. This retains migration-era and newly added content without
+inserting it into the original learning sequence. Add an explicit entry to place a page in the
+main menu. Three PGA/Fast Feed pages absent from the migrated content link to the original site
+until local equivalents exist. The synced Stylus examples remain local under Reference.
 
-**The docs index is the one page with no root, by design.** `/docs` is the section list, so the
-sidebar there is the whole tree and no switcher renders. `ROOTLESS_BY_DESIGN` in
-`scripts/lib/nav.mjs` names it, and nothing else is exempt.
+The footer pins Chain info, Glossary and Contribute below each sidebar, matching the original
+section menus. `SidebarResourceLinks` is passed as a component so the notebook layout's hidden
+footer wrapper does not hide the links on desktop. Its links live in `lib/shared.ts` and are
+checked by `scripts/lib/shared.test.mjs`.
 
-**`nav:check` gained two rules** (`checkRoots` in `scripts/lib/nav.mjs`). It reports any page that
-no `"root": true` folder owns, following cross-directory claims as Fumadocs does, and any link
-entry that points at a real docs page. On the commit before FS-2716 the first rule names 26 pages
-and the second names 33 entries. Neither rule can see what a browser sees, so a change to the root
-layout still wants a look at the rendered switcher.
-
-**The link rule recognises all three shapes Fumadocs does, not just the obvious one.** `resolveLink`
-builds a page node from `[Name](/url)`, from `[Icon][Name](/url)` and from `external:[Name](/url)`,
-and the `external` group sets a flag without touching `url`, so all three shadow a real page in the
-same way. `LINK_ENTRY` in `scripts/lib/nav.mjs` is that regex copied verbatim from
-`fumadocs-core/dist/dynamic-lx_V4971.js` with the source and version named beside it, so the gate
-and the builder cannot drift apart. A narrower rule left the gate with a hole shaped like the bug
-it exists to catch: both wider forms passed `nav:check` while handing `/docs/chain-info` another
-section's sidebar.
-
-**The three pinned cross-section links moved to the sidebar footer.** Chain info, Audit reports and
-Contribute were `pages` link entries repeated in all eleven roots, which is the shadowing above;
-they are now `components/sidebar-resource-links.tsx`, passed to the notebook layout as
-`sidebar.footer` in `app/docs/layout.tsx`. The footer slot renders after the page tree and outside
-it, so it restores the affordance with no way to claim a root. It is passed as a **component, not
-an element**: fumadocs-ui's `renderFooter` wraps a plain `ReactNode` in a container whose className
-begins with `hidden` and only gains a display class when there are icon menu items (desktop) or a
-language or theme slot (drawer), and this app declares no icon items, so a `ReactNode` footer would
-be in the DOM and invisible on desktop. The component form receives `createElement(footer, props)`
-instead, renders its own links first, and then renders the library's container with its props
-untouched so the drawer's theme switch is unaffected. Its link styles are copied from
-`itemVariants({ variant: 'link' })` in the notebook sidebar slot, minus the depth offset. The three
-`{ text, url }` entries themselves live in `lib/shared.ts` as `sidebarResourceLinks`, not in the
-component, because `check-links` walks `content/docs/**` `.md(x)` only and `pnpm move-doc` does not
-retarget a `.tsx` file; `scripts/lib/shared.test.mjs` imports the constant and asserts every `url`
-still resolves to a real page under `content/docs`.
+`pnpm nav:check` checks the underlying `meta.json` tree for missing entries, hidden files, uncovered
+pages and shadowing links. `scripts/docs-navigation.test.mjs` additionally loads the real local
+content through Fumadocs and verifies the final hierarchy, complete page coverage, unique section
+ownership, and cross-section destinations. Check rendered desktop and mobile navigation when
+changing the layout or reference renderer.
 
 ## The frontmatter contract
 

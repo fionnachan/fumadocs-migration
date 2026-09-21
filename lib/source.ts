@@ -2,6 +2,8 @@ import { docs } from 'collections/server';
 import { loader } from 'fumadocs-core/source';
 import { lucideIconsPlugin } from 'fumadocs-core/source/lucide-icons';
 
+import { docsNavigationTransformer } from './docs-navigation';
+import navigation from './docs-navigation.json';
 import { docsContentRoute, docsImageRoute, docsRoute } from './shared';
 import { archiveParams, resolveArchiveSlug } from './versions';
 import type { ResolvedArchive } from './versions';
@@ -11,6 +13,9 @@ export const source = loader({
   baseUrl: docsRoute,
   source: docs.toFumadocsSource(),
   plugins: [lucideIconsPlugin()],
+  pageTree: {
+    transformers: [docsNavigationTransformer(navigation.sections)],
+  },
 });
 
 export function getPageImage(page: (typeof source)['$inferPage']) {
