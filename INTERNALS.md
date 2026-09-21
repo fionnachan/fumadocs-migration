@@ -78,8 +78,8 @@ source be swapped (local MDX, Notion, Sanity) without touching route code. See
 directory layout and refined by a `meta.json` in each directory. `meta.json` controls **order and
 grouping** — its `pages: []` array takes basename slugs and supports `...` rest-globs,
 `---Separator---`, `[text](url)` external links, and `!exclude`. There is no global sidebar file.
-A `"root": true` in a `meta.json` also makes that directory a sidebar root, which is what the root
-switcher above the sidebar names. See [The sidebar and its roots](#the-sidebar-and-its-roots).
+A `"root": true` in a `meta.json` also makes that directory a sidebar root, which is what makes the
+sidebar show only that section. See [The sidebar and its roots](#the-sidebar-and-its-roots).
 
 **The catch-all route.** One file, `app/docs/[[...slug]]/page.tsx`, renders every docs page. It
 takes the slug segments, calls `source.getPage()`, and renders. Adding an `.mdx` file creates a
@@ -162,15 +162,23 @@ cost a 24 MB chunk on every docs page. No gate catches this — see
 ## The sidebar and its roots
 
 A `meta.json` carrying `"root": true` makes its directory a **sidebar root**. The notebook layout
-renders one such root at a time: the sidebar tree is that folder's subtree, and the dropdown above
-it (the root switcher) names the folder and lists every sibling root. Twelve directories declare it.
+renders one such root at a time: the sidebar tree is that folder's subtree. Twelve directories
+declare it.
+
+**The root switcher is turned off.** Fumadocs would render a dropdown above the tree (its `tabs`
+option, one entry per root folder) that names the current root and lists every sibling. Here that
+was a twelve-entry second copy of the navbar's section list, which also named sections the navbar
+deliberately leaves out (Oracles, Third-party docs, Resources) and disagreed with it about what the
+sections are (the navbar groups Build apps, Stylus and Essentials under one menu; the dropdown
+showed them as peers). `app/docs/layout.tsx` passes `tabs={false}`, so the navbar chooses the
+section and the sidebar shows that section's tree, which is how the Docusaurus site behaved. Roots
+still decide which tree a page gets, so everything below about roots and `nav:check` stands.
 
 **How Fumadocs picks the root for a page.** `TreeContextProvider` in `fumadocs-ui/contexts/tree`
 runs `searchPath` over the page tree to find the path to the current URL, then takes
 `path.findLast((item) => item.type === 'folder' && item.root)`. With no root folder on that path it
-falls back to the whole tree, and the switcher renders nothing at all, because `useTabsGroups`
-builds one group per root folder on the path and there is none. Nothing about either outcome is
-visible to `types:check` or to the build.
+falls back to the whole tree. Nothing about either outcome is visible to `types:check` or to the
+build.
 
 **Two things put a page outside every root**, and before FS-2716 both were true here:
 
@@ -181,9 +189,7 @@ visible to `types:check` or to the build.
    reaches the page itself and hands the page the linking folder's sidebar. Every root folder used
    to repeat `"[Chain info](/docs/chain-info)"`, `"[Audit reports](/docs/audit-reports)"` and
    `"[Contribute](/docs/contribute)"`, which is how `/docs/chain-info` came to serve the Get started
-   tree under a switcher reading "Third-party docs". `isLayoutTabActive` matches a tab when any page
-   inside it is active, so those repeated links also made every tab match at once and the label fell
-   to whichever root sorted last.
+   tree (and, while the switcher still rendered, a label reading "Third-party docs").
 
 **A `pages` entry can reach across directories.** `resolveFolderItem` in `fumadocs-core` joins the
 entry onto the directory holding the meta.json, and `joinPath` pops on `..`, so
@@ -200,14 +206,14 @@ wrong and the pages silently revert to the top level, which is why `nav:check` n
 result rather than the rule.
 
 **The docs index is the one page with no root, by design.** `/docs` is the section list, so the
-sidebar there is the whole tree and no switcher renders. `ROOTLESS_BY_DESIGN` in
+sidebar there is the whole tree. `ROOTLESS_BY_DESIGN` in
 `scripts/lib/nav.mjs` names it, and nothing else is exempt.
 
 **`nav:check` gained two rules** (`checkRoots` in `scripts/lib/nav.mjs`). It reports any page that
 no `"root": true` folder owns, following cross-directory claims as Fumadocs does, and any link
 entry that points at a real docs page. On the commit before FS-2716 the first rule names 26 pages
 and the second names 33 entries. Neither rule can see what a browser sees, so a change to the root
-layout still wants a look at the rendered switcher.
+layout still wants a look at the rendered sidebar.
 
 **The link rule recognises all three shapes Fumadocs does, not just the obvious one.** `resolveLink`
 builds a page node from `[Name](/url)`, from `[Icon][Name](/url)` and from `external:[Name](/url)`,

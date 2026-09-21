@@ -1,5 +1,5 @@
 import { DocsLayout } from 'fumadocs-ui/layouts/notebook';
-import type { CSSProperties, ReactNode } from 'react';
+import type { ReactNode } from 'react';
 
 import { SidebarCollapseButton } from '@/components/sidebar-collapse-button';
 import { SidebarResourceLinks } from '@/components/sidebar-resource-links';
@@ -29,22 +29,14 @@ export default function Layout({ children }: { children: ReactNode }) {
       // sidebar root. The footer slot renders after the tree and outside it.
       sidebar={{ collapsible: false, footer: SidebarResourceLinks }}
       tree={source.pageTree}
-      tabs={{
-        transform(option, node) {
-          if (!node.icon) return option;
-          return {
-            ...option,
-            icon: (
-              <div
-                className="[&_svg]:size-full size-full rounded-md border p-1.5 text-fd-primary max-md:bg-fd-primary/10"
-                style={{ '--tab-color': 'var(--color-fd-primary)' } as CSSProperties}
-              >
-                {node.icon}
-              </div>
-            ),
-          };
-        },
-      }}
+      // No root switcher. Fumadocs would otherwise render a dropdown above the tree listing every
+      // `"root": true` folder (twelve here), which is a second copy of the navbar's section list
+      // that also names sections the navbar deliberately leaves out, and disagrees with it about
+      // what the sections are (the navbar groups Build apps, Stylus and Essentials under one menu).
+      // The navbar chooses the section; the sidebar shows that section's tree, as the Docusaurus
+      // site did. Roots still matter: `TreeContextProvider` picks the tree from the last root on
+      // the page's path whether or not the switcher renders, which is what `nav:check` guards.
+      tabs={false}
     >
       {children}
     </DocsLayout>

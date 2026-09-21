@@ -135,7 +135,7 @@ sme: reviewing-sme-handle
 `troubleshooting`, `faq`. Optional: `sidebar_label`, `user_story`, `draft`.
 
 Sidebar order comes from `meta.json` in each directory, not from file names. A top-level section
-also carries `"root": true`, which is what the root switcher above the sidebar names; see
+also carries `"root": true`, which is what makes the sidebar show only that section; see
 [The sidebar and its roots](INTERNALS.md#the-sidebar-and-its-roots).
 
 ## Use a partial
