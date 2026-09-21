@@ -1487,6 +1487,12 @@ FS-2706 deleted the third job, `drift`, which compared the two content trees and
 The two jobs have no `needs` between them on purpose, so a failing generator never hides the other
 job's result.
 
+`nitro:check-release` also derives `goEthereumCommit` from the `go-ethereum` submodule at
+`nitroVersionTag`, including when the Nitro tag is unchanged but the submodule pin needs repair.
+Source links use `{var:goEthereumCommit}` rather than an upstream Geth tag, which may lack
+Arbitrum-specific files. Avoid fixed line anchors on these links: line numbers move as the pin
+updates. The release script resolves the submodule and node image before writing any changes.
+
 The three generators' `--check` modes sit in three different places, because they are not the same
 kind of check.
 
