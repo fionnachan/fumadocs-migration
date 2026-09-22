@@ -391,6 +391,21 @@ test('the contribute guide links back into this repository', { skip: !baseUrl },
     );
   });
 
+  await t.test('the "know more tools?" box offers this repository\'s issue tracker', async () => {
+    // The second reader-facing "file an issue about these docs" link, found by the round 1 review
+    // of FS-2733 naming the other repository while the "Request an update" button beside it named
+    // this one. It is a different partial on a different page, so `/docs/contribute` above cannot
+    // see it.
+    const page = documentOnly(
+      await head('/docs/arbitrum-essentials/reference/web3-libraries-tools'),
+    );
+    assert.ok(
+      page.includes(`href="${gitConfig.url}/issues/new"`),
+      "the know-more box does not link to this repository's issue tracker",
+    );
+    assert.ok(!page.includes('{var:'), 'a {var:…} placeholder reached the reader unexpanded');
+  });
+
   await t.test('no placeholder survived into the rendered page', () => {
     assert.ok(!html.includes('{var:'), 'a {var:…} placeholder reached the reader unexpanded');
   });

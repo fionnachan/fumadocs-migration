@@ -563,7 +563,10 @@ blocks the old syntax, and a placeholder whose name is not an identifier, so nei
 `content/vars.json` owns the docs repository's GitHub identity, as `docsRepositoryUrl` and
 `docsRepositoryBranch`. Both sides read it from there: `gitConfig` in `lib/shared.ts` composes the
 edit link on every docs page and the "Request an update" issue link, and the contribute guide writes
-its own links as `{var:docsRepositoryUrl}/blob/{var:docsRepositoryBranch}/…` destinations.
+its own links as `{var:docsRepositoryUrl}/blob/{var:docsRepositoryBranch}/…` destinations. The
+"know more tools?" partial writes the seventh, `{var:docsRepositoryUrl}/issues/new`, which offers a
+reader the same issue tracker the "Request an update" button beside it opens. It named the other
+repository until the round 1 review of FS-2733 found it.
 
 Before FS-2733 the guide hardcoded six of those URLs beside a comment asking a human to retarget
 them by hand, because `<Var>` does not work in a destination and FS-2725 declined to move them onto
@@ -590,14 +593,39 @@ Three details are load-bearing:
 - It imports the JSON, never `content/vars.ts`, which would pull Zod into the module a client
   component (`components/sidebar-resource-links.tsx`) imports from. Measured either way: with the
   JSON import, `pnpm build` produced byte-identical client chunks (16,618,175 bytes over 379 files,
-  the chunk carrying `SidebarResourceLinks` still 2,530 bytes) and no `vars.json` value appears in
-  any of them, because the two keys are read in server components only and get inlined there.
+  the chunk carrying `SidebarResourceLinks` still 2,530 bytes), because the two keys are read in
+  server components only and get inlined there. **State that measurement as key names**, plus
+  `docsRepositoryUrl`'s value: no `vars.json` key name appears under `.next/static`, and neither
+  does that URL. Do not state it as "no value appears", which does not reproduce. Nine of the
+  thirty-six string values are short or generic enough to match unrelated code as substrings, among
+  them `0.02`, `1.91`, `nitro`, and `docsRepositoryBranch`'s own value, `main`. A value grep
+  therefore cannot tell a leak from a coincidence, and the key names can.
+
+`proxy.ts` imports `lib/shared.ts` too, for `docsRoute`, `docsContentRoute` and `getSiteUrl`, so
+that module's closure is the second consumer to weigh before importing anything heavier here.
+Nothing arrived in it: the traced proxy closure is 98 files and 1,782,299 bytes
+(`.next/server/middleware.js.nft.json`), it does not list `content/vars.json`, and no traced file
+contains a `vars.json` key name or either new value, because `gitConfig` goes unused there and is
+dropped. Had it not been, the whole JSON is 2,653 bytes against that 1.78 MB, about 0.15 percent.
+CLAUDE.md quotes that closure size as load-bearing, so weigh both consumers, not just the client
+chunks, before importing anything heavier into `lib/shared.ts`.
 
 Two tests hold the agreement. `scripts/lib/contribute-repo-links.test.mjs` expands the partial's
 destinations and asserts each one belongs to the repository `gitConfig` names, which also proves the
-code value and the JSON value are the same string with no server running. The HTTP half in
+code value and the JSON value are the same string with no server running. Its third assertion is
+repository-wide: no `.mdx` file anywhere under `content/` may write a docs-repository URL out in
+full, under either the current name or the `arbitrum-docs` name this repository takes over, with one
+documented exception for the fork step. That rule is what a check pinned to the contribute guide
+could not give, and it is what caught the reader-facing issue link in
+`content/partials/_know-more-tools-box-partial.mdx`. The HTTP half in
 `scripts/static-docs-http.test.mjs` fetches `/docs/contribute` and applies the same rule to the
 rendered hrefs, which is what proves the placeholders expanded rather than shipping as braces.
+
+`docsRepositoryBranch` is `z.string().min(1)`. An empty branch renders `…/blob//CONTRIBUTE.md`,
+which GitHub redirects to `…/tree/CONTRIBUTE.md` and answers 404, and no other gate sees it:
+`vars:check` only proves the key exists and `check-links` skips every external destination. A
+trailing slash on `docsRepositoryUrl` is deliberately not rejected, because the doubled slash it
+produces is answered 200.
 
 `.github/pull_request_template.md` still hardcodes two of these URLs. GitHub renders that file, not
 this site, so no mechanism here reaches it; flip those two by hand at cutover.
