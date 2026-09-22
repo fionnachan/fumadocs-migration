@@ -20,6 +20,7 @@ import {
   NODE_INTERFACE_MARKER,
   PRECOMPILE_MARKER,
   assertResolved,
+  buildSourceUrls,
   extractDocComment,
   lowercaseKeys,
   renderEventsInTable,
@@ -38,7 +39,7 @@ const IMPLEMENTATION_URL =
  * A small Solidity interface exercising: a single-line signature with a doc comment, a
  * multi-line signature (the parameter list spans several lines, which `renderMethodsInTable`
  * must concatenate forward until it finds the closing paren), a method with no doc comment
- * (should render an empty description cell, not a placeholder — see the note on that test
+ * (should render an empty description cell, not a placeholder; see the note on that test
  * below), an event with a doc comment, and an event that is declared but never emitted from
  * the fixture's Go source (falls back to its first mention).
  */
@@ -171,7 +172,7 @@ describe('renderMethodsInTable', () => {
   it('concatenates a signature whose parameter list spans several lines', () => {
     const html = render();
     // The parser must stop at the multiLine declaration's own closing paren, not at
-    // noComment's — a regression here would misattribute the interface line or truncate the
+    // noComment's. A regression here would misattribute the interface line or truncate the
     // signature.
     assert.match(html, /<code>multiLine\(uint256 a, uint256 b\)<\/code>/);
   });
@@ -301,42 +302,48 @@ describe('renderEventsInTable', () => {
 
 describe('renderPrecompilePartial', () => {
   const marker = PRECOMPILE_MARKER;
-  const content = renderPrecompilePartial({
-    marker,
-    interfaceCode: INTERFACE_SOURCE,
-    implementationCode: IMPLEMENTATION_SOURCE,
-    interfaceUrl: INTERFACE_URL,
-    implementationUrl: IMPLEMENTATION_URL,
-  });
+  // Called inside each `it`, not in the describe body: a throw during suite construction makes
+  // `node --test` drop the suite's tests from the count and exit 0, so the gate would miss it.
+  const render = () =>
+    renderPrecompilePartial({
+      marker,
+      interfaceCode: INTERFACE_SOURCE,
+      implementationCode: IMPLEMENTATION_SOURCE,
+      interfaceUrl: INTERFACE_URL,
+      implementationUrl: IMPLEMENTATION_URL,
+    });
 
   it('opens with the marker on its own line, followed by a blank line', () => {
-    const [first, second] = content.split('\n');
+    const [first, second] = render().split('\n');
     assert.equal(first, marker);
     assert.equal(second, '');
   });
 
   it('includes both the methods table and the events table', () => {
+    const content = render();
     assert.match(content, /<th>Method<\/th>/);
     assert.match(content, /<th>Event<\/th>/);
   });
 });
 
 describe('renderNodeInterfacePartial', () => {
-  const content = renderNodeInterfacePartial({
-    marker: NODE_INTERFACE_MARKER,
-    interfaceCode: INTERFACE_SOURCE,
-    implementationCode: IMPLEMENTATION_SOURCE,
-    interfaceUrl: INTERFACE_URL,
-    implementationUrl: IMPLEMENTATION_URL,
-  });
+  const render = () =>
+    renderNodeInterfacePartial({
+      marker: NODE_INTERFACE_MARKER,
+      interfaceCode: INTERFACE_SOURCE,
+      implementationCode: IMPLEMENTATION_SOURCE,
+      interfaceUrl: INTERFACE_URL,
+      implementationUrl: IMPLEMENTATION_URL,
+    });
 
   it('opens with the NodeInterface marker on its own line, followed by a blank line', () => {
-    const [first, second] = content.split('\n');
+    const [first, second] = render().split('\n');
     assert.equal(first, NODE_INTERFACE_MARKER);
     assert.equal(second, '');
   });
 
   it('includes the methods table but no events table, unlike a precompile partial', () => {
+    const content = render();
     assert.match(content, /<th>Method<\/th>/);
     assert.ok(!content.includes('<th>Event</th>'));
   });
@@ -353,5 +360,55 @@ describe('PRECOMPILE_MARKER and NODE_INTERFACE_MARKER', () => {
 
   it('are distinct, so a partial cannot silently carry the wrong one', () => {
     assert.notEqual(PRECOMPILE_MARKER, NODE_INTERFACE_MARKER);
+  });
+});
+
+describe('buildSourceUrls', () => {
+  const vars = {
+    nitroPrecompilesRepositorySlug: 'nitro-precompile-interfaces',
+    nitroPrecompilesCommit: 'cafe0123',
+    nitroRepositorySlug: 'nitro',
+    nitroVersionTag: 'v9.9.9',
+    nitroPathToPrecompiles: 'precompiles',
+  };
+  const pins = {
+    nitroContractsRepositorySlug: 'nitro-contracts',
+    nitroContractsCommit: 'beef4567',
+    nitroContractsPathToPrecompilesInterface: 'src/node-interface',
+    nitroPrecompilesPathToInterfaces: '',
+  };
+
+  it('builds the four blob base URLs from the pins, each ending in a slash', () => {
+    const urls = buildSourceUrls(vars, pins);
+    assert.deepEqual(urls, {
+      interfaceBaseUrl:
+        'https://github.com/OffchainLabs/nitro-precompile-interfaces/blob/cafe0123/',
+      implementationBaseUrl: 'https://github.com/OffchainLabs/nitro/blob/v9.9.9/precompiles/',
+      nodeInterfaceInterfaceBaseUrl:
+        'https://github.com/OffchainLabs/nitro-contracts/blob/beef4567/src/node-interface/',
+      nodeInterfaceImplementationBaseUrl:
+        'https://github.com/OffchainLabs/nitro/blob/v9.9.9/execution/nodeinterface/',
+    });
+    for (const url of Object.values(urls)) assert.ok(url.endsWith('/'), url);
+  });
+
+  it('inserts the interfaces subpath only when the pin is set', () => {
+    const withPath = buildSourceUrls(vars, { ...pins, nitroPrecompilesPathToInterfaces: 'src' });
+    assert.equal(
+      withPath.interfaceBaseUrl,
+      'https://github.com/OffchainLabs/nitro-precompile-interfaces/blob/cafe0123/src/',
+    );
+    assert.equal(
+      buildSourceUrls(vars, pins).interfaceBaseUrl,
+      'https://github.com/OffchainLabs/nitro-precompile-interfaces/blob/cafe0123/',
+    );
+  });
+
+  it('turns each blob URL into the raw URL the runner fetches', () => {
+    const { implementationBaseUrl } = buildSourceUrls(vars, pins);
+    assert.equal(
+      toRawUrl(`${implementationBaseUrl}ArbSys.go`),
+      'https://raw.githubusercontent.com/OffchainLabs/nitro/v9.9.9/precompiles/ArbSys.go',
+    );
   });
 });

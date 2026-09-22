@@ -31,6 +31,7 @@ import { isCheckMode, runScript, writeOrCheck } from './lib/generated-partial.mj
 import {
   NODE_INTERFACE_MARKER,
   PRECOMPILE_MARKER,
+  buildSourceUrls,
   renderNodeInterfacePartial,
   renderPrecompilePartial,
   toRawUrl,
@@ -53,13 +54,12 @@ const NODE_INTERFACE_PINS = {
 
 const vars = JSON.parse(fs.readFileSync(path.join('content', 'vars.json'), 'utf-8'));
 
-const interfacePath = NODE_INTERFACE_PINS.nitroPrecompilesPathToInterfaces
-  ? `/${NODE_INTERFACE_PINS.nitroPrecompilesPathToInterfaces}`
-  : '';
-const interfaceBaseUrl = `https://github.com/OffchainLabs/${vars.nitroPrecompilesRepositorySlug}/blob/${vars.nitroPrecompilesCommit}${interfacePath}/`;
-const implementationBaseUrl = `https://github.com/OffchainLabs/${vars.nitroRepositorySlug}/blob/${vars.nitroVersionTag}/${vars.nitroPathToPrecompiles}/`;
-const nodeInterfaceInterfaceBaseUrl = `https://github.com/OffchainLabs/${NODE_INTERFACE_PINS.nitroContractsRepositorySlug}/blob/${NODE_INTERFACE_PINS.nitroContractsCommit}/${NODE_INTERFACE_PINS.nitroContractsPathToPrecompilesInterface}/`;
-const nodeInterfaceImplementationBaseUrl = `https://github.com/OffchainLabs/${vars.nitroRepositorySlug}/blob/${vars.nitroVersionTag}/execution/nodeinterface/`;
+const {
+  interfaceBaseUrl,
+  implementationBaseUrl,
+  nodeInterfaceInterfaceBaseUrl,
+  nodeInterfaceImplementationBaseUrl,
+} = buildSourceUrls(vars, NODE_INTERFACE_PINS);
 
 /**
  * Prettier options for the generated `.mdx` partials.

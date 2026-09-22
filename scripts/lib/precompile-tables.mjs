@@ -7,7 +7,7 @@
  * which is what makes `pnpm precompiles:check` `continue-on-error` in CI. Everything here is pure
  * (no `fetch`, no `fs`); the runner supplies the fetched source text and does the writing.
  *
- * Ported from `scripts/generate-precompile-tables.mjs`, unchanged in behavior — see that file's
+ * Ported from `scripts/generate-precompile-tables.mjs`, unchanged in behavior. See that file's
  * history for the original arbitrum-docs source (`scripts/precompile-reference-generator.ts`).
  */
 import { generatedMarker } from './generated-partial.mjs';
@@ -48,6 +48,27 @@ export const DEPRECATION_NOTICE =
 /** GitHub blob URL → raw URL for the same ref. */
 export const toRawUrl = (url) =>
   url.replace('github.com', 'raw.githubusercontent.com').replace('blob/', '');
+
+/**
+ * The four GitHub blob base URLs every `<a href>` in the sixteen partials derives from. Pure so
+ * the URL shape is pinned offline: `check-links` walks internal `/docs` links only, so a wrong
+ * commit or path here would otherwise be visible to nothing but the network-bound
+ * `pnpm precompiles:check`.
+ *
+ * `vars` is the parsed `content/vars.json`; `pins` is the runner's `NODE_INTERFACE_PINS`. Each
+ * result ends in `/` so the caller appends `<Name>.sol` or `<Name>.go` directly.
+ */
+export function buildSourceUrls(vars, pins) {
+  const interfacePath = pins.nitroPrecompilesPathToInterfaces
+    ? `/${pins.nitroPrecompilesPathToInterfaces}`
+    : '';
+  return {
+    interfaceBaseUrl: `https://github.com/OffchainLabs/${vars.nitroPrecompilesRepositorySlug}/blob/${vars.nitroPrecompilesCommit}${interfacePath}/`,
+    implementationBaseUrl: `https://github.com/OffchainLabs/${vars.nitroRepositorySlug}/blob/${vars.nitroVersionTag}/${vars.nitroPathToPrecompiles}/`,
+    nodeInterfaceInterfaceBaseUrl: `https://github.com/OffchainLabs/${pins.nitroContractsRepositorySlug}/blob/${pins.nitroContractsCommit}/${pins.nitroContractsPathToPrecompilesInterface}/`,
+    nodeInterfaceImplementationBaseUrl: `https://github.com/OffchainLabs/${vars.nitroRepositorySlug}/blob/${vars.nitroVersionTag}/execution/nodeinterface/`,
+  };
+}
 
 /**
  * Join the consecutive `//` comment lines immediately above `lineIdx` into one
@@ -260,7 +281,7 @@ export function renderEventsInTable(
 /**
  * Assemble one `_<Precompile>.mdx` partial's body: marker, methods table, events table.
  *
- * Pure — the caller fetches `interfaceCode`/`implementationCode` and passes them in. Mirrors
+ * Pure: the caller fetches `interfaceCode`/`implementationCode` and passes them in. Mirrors
  * `generatePrecompile` in `scripts/generate-precompile-tables.mjs` minus the fetch and the write.
  */
 export function renderPrecompilePartial({

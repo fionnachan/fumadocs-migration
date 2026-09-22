@@ -66,7 +66,7 @@ describe('generatedMarker', () => {
  * what's left doing on-disk work, and it now asserts equality against the same `PRECOMPILE_MARKER`
  * / `NODE_INTERFACE_MARKER` constants the renderer uses, rather than a hand-copied regex, so the
  * two cannot disagree in wording. It still can't prove the generator produced these exact bytes
- * (that's `precompiles:check`, hand-run against the network) — only that nobody hand-edited a
+ * (that's `precompiles:check`, hand-run against the network), only that nobody hand-edited a
  * committed partial to drop the marker or that a partial didn't silently disappear.
  */
 describe('generated precompile partials', () => {
