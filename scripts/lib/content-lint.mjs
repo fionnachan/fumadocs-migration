@@ -265,7 +265,7 @@ export function lintSource(source) {
       add(
         'A13',
         defect.closerStart,
-        "fence closer indented more than three columns past its opener. The site's MDX parser ends the fence at this line; CommonMark, and every gate that masks code through strip-code.mjs, does not, so all of them read the lines between as fence body and stop checking them. Align this closer with its opener. If the fence was meant to stay open past this line, read the rendered page before dedenting: MDX has ended it here already, so the real fix is a missing or too-short closer higher up",
+        "fence closer indented more than three columns past its opener. The site's MDX parser ends the fence at this line; CommonMark, and every gate that masks code through strip-code.mjs, does not, so all of them read the lines between as fence body and stop checking them. Align this closer with its opener. If the fence was meant to stay open past this line, read the rendered page before dedenting: MDX has ended it here already, so the real fix is a missing or too-short fence delimiter higher up (the opener as well as the closer, when an outer fence documents an inner one)",
       );
     }
   }
