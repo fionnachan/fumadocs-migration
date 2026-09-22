@@ -75,10 +75,12 @@ source be swapped (local MDX, Notion, Sanity) without touching route code. See
 [`source` is a choke point](#source-is-a-choke-point) for the rules we hold ourselves to around it.
 
 **The page tree.** The hierarchical structure behind the sidebar and breadcrumbs, derived from the
-directory layout and refined by a `meta.json` in each directory. `meta.json` controls **order and
-grouping** — its `pages: []` array takes basename slugs and supports `...` rest-globs,
-`---Separator---`, `[text](url)` external links, and `!exclude`. The visible hierarchy is applied by `lib/docs-navigation.json` and its source transformer.
-The transformer creates the visible section roots, one per navbar section. See [The sidebar and its roots](#the-sidebar-and-its-roots).
+directory layout and refined by a `meta.json` in each directory. `meta.json` builds the content
+tree: its `pages: []` array takes basename slugs and supports `...` rest-globs, `---Separator---`,
+`[text](url)` link entries, and `!exclude`. What the reader sees is a rearrangement of that tree,
+applied by the transformer in `lib/docs-navigation.ts` from the editorial manifest
+`lib/docs-navigation.json`, which builds the nine section roots, one per navbar section. See
+[The sidebar and its roots](#the-sidebar-and-its-roots).
 
 **The catch-all route.** One file, `app/docs/[[...slug]]/page.tsx`, renders every docs page. It
 takes the slug segments, calls `source.getPage()`, and renders. Adding an `.mdx` file creates a
@@ -188,64 +190,171 @@ cost a 24 MB chunk on every docs page. No gate catches this — see
 
 ## The sidebar and its roots
 
-The visible sidebar hierarchy is declared in `lib/docs-navigation.json`. It preserves the
-section menus, labels, ordering and nested categories from the original Arbitrum documentation.
-The `reference` field records the exact `arbitrum-docs` revision used for the migration; this is
-provenance only. Builds and runtime do not fetch or import that repository.
+The rendered sidebar is declared in one file, `lib/docs-navigation.json`. It preserves the section
+menus, labels, ordering and nested categories of the original Arbitrum documentation. The
+`reference` field at the top records the `arbitrum-docs` revision the migration copied them from.
+That is provenance only: no build and no request reads that repository.
 
-`meta.json` files still describe the content folders consumed by Fumadocs. The single loader in
-`lib/source.ts` applies `buildDocsNavigation` as a page-tree root transformer, arranging those real
-page nodes into the editorial hierarchy. The sidebar, breadcrumbs and previous/next navigation
-therefore share the same tree. Page URLs and MDX files do not change when a menu category changes.
+### What decides what
 
-**There is no root switcher.** Fumadocs would render a dropdown above the tree (its `tabs` option,
-one entry per section root) that names the current section and lists every sibling. That is a
-second copy of the navbar's section list, and it let a reader hop between main-menu sections from
-inside the sidebar, which is not what a sidebar is for. `app/docs/layout.tsx` passes `tabs={false}`:
-the navbar chooses the section and the sidebar shows that section's tree, as the Docusaurus site
-behaved. Roots still decide which tree a page gets, because `TreeContextProvider` picks the last
-root on the page's path whether or not a switcher renders.
+Two files decide the sidebar, and they decide different things.
 
-Each manifest section has an `id` naming its source folder and `sourceFolders` assigning local
-content to it. Entries use `page` for a canonical page, `href` for a shortcut, `children` for a
-nested category, or `folder` to include a local subtree such as third-party docs or Stylus examples.
-An optional `name` supplies the shorter sidebar label and wins when the manifest entry sets one;
-otherwise the page's own `sidebar_label` frontmatter is honored, because `docsNavigationTransformer`'s
-`file()` hook (`lib/docs-navigation.ts`) renames every page node to its `sidebar_label` before
-`buildDocsNavigation` applies the manifest, and a manifest entry only overrides that name when it
-passes one explicitly. A folder entry with `flatten: true` inserts its children directly into the
-category. Missing pages, references or folders throw an error instead of silently dropping menu
-items, and so does a `page` URL two entries claim, one broken shape the missing-page check cannot
-see, since both claims name a page that exists (FS-2740). The rule walks each section's `children`
-only, so a `children` claim on the section's own derived landing page is still unseen.
+`meta.json` in each content directory still builds the **content tree** Fumadocs hands to the
+transformer: which directories exist, what each folder is titled, which files a folder holds, and
+what order they sit in. Its `pages` array takes basename slugs and supports `...` rest-globs,
+`---Separator---` headings, `[text](url)` link entries, and `!exclude`. Everything the transformer
+does is a rearrangement of the nodes that tree already contains.
 
-**Cross-section links must use `href`.** Fumadocs finds a page's sidebar by walking the tree to the
-first matching page node, then taking its last root folder. Repeating a canonical `page` in another
-section can therefore give the destination the wrong sidebar. The transformer represents `href`
-entries as display-only separator nodes carrying a URL. `SidebarNavigationReference`, configured
-in `app/docs/layout.tsx`, renders these as normal sidebar links; Fumadocs' page lookup and
-previous/next traversal ignore them. For example, the Stylus quickstart link under Get started
-opens the Stylus sidebar, while Chain info, Glossary, and Audit reports belong to Get started.
+`lib/docs-navigation.json` decides the **rendered hierarchy**: the sections, their names and order,
+the groups inside them, the order of pages within a group, and the label on each entry. The single
+`loader()` call in `lib/source.ts` attaches `docsNavigationTransformer` as a page-tree transformer,
+so the sidebar, the breadcrumbs and previous/next navigation all read the one rearranged tree.
+Moving a page between menu categories changes neither its URL nor its file.
 
-Local pages not explicitly listed in the manifest remain available under **Additional guides**
-inside their assigned section. This retains migration-era and newly added content without
-inserting it into the original learning sequence. Add an explicit entry to place a page in the
-main menu. Three PGA/Fast Feed pages absent from the migrated content link to the original site
-until local equivalents exist. The synced Stylus examples remain local under Reference.
+### The manifest
 
-The footer pins Chain info, Glossary and Contribute below each sidebar, matching the original
+Nine sections, one per navbar entry. Each has an `id` naming its folder in the content tree, a
+`name`, a `sourceFolders` array assigning local content to it, and `children`. The twelve
+`sourceFolders` cover every top-level directory under `content/docs`, and each directory belongs to
+exactly one section.
+
+An entry in `children` is one of four shapes, and `buildDocsNavigation` (`lib/docs-navigation.ts`)
+throws if it is none of them:
+
+| Field      | Uses today | What it builds                                                    |
+| ---------- | ---------- | ----------------------------------------------------------------- |
+| `page`     | 239        | the real page node for that URL, which gives the page its section |
+| `href`     | 41         | a display-only link that claims nothing (see below)               |
+| `children` | 44         | a nested category built from the entries inside it                |
+| `folder`   | 2          | a whole local subtree, copied in place                            |
+
+Two modifiers: `flatten: true` on a `folder` entry lifts its children into the surrounding category,
+used once, on `third-party-docs`; and `defaultOpen` opens a `children` category, which the
+transformer supports and the manifest does not use today.
+
+A page gets its name from the first of these that exists: the manifest entry's `name`, then the
+page's own `sidebar_label` frontmatter, then its `title`. The transformer's `file()` hook renames
+every page node to its `sidebar_label` before `buildDocsNavigation` runs, and a manifest entry
+overrides that only when it passes a `name` of its own. See
+[The frontmatter contract](#the-frontmatter-contract). 316 of the 326 entries carry a `name`; the
+ten that do not are eight oracle pages and the two `folder` entries.
+
+### Cross-section links use `href`
+
+A `page` entry is a claim. Fumadocs finds a page's sidebar by walking the tree to the first node
+with that URL, so repeating a canonical `page` in a second section would give the destination the
+wrong tree. An `href` entry instead becomes a separator node carrying a URL, which
+`SidebarNavigationReference` renders as an ordinary sidebar link while Fumadocs' page lookup and
+previous/next traversal skip it. Repeating one is free, and the manifest repeats five URLs. Of the
+seventeen distinct internal `href` URLs, sixteen are also claimed by a `page` entry in the section
+that owns them. That is what lets the Stylus quickstart appear under Get started while opening the
+Stylus sidebar.
+
+### Pages the manifest never lists
+
+A page inside a section's `sourceFolders` that no entry claims is collected after every explicit
+claim is settled and appended to that section in an **Additional guides** folder. Nothing is lost,
+and nothing is inserted into the original learning sequence. Seven of the nine sections have such a
+group today, holding 58 pages between them; Run an Arbitrum chain alone holds 43. Build apps with
+Solidity and Arbitrum bridge have none. To place a page in the main menu, give it an entry.
+
+A page in a directory that **no** `sourceFolders` list covers is still reachable, but it is
+appended to the top of the tree beside the sections rather than inside one, so it gets no section
+root and no section sidebar. `content/docs/index.mdx` already sits there by design, because the
+docs index is the section list. A new top-level directory that nobody adds to a `sourceFolders`
+array lands in the same place, and no gate reports it.
+
+`_fallback` is fumadocs-core's, not ours. `transformerFallback` runs a second tree build over the
+files no transformer touched and stores it as `root.fallback`, passing `_fallback: true` in the
+build context. Our `root()` hook returns that tree untouched, because rebuilding the manifest
+sections from a partial file set would produce a wrong tree. The hook never fires today: with no
+i18n configured, `root.fallback` is `undefined`.
+
+### There is no root switcher
+
+Fumadocs would render a dropdown above the tree, its `tabs` option, naming the current section and
+listing every sibling. That is a second copy of the navbar's section list, and it let a reader hop
+between main-menu sections from inside the sidebar, which is not what a sidebar is for.
+`app/docs/layout.tsx` passes `tabs={false}`: the navbar chooses the section, the sidebar shows that
+section's tree, as the Docusaurus site behaved.
+
+The footer pins Chain info, Glossary and Contribute below every section tree, matching the original
 section menus. `SidebarResourceLinks` is passed as a component so the notebook layout's hidden
-footer wrapper does not hide the links on desktop. Its links live in `lib/shared.ts` and are
-checked by `scripts/lib/shared.test.mjs`.
+footer wrapper does not hide the links on desktop. Its links live in `lib/shared.ts` and
+`scripts/lib/shared.test.mjs` asserts each resolves to a real page.
 
-`pnpm nav:check` checks the underlying `meta.json` tree for missing entries, hidden files, uncovered
-pages and shadowing links, and the manifest for a `page` URL claimed more than once. That last rule
-lives in `lib/docs-navigation-rules.mjs`, imported by both the gate and `buildDocsNavigation`, so a
-duplicate fails a dev server as well as CI; a repeated `href` is exempt, because a shortcut claims
-nothing. `scripts/docs-navigation.test.mjs` additionally loads the real local
-content through Fumadocs and verifies the final hierarchy, complete page coverage, unique section
-ownership, and cross-section destinations. Check rendered desktop and mobile navigation when
-changing the layout or reference renderer.
+### `"root": true` no longer reaches the rendered tree
+
+Twelve `meta.json` files declare it. The transformer overwrites `root` on everything it emits:
+`true` on the nine section folders it builds, `false` on every folder it copies or carries over.
+Rebuilding the tree with all twelve flags deleted produces a structurally identical tree.
+
+The flags still have one consumer, `pnpm nav:check`, which reads them off disk. Deleting one is not
+free: with `stylus`'s flag removed the gate reports 61 uncovered pages, and with all twelve removed
+it reports 348 of 349. Keep declaring it on a new top-level section, and add that section to a
+`sourceFolders` array as well, because the two answer different questions.
+
+### Link entries in a `meta.json` still cause damage, differently
+
+FS-2716 was a `"[Chain info](/docs/chain-info)"` entry in every root folder's `pages`. A link entry
+becomes a real page node in the content tree, the depth-first path search found that copy first, and
+`/docs/chain-info` served the Get started tree under a "Third-party docs" label.
+
+The transformer rebuilds every root from the manifest, so that exact failure is gone: with such an
+entry added back, `/docs/chain-info` still has one node and still belongs to Get started. Two
+failures remain, and both hit only a page the manifest does not name explicitly:
+
+- **The label leaks.** `collect()` indexes page nodes by URL and the last write wins, so the link
+  entry's text becomes the page's sidebar name. Measured: adding
+  `"[Docker](/docs/run-a-node/nitro/docker-and-cli-binaries)"` renamed that page to "Docker".
+- **The page moves.** Sections are processed in manifest order, and the first to reach an unclaimed
+  page keeps it. The same entry placed in `notices/meta.json` left the page under Run an Arbitrum
+  node, which is processed earlier; placed in `get-started/meta.json`, it pulled the page into Get
+  started's Additional guides.
+
+So the rule stands: never write a `[Title](/docs/…)` entry pointing at a page in this repo. It
+applies to all three shapes Fumadocs accepts, `[Title](/docs/…)`, `[Icon][Title](/docs/…)` and
+`external:[Title](/docs/…)`, which `LINK_ENTRY` in `scripts/lib/nav.mjs` matches with the regex
+copied from `fumadocs-core`. Reference the page as `"../name"` from the one folder that should hold
+it, or link to it with an `href` entry in the manifest.
+
+`content/docs/resources/` is the reference-only shape done right. It is a `meta.json` and nothing
+else, and it claims the four loose pages at the top of `content/docs` through `"../chain-info"`-style
+references: a `pages` entry is joined onto the directory holding the meta.json, and `..` pops a
+segment, so a page joins a folder without moving and without a redirect. Claims are arbitrated by
+`own()` on a first-come basis at equal priority, so `"resources"` must precede those pages in
+`content/docs/meta.json` and their names must not also be listed there. `resources` is then a
+`sourceFolder` of Get started, which is what puts those four pages in that section.
+
+### What `nav:check` checks
+
+Four rules, none of them visible to `types:check` or `build`:
+
+1. **Ghost entries.** A `pages` entry naming nothing on disk, which Fumadocs ignores in silence.
+2. **Hidden pages.** A file on disk that no `pages` entry and no `"..."` lets through.
+3. **Root coverage and shadowing links.** A page under no `"root": true` folder, and a link entry
+   pointing at a real docs page.
+4. **Manifest duplicates.** A `page` URL that `lib/docs-navigation.json` claims twice, which always
+   means one entry names a page it does not open while the page it was meant to name falls into
+   Additional guides (FS-2740). The rule lives in `lib/docs-navigation-rules.mjs` and both
+   `buildDocsNavigation` and the gate import it, so a duplicate throws in a dev server as well as in
+   CI. A repeated `href` is exempt, because a shortcut claims nothing.
+
+Two shapes get past rule 4, both recorded in FS-2749:
+
+- The rule walks each section's `children` only. A section's landing page is derived separately from
+  the source folder's index, so listing that same URL in `children` puts one URL on two nodes and
+  the rule says nothing. One such node pair exists today, `/docs/get-started`.
+- An entry can point at a folder index that exists while the page it was meant to name sits in
+  Additional guides. Every URL involved is real, so neither the missing-page throw nor the duplicate
+  rule sees it. Live example: "Test chain configuration" points at
+  `/docs/launch-arbitrum-chain/configuration/validation`.
+
+`scripts/docs-navigation.test.mjs` loads the real content through Fumadocs and asserts the finished
+hierarchy: section landing pages, complete page coverage, one section owner per page, the learning
+sequences, cross-section destinations, name precedence, and that a missing page or a duplicate
+throws. Check rendered desktop and mobile navigation by hand when you change the layout or the
+reference renderer.
 
 ## The frontmatter contract
 
