@@ -12,7 +12,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { codeRegions, maskCode, maskRegions, stripCode } from './strip-code.mjs';
+import { codeRegions, fenceDefects, maskCode, maskRegions, stripCode } from './strip-code.mjs';
 
 /** Strip, asserting the length and line-count invariant on the way through. */
 function strip(source, options) {
@@ -509,4 +509,87 @@ test('the contract holds over a fence, which the images helper used to collapse'
 
 test('the contract holds over an inline span across lines', () => {
   strip(lines('a `x` b', 'c `d` e', ''), {});
+});
+
+// --- fenceDefects: where the CommonMark scanner and the MDX renderer disagree (FS-2743) ---------
+//
+// The expectations below were checked against both parsers, not reasoned about: closer indents 0 to
+// 6 on one input, `mdast-util-from-markdown` versus `remark-parse` plus `remark-mdx`. CommonMark
+// stops closing at 4; MDX keeps closing at 4, 5 and 6, because `remark-mdx` turns off indented code
+// blocks and with them the cap.
+
+test('fenceDefects is silent on a fence both parsers close the same way', () => {
+  assert.deepEqual(fenceDefects(lines('```js', 'const x = 1;', '```', '')), []);
+});
+
+test('fenceDefects allows the three columns CommonMark allows', () => {
+  for (const indent of ['', ' ', '  ', '   ']) {
+    assert.deepEqual(
+      fenceDefects(lines('```js', 'x', indent + '```', '')),
+      [],
+      `indent ${indent.length}`,
+    );
+  }
+});
+
+test('fenceDefects reports a closer indented four columns past its opener', () => {
+  const src = lines('```js', 'x', '    ```', '');
+  assert.deepEqual(
+    fenceDefects(src).map((d) => [d.kind, src.slice(0, d.closerStart).split('\n').length]),
+    [['indentedCloser', 3]],
+  );
+});
+
+test('fenceDefects measures the allowance against the opener, not column 0', () => {
+  // A fence four columns deep inside a list item, closed at its own indentation. Ordinary in
+  // `content/`, and both parsers close it, so it must not be reported.
+  assert.deepEqual(fenceDefects(lines('- item', '', '    ```js', '    x', '    ```', '')), []);
+});
+
+test('fenceDefects reports a fence with no closer at all', () => {
+  const src = lines('text', '', '```js', 'const x = 1;', '');
+  const found = fenceDefects(src);
+  assert.deepEqual(
+    found.map((d) => d.kind),
+    ['unclosed'],
+  );
+  assert.equal(found[0].closerStart, -1);
+  assert.equal(src.slice(0, found[0].start).split('\n').length, 3);
+});
+
+test('fenceDefects reports a stray trailing fence, the shape that renders an empty code box', () => {
+  assert.deepEqual(
+    fenceDefects(lines('- a bullet list', '- and another', '```', '')).map((d) => d.kind),
+    ['unclosed'],
+  );
+});
+
+test('fenceDefects calls an over-indented closer at end of file indentedCloser, not unclosed', () => {
+  // The fence still runs to EOF under the CommonMark reading, but a closer exists and the fix is to
+  // dedent it, so it must not be reported as the id whose fix is to delete a line.
+  assert.deepEqual(
+    fenceDefects(lines('```js', 'x', '    ```')).map((d) => d.kind),
+    ['indentedCloser'],
+  );
+});
+
+test('fenceDefects matches the marker character and length, so ``` never closes ~~~', () => {
+  assert.deepEqual(
+    fenceDefects(lines('~~~js', 'x', '```', '')).map((d) => d.kind),
+    ['unclosed'],
+  );
+});
+
+test('fenceDefects does not see a fence documented inside a longer fence', () => {
+  assert.deepEqual(fenceDefects(lines('````md', '```js', 'x', '```', '````', '')), []);
+});
+
+test('fenceDefects and codeRegions read the same fences', () => {
+  const src = lines('```js', 'x', '```', '', '```sh', 'y', '');
+  const fences = codeRegions(src).filter((r) => r.kind === 'fence');
+  assert.equal(fences.length, 2);
+  assert.deepEqual(
+    fenceDefects(src).map((d) => d.start),
+    [fences[1].start],
+  );
 });
