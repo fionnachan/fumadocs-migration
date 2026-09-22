@@ -42,9 +42,16 @@
  *
  * **Phase 2, inline level.** One left-to-right scan over everything phase 1 left, where whichever
  * delimiter opens first wins. An inline code span opens on a run of backticks and closes on the next
- * run of exactly the same length within the same block, so a double-backtick span may contain single
- * backticks, a span may cross a newline but never a blank line, and a run that never finds its match
- * is literal text. `{/*` and `<!--`, when asked for, open a comment that runs to its own closer.
+ * run of exactly the same length *within the same paragraph*, so a double-backtick span may contain
+ * single backticks, a span may cross a newline but never a line that ends the paragraph, and a run
+ * that never finds its match is literal text. `{/*` and `<!--`, when asked for, open a comment that
+ * runs to its own closer, and a comment is deliberately not paragraph-bounded, because both forms
+ * are block constructs in their own right and routinely span one.
+ *
+ * The paragraph bound is the one rule here that is line-level rather than character-level, and it is
+ * load-bearing: without it a single stray backtick pairs with another one an arbitrary distance away
+ * and blanks every line between, which is how a linter silently stops reading real prose. See
+ * `endsParagraph`.
  *
  * First-opener-wins is the whole point of the single pass. Two separate passes cannot both be right:
  * whichever runs second breaks a delimiter the other needed. Comments before spans loses
@@ -55,13 +62,22 @@
  * ## Known limits
  *
  * - A four-space-indented code block, the fenceless kind, is not modelled at all.
- * - A code span may still pair across a blanked fence, because phase 2 reads phase 1's spaces as
- *   ordinary text. CommonMark would not let it. It costs over-blanking, never under-blanking.
+ * - A backtick inside a backtick fence's info string is not modelled. CommonMark forbids one, so
+ *   ```` ```js `foo` ```` opens no fence at all; `FENCE_OPEN` accepts it and masks the line and
+ *   everything after it. The direction is over-masking, and it behaves the same way at every one of
+ *   the four helpers this module replaced.
  * - Fence opener indentation is unbounded, and the closer's allowance is measured against the
  *   opener rather than against the container block. CommonMark caps a top-level opener at three
  *   spaces and measures a nested one against its container; a scanner with no notion of containers
  *   cannot tell the two apart, and fences four or more columns deep inside a list item are ordinary
  *   in `content/`.
+ * - `endsParagraph` reads a block opener's indentation from column 0, capped at three the way
+ *   CommonMark caps a top-level one. The same missing notion of containers applies: a block nested
+ *   inside a list item sits four or more columns deep, and a span is not bounded there.
+ * - A fence inside a blockquote is not a fence, because `FENCE_OPEN` does not strip a `>` prefix.
+ *   Its body is therefore visible to every consumer, which is also true of all four helpers this
+ *   module replaced, and no file in `content/` writes one. The direction is under-masking, so the
+ *   cost is a false positive a writer can see rather than a rule that stops looking.
  */
 
 /** Frontmatter, only ever at offset 0. */
@@ -196,22 +212,67 @@ export function codeRegions(source, options = {}) {
 }
 
 /**
+ * A line that ends the paragraph above it, read from column 0 with the usual three-column
+ * allowance. In the order written: an ATX heading, a blockquote marker, a thematic break, a bullet
+ * list marker, an ordered list marker, a fence opener, and an HTML or JSX tag. Every one of these
+ * interrupts a paragraph with no blank line before it, which is exactly why a blank line alone is
+ * not a sufficient bound.
+ *
+ * The thematic-break alternative is written before the list-marker one because `---` and `***` are
+ * both, and it is the one that has to reach the end of the line to match. A line indented four or
+ * more columns is a lazy paragraph continuation at top level rather than a block, so the cap is
+ * deliberate.
+ *
+ * The tag alternative needs `INLINE_ELEMENT` beside it, because not every tag at a line's start
+ * opens a block. Measured against the MDX parser this repo compiles with: a self-closing `<Foo />`
+ * and an unclosed `<Callout>` are flow elements and interrupt, while `<b>x</b>` and `<Foo>x</Foo>`,
+ * which open and close on the one line, are inline elements and do not. One same-line closing tag
+ * for the element the line opened is what separates them, and that is what `INLINE_ELEMENT` looks
+ * for. No JSX parse is needed for the shapes that occur.
+ */
+const BLOCK_START =
+  /^[ \t]{0,3}(?:#{1,6}(?:[ \t]|$)|>|([-*_])(?:[ \t]*\1){2,}[ \t]*$|[-+*](?:[ \t]|$)|\d{1,9}[.)](?:[ \t]|$)|`{3,}|~{3,}|<[!?/A-Za-z])/;
+
+/**
+ * A line opening an element and closing that same element on the same line, which is inline and
+ * interrupts nothing. `<!--`, `<?`, `</x>` and a self-closing tag all fail it, which is right: the
+ * first three are block openers and the last is a flow element.
+ */
+const INLINE_ELEMENT = /^[ \t]{0,3}<([A-Za-z][\w.:-]*)(?=[\s/>])[^\n]*<\/\1[ \t]*>/;
+
+/** Blank after a CR, which `content-lint` never strips, so a CRLF blank line reads as one. */
+const BLANK_LINE = /^[ \t\r]*$/;
+
+/**
+ * Does this line, taken without its newline, end the paragraph above it?
+ *
+ * Frontmatter needs no case of its own: both of its delimiters are `---` lines, which the
+ * thematic-break alternative already matches, so a backtick in a frontmatter value cannot pair with
+ * one in the body even under `stripCode`, where frontmatter is left visible on purpose.
+ */
+function endsParagraph(line) {
+  if (BLANK_LINE.test(line)) return true;
+  if (INLINE_ELEMENT.test(line)) return false;
+  return BLOCK_START.test(line);
+}
+
+/**
  * The end offset of the next run of exactly `length` backticks at or after `from`, or -1.
  *
- * The search stops at a blank line. Inline parsing is confined to one block, so a code span may
- * cross a newline but never a blank one, which `mdast-util-from-markdown` confirms. Without that
- * bound a stray backtick pairs with another one paragraphs away and blanks every line between, which
- * is how a linter silently stops reading real prose. A blanked fence reads as blank lines here, so a
- * span cannot reach across one of those either.
+ * The search stops at the end of the paragraph the run opened in, because inline parsing is
+ * confined to one block. `mdast-util-from-markdown` confirms both halves: a code span may cross a
+ * newline, and it may cross neither a blank line nor any other line that starts a block. Without
+ * that bound a stray backtick pairs with another one an arbitrary distance away and blanks every
+ * line between, which is how a linter silently stops reading real prose. A blanked fence is a run
+ * of all-space lines, which read as blank here, so a span cannot reach across one of those either.
  */
 function closingRun(source, from, length) {
   let i = from;
   while (i < source.length) {
     if (source[i] === '\n') {
-      let j = i + 1;
-      while (j < source.length && (source[j] === ' ' || source[j] === '\t')) j += 1;
-      if (j >= source.length || source[j] === '\n') return -1;
-      i = j;
+      const lineEnd = lineEndFrom(source, i + 1);
+      if (endsParagraph(source.slice(i + 1, lineEnd))) return -1;
+      i += 1;
       continue;
     }
     if (source[i] !== '`') {

@@ -148,6 +148,20 @@ test('an unterminated fence runs to the end of the file', () => {
   assert.ok(blanked(src, 'ALSO_HIDDEN'));
 });
 
+test('a backtick in a backtick fence info string is not modelled', () => {
+  // A documented limit. CommonMark forbids a backtick in a backtick fence's info string, so mdast
+  // reads this as a paragraph and no fence opens at all. The scanner opens one and masks to EOF,
+  // which over-masks. Every helper this module replaced did the same. Pinned, not asserted correct.
+  assert.ok(blanked(lines('```js `foo`', 'HIDDEN', ''), 'HIDDEN'));
+});
+
+test('a fence inside a blockquote is not modelled', () => {
+  // A documented limit, and the same at `fork/main`: `FENCE_OPEN` does not strip a `>` prefix, so
+  // the body stays visible. Pinned because the paragraph bound is what removed an accidental mask
+  // here: an unbounded span used to pair the two backtick runs and cover roughly the same range.
+  assert.ok(kept(lines('> ```md', '> SHOWN', '> ```', ''), 'SHOWN'));
+});
+
 test('a four-space indented code block is not modelled', () => {
   // A documented limit, pinned so a later change to it is deliberate.
   assert.ok(kept(lines('Text:', '', '    SHOWN', ''), 'SHOWN'));
@@ -179,6 +193,16 @@ test('a run closes only on a run of exactly the same length', () => {
   assert.ok(kept(src, 'SHOWN_NOT_A_SPAN'));
 });
 
+test('a longer run does not close a shorter opener, it is skipped over', () => {
+  // The discriminating case for `run === length` against `run >= length`; the fixture above cannot
+  // tell the two apart. Checked against mdast-util-from-markdown: one span over offsets 2 to 25, so
+  // the run of one opens, the run of two is passed over, and the second run of one closes it.
+  const src = 'a `HIDDEN`` STILL_HIDDEN` SHOWN';
+  assert.ok(blanked(src, 'HIDDEN'));
+  assert.ok(blanked(src, 'STILL_HIDDEN'));
+  assert.ok(kept(src, 'SHOWN'));
+});
+
 test('an unmatched backtick run is literal text', () => {
   const src = lines('SHOWN and a stray ` backtick', '');
   assert.ok(kept(src, 'SHOWN'));
@@ -203,6 +227,93 @@ test('a backtick inside a fence never opens a span', () => {
   const src = lines('```', 'HIDDEN `', '```', '', 'SHOWN ` and more SHOWN_TOO', '');
   assert.ok(blanked(src, 'HIDDEN'));
   assert.ok(kept(src, 'SHOWN_TOO'));
+});
+
+// --- The paragraph bound -----------------------------------------------------------------------
+//
+// Each of these is a line that ends a paragraph in CommonMark with no blank line before it, so a
+// stray backtick above it must not pair with one below. Every expectation was checked against
+// mdast-util-from-markdown, which finds zero inlineCode nodes in all of them. The direction matters:
+// pairing here blanks real prose, and `content:lint` then reports nothing on a page that 404s.
+
+const straddles = (middle) =>
+  lines('Prose with a stray ` tick', middle, 'More SHOWN_PROSE with a ` tick', '');
+
+test('a span does not cross an ATX heading that interrupts the paragraph', () => {
+  const src = straddles('## SHOWN_HEADING');
+  assert.ok(kept(src, 'SHOWN_HEADING'));
+  assert.ok(kept(src, 'SHOWN_PROSE'));
+});
+
+test('a span does not cross a list marker that interrupts the paragraph', () => {
+  for (const marker of ['- SHOWN_ITEM', '* SHOWN_ITEM', '+ SHOWN_ITEM', '1. SHOWN_ITEM']) {
+    const src = straddles(marker);
+    assert.ok(kept(src, 'SHOWN_ITEM'), marker);
+    assert.ok(kept(src, 'SHOWN_PROSE'), marker);
+  }
+});
+
+test('a span does not cross a blockquote marker that interrupts the paragraph', () => {
+  const src = straddles('> SHOWN_QUOTE');
+  assert.ok(kept(src, 'SHOWN_QUOTE'));
+  assert.ok(kept(src, 'SHOWN_PROSE'));
+});
+
+test('a span does not cross a thematic break that interrupts the paragraph', () => {
+  for (const rule of ['***', '___', '- - -']) {
+    const src = straddles(rule);
+    assert.ok(kept(src, 'SHOWN_PROSE'), rule);
+  }
+});
+
+test('a span does not cross an HTML block opener that interrupts the paragraph', () => {
+  const src = straddles('<!-- SHOWN_COMMENT -->');
+  assert.ok(kept(src, 'SHOWN_COMMENT'));
+  assert.ok(kept(src, 'SHOWN_PROSE'));
+});
+
+test('a span does not cross a fence opener that interrupts the paragraph', () => {
+  const src = lines('Prose with a stray ` tick', '```', 'HIDDEN', '```', 'SHOWN_PROSE ` tick', '');
+  assert.ok(blanked(src, 'HIDDEN'));
+  assert.ok(kept(src, 'SHOWN_PROSE'));
+});
+
+test('a CRLF blank line bounds a span the way an LF one does', () => {
+  const crlf = 'para `x\r\n\r\nSHOWN_ONE\r\nSHOWN_TWO\r\n\r\nmore y` tail\r\n';
+  assert.ok(kept(crlf, 'SHOWN_ONE'));
+  assert.ok(kept(crlf, 'SHOWN_TWO'));
+  // A CRLF whitespace-only line is blank too; `content-lint` reads files verbatim and strips no CR.
+  assert.ok(kept('para `x\r\n \t\r\nSHOWN_THREE\r\n\r\nmore y` tail\r\n', 'SHOWN_THREE'));
+});
+
+test('a backtick in frontmatter cannot pair with one in the body under stripCode', () => {
+  // `stripCode` leaves frontmatter visible on purpose, so the closing `---` is what has to stop the
+  // search. It does, being a thematic break. No blank line after it, which is the shape that breaks.
+  const src = lines('---', 'title: a `b', '---', 'SHOWN_BODY prose', 'more `c` end', '');
+  assert.ok(kept(src, 'SHOWN_BODY'));
+});
+
+test('an element opening and closing on one line does not bound a span', () => {
+  // Measured against the MDX parser: `<b>x</b>` and `<Foo>x</Foo>` are inline elements that
+  // interrupt nothing, so the span really does run past them and the scanner must not stop there.
+  for (const tag of ['<b>x</b>', '<Foo>x</Foo>', '<em>x</em> and more']) {
+    assert.ok(blanked(lines('para `HIDDEN', tag, 'more HIDDEN_TOO` tail', ''), 'HIDDEN_TOO'), tag);
+  }
+});
+
+test('a self-closing or unclosed element does bound a span', () => {
+  // The other half, also measured: both are flow elements in MDX and split the paragraph in two.
+  for (const tag of ['<Foo />', '<Callout type="note">', '</Tab>']) {
+    assert.ok(kept(lines('para `x', tag, 'more SHOWN_PROSE `y tail', ''), 'SHOWN_PROSE'), tag);
+  }
+});
+
+test('a block opener indented four or more does not bound a span', () => {
+  // A documented limit: indentation is read from column 0 and capped at three, the way CommonMark
+  // caps a top-level block, so a block nested inside a list item is not seen as one. Pinned so a
+  // later change to it is deliberate.
+  const src = lines('Prose with a stray ` tick', '    ## not seen as a heading', 'tail ` tick', '');
+  assert.ok(blanked(src, 'not seen as a heading'));
 });
 
 // --- MDX comments ------------------------------------------------------------------------------
