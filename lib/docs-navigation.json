@@ -651,10 +651,6 @@
               "name": "Batch poster",
               "children": [
                 {
-                  "name": "Batch poster",
-                  "page": "/docs/launch-arbitrum-chain/configuration/sequencer"
-                },
-                {
                   "name": "Batch poster fee tuning",
                   "page": "/docs/launch-arbitrum-chain/configuration/sequencer/batch-poster-fee-tuning"
                 },
@@ -713,11 +709,11 @@
                 },
                 {
                   "name": "Parent chain data fee pricing",
-                  "page": "/docs/launch-arbitrum-chain/configuration/costs"
+                  "page": "/docs/launch-arbitrum-chain/configuration/costs/parent-chain-data-fee-pricing"
                 },
                 {
                   "name": "Priority fees",
-                  "page": "/docs/launch-arbitrum-chain/configuration/costs"
+                  "page": "/docs/launch-arbitrum-chain/configuration/costs/priority-fees"
                 }
               ]
             },
@@ -784,7 +780,7 @@
                 },
                 {
                   "name": "Sequencer configuration reference",
-                  "page": "/docs/launch-arbitrum-chain/configuration/sequencer"
+                  "page": "/docs/launch-arbitrum-chain/configuration/sequencer/sequencer-config-reference"
                 },
                 {
                   "name": "Sequencer timing adjustments",
@@ -927,7 +923,7 @@
             },
             {
               "name": "Error index",
-              "page": "/docs/launch-arbitrum-chain/operate"
+              "page": "/docs/launch-arbitrum-chain/operate/error-index"
             },
             {
               "name": "Key rotation",
@@ -947,7 +943,7 @@
             },
             {
               "name": "Sequencer troubleshooting",
-              "page": "/docs/launch-arbitrum-chain/operate"
+              "page": "/docs/launch-arbitrum-chain/operate/sequencer-troubleshooting"
             },
             {
               "name": "State growth",
@@ -1085,7 +1081,7 @@
             },
             {
               "name": "Elara (ArbOS 61)",
-              "page": "/docs/run-a-node/arbos-releases/overview"
+              "page": "/docs/run-a-node/arbos-releases/arbos61"
             },
             {
               "name": "Dia (ArbOS 51)",
