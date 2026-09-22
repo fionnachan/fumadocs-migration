@@ -40,7 +40,8 @@ sme: reviewing-sme-handle
 what feels closest — see [Document type conventions](#document-type-conventions) below. Optional
 fields: `sidebar_label`, `user_story`, `draft`. `sidebar_label` becomes the page's name in the
 sidebar, but only if the page has no explicit `name` in `lib/docs-navigation.json`; a manifest
-`name` always wins over `sidebar_label`.
+`name` always wins over `sidebar_label`, and a page the manifest never names renders its
+`sidebar_label`.
 
 **Sidebar order comes from `meta.json` in each content directory, not from file names.** Add your
 new page's basename to the `pages` array in the `meta.json` for that directory, in the position
