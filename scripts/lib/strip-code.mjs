@@ -214,7 +214,9 @@ export function codeRegions(source, options = {}) {
 /**
  * A line that ends the paragraph above it, read from column 0 with the usual three-column
  * allowance. In the order written: an ATX heading, a blockquote marker, a thematic break, a setext
- * heading underline of `=` (the `-` form is already a thematic break), a bullet list marker, an
+ * heading underline (a run of `=` or `-`; the parser reads any run of `-` under a paragraph as a
+ * setext heading, not a thematic break, and the bullet and thematic-break alternatives only cover
+ * a run of one or of three and more), a bullet list marker, an
  * ordered list marker, a fence opener, and an HTML or JSX tag. Every one of these interrupts a
  * paragraph with no blank line before it, or, for the setext underline, closes it, which is exactly
  * why a blank line alone is not a sufficient bound. The two alternatives that must reach the end of
@@ -234,7 +236,7 @@ export function codeRegions(source, options = {}) {
  * for. No JSX parse is needed for the shapes that occur.
  */
 const BLOCK_START =
-  /^[ \t]{0,3}(?:#{1,6}(?:[ \t]|$)|>|([-*_])(?:[ \t]*\1){2,}[ \t\r]*$|=+[ \t\r]*$|[-+*](?:[ \t]|$)|\d{1,9}[.)](?:[ \t]|$)|`{3,}|~{3,}|<[!?/A-Za-z])/;
+  /^[ \t]{0,3}(?:#{1,6}(?:[ \t]|$)|>|([-*_])(?:[ \t]*\1){2,}[ \t\r]*$|(?:=+|-+)[ \t\r]*$|[-+*](?:[ \t]|$)|\d{1,9}[.)](?:[ \t]|$)|`{3,}|~{3,}|<[!?/A-Za-z])/;
 
 /**
  * A line opening an element and closing that same element on the same line, which is inline and

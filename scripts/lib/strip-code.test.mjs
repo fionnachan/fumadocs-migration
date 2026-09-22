@@ -287,14 +287,20 @@ test('a CRLF blank line bounds a span the way an LF one does', () => {
 });
 
 test('a span does not cross a setext heading underline', () => {
-  // `Title\n===` is a heading, so the paragraph the span opened in ends at the underline. The `---`
-  // form is covered by the thematic-break case above.
+  // `Title\n===` is a heading, so the paragraph the span opened in ends at the underline. The `-`
+  // form is a heading too, at any run length; one and three-plus hyphens were already bounds (bullet
+  // and thematic break), exactly two matched neither. A mixed run such as `--=` is neither an
+  // underline nor a break and must let the span run.
   const src = lines('para `x', 'SHOWN_SETEXT', '===', 'body y` tail', '');
   assert.ok(kept(src, 'body y'));
   assert.ok(kept(src, 'SHOWN_SETEXT'));
   assert.ok(
     kept(lines('para `x', 'Heading', '=', 'SHOWN_ONE_EQUALS y` tail', ''), 'SHOWN_ONE_EQUALS'),
   );
+  assert.ok(
+    kept(lines('para `x', 'Heading', '--', 'SHOWN_TWO_HYPHENS y` tail', ''), 'SHOWN_TWO_HYPHENS'),
+  );
+  assert.ok(blanked(lines('para `x', '--=', 'HIDDEN_MIXED y` tail', ''), 'HIDDEN_MIXED'));
 });
 
 test('a thematic break and a frontmatter fence bound a span on CRLF input too', () => {
@@ -316,7 +322,10 @@ test('a hash that is not a heading does not bound a span', () => {
 
 test('a tag closed on the same line by a different element still opens a block', () => {
   // `INLINE_ELEMENT` requires the closing tag to name the element the line opened. `<Foo>x</Bar>`
-  // fails that, so it is read as a flow element and bounds the span.
+  // fails that, so the scanner treats the line as a block and stops the span. MDX itself does not:
+  // the mismatched tag makes its JSX flow attempt fail and it falls back to paragraph text, so the
+  // parser keeps the span running. The scanner's reading is pinned anyway because it under-masks
+  // (exposure, never loss) and a mismatched closing tag is a content defect in its own right.
   const src = lines('para `x', '<Foo>SHOWN_MISMATCH</Bar>', 'more y` tail', '');
   assert.ok(kept(src, 'SHOWN_MISMATCH'));
   assert.ok(kept(src, 'more y'));
