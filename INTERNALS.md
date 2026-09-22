@@ -181,9 +181,13 @@ root on the page's path whether or not a switcher renders.
 Each manifest section has an `id` naming its source folder and `sourceFolders` assigning local
 content to it. Entries use `page` for a canonical page, `href` for a shortcut, `children` for a
 nested category, or `folder` to include a local subtree such as third-party docs or Stylus examples.
-An optional `name` supplies the shorter sidebar label; otherwise page `sidebar_label` metadata is
-honored. A folder entry with `flatten: true` inserts its children directly into the category. Missing pages, references or folders throw
-an error instead of silently dropping menu items.
+An optional `name` supplies the shorter sidebar label and wins when the manifest entry sets one;
+otherwise the page's own `sidebar_label` frontmatter is honored, because `docsNavigationTransformer`'s
+`file()` hook (`lib/docs-navigation.ts`) renames every page node to its `sidebar_label` before
+`buildDocsNavigation` applies the manifest, and a manifest entry only overrides that name when it
+passes one explicitly. A folder entry with `flatten: true` inserts its children directly into the
+category. Missing pages, references or folders throw an error instead of silently dropping menu
+items.
 
 **Cross-section links must use `href`.** Fumadocs finds a page's sidebar by walking the tree to the
 first matching page node, then taking its last root folder. Repeating a canonical `page` in another
@@ -220,6 +224,10 @@ changing the layout or reference renderer.
 
 A missing or invalid field fails `types:check` and `build`. This is the most common reason a build
 breaks after adding content.
+
+`sidebar_label`, when set, becomes the page's name in the sidebar tree, but only when its manifest
+entry in `lib/docs-navigation.json` gives the page no explicit `name` of its own; a manifest `name`
+always wins. See [The sidebar and its roots](#the-sidebar-and-its-roots).
 
 ## Last modified dates
 
