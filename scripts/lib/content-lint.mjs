@@ -73,14 +73,18 @@
  *       visible either way: a stray trailing fence renders an empty code box with a copy button,
  *       and a real opener whose closer went missing swallows the rest of the page into it. Fix by
  *       deleting the stray line, or by writing the closer that is missing.
- *   A13 A closer indented more than three columns past its opener. This one renders *correctly*:
- *       `remark-mdx` turns off indented code blocks and with them CommonMark's three-column cap on
- *       a closing fence, so the MDX parser closes the fence there and the reader sees nothing
- *       wrong. The defect is the blind spot. `strip-code.mjs` models the CommonMark column, so
- *       every gate reading MDX through it (A1 to A11 here, `check-links`, `partials:check`,
- *       `images:presence`) treats the lines between as fence body and stops checking them. One
- *       stray indent switched eighteen lines of a page off from all of them (FS-2743). Fix by
- *       closing at the opener's indentation, which both parsers read the same way.
+ *   A13 A closer indented more than three columns past its opener. `remark-mdx` turns off indented
+ *       code blocks and with them CommonMark's three-column cap on a closing fence, so the site's
+ *       parser ends the fence at that line and `strip-code.mjs`, which models the CommonMark
+ *       column, does not. Every gate reading MDX through it (A1 to A11 here, `check-links`,
+ *       `partials:check`, `images:presence`) therefore treats the lines between as fence body and
+ *       stops checking them. One stray indent switched eighteen lines of a page off from all of
+ *       them (FS-2743). Fix by aligning the closer with its opener, the one form both parsers read
+ *       alike. The message deliberately does **not** promise the page renders correctly: on a
+ *       fence that was meant to stay open past that line (an opener whose own closer is missing, or
+ *       an outer fence documenting an indented inner one) MDX has already ended it early and the
+ *       fix is higher up, so the message sends the writer to the rendered page before dedenting.
+ *       The scanner is line-based and cannot tell those apart from the source alone.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -261,7 +265,7 @@ export function lintSource(source) {
       add(
         'A13',
         defect.closerStart,
-        "fence closer is indented more than three columns past its opener. MDX closes the fence here, so the page renders correctly, but every gate that masks code the CommonMark way reads the lines between as fence body and stops checking them. Close at the opener's indentation",
+        "fence closer indented more than three columns past its opener. The site's MDX parser ends the fence at this line; CommonMark, and every gate that masks code through strip-code.mjs, does not, so all of them read the lines between as fence body and stop checking them. Align this closer with its opener. If the fence was meant to stay open past this line, read the rendered page before dedenting: MDX has ended it here already, so the real fix is a missing or too-short closer higher up",
       );
     }
   }

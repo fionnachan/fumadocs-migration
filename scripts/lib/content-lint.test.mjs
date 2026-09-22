@@ -566,6 +566,21 @@ test('A13 fires on a closer indented four columns past an unindented opener', ()
   assert.match(found[0].message, /indented more than three columns/);
 });
 
+test('A13 reports the over-indented closer, not the conforming one further down', () => {
+  // The shape that actually occurred in `content/`. Every other A13 case here has no conforming
+  // closer at all, so the strict offset is -1 and the line arithmetic on it lands on the asserted
+  // line by coincidence; this input is the one that distinguishes the two readings, and reporting
+  // the strict closer would send the writer to line 9 rather than to the line holding the defect.
+  const found = lintSource(
+    '```json\n{"a":1}\n    ```\n\nprose between the fences\n\n```js\nconst x = 1;\n```\n',
+  );
+  assert.deepEqual(
+    found.map((f) => f.rule),
+    ['A13'],
+  );
+  assert.equal(found[0].line, 3);
+});
+
 test('A13 does NOT fire inside the three columns CommonMark allows', () => {
   assert.deepEqual(rules('```json\n{"a":1}\n   ```\n'), []);
 });

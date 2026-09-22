@@ -441,10 +441,11 @@ is undefined and crashes the build. `partials:check` enforces the distinction.
 **Neither scanner sees code.** `parseIncludes` and `parsePartialImports` strip fenced blocks and
 inline code spans before they match, so a directive quoted as an example is not validated as a real
 include and is not counted in the catalog's "used in" totals. They strip it with
-`scripts/lib/strip-code.mjs`, which since FS-2729 is the single scanner behind every content gate:
-`content:lint` masks with it for A1 to A5 and A7 to A11, asks it for the code regions themselves
-for A6, and asks it where each fence closes for A12 and A13, `check-links` and `move-doc` mask with it (frontmatter and HTML comments included), and
-`images:check` masks with it too. It is one line-based, block-then-inline scan with one contract
+`scripts/lib/strip-code.mjs`, which since FS-2729 is the single scanner behind every content gate.
+`content:lint` asks it three different things: masking for A1 to A5 and A7 to A11, the code regions
+themselves for A6, and where each fence closes for A12 and A13. `check-links` and `move-doc` mask
+with it (frontmatter and HTML comments included), and `images:check` masks with it too. It is one
+line-based, block-then-inline scan with one contract
 (same length, same offsets, same line count in and out) and a per-consumer choice of which region
 kinds to blank. Four separate implementations of "ignore code" used to exist, each with its own edge
 cases, and a one-line change to one of them silently hid 6,914 characters of prose from a blocking
@@ -1852,15 +1853,25 @@ opposite.
   it. Fix by deleting the stray line, or by writing the closer that is missing. Read what the page
   renders before choosing: the two look identical in the source and the fixes are not
   interchangeable.
-- **`A13`, a closer indented more than three columns past its opener.** This one **renders
-  correctly**, so a writer sent here will find nothing wrong on the page. The defect is the blind
-  spot. Every gate that reads MDX through `strip-code.mjs` (A1 to A11 above, `check-links`,
-  `partials:check`, `images:check`) treats the lines between as fence body and blanks them, so one
-  stray indent switched eighteen lines of
+- **`A13`, a closer indented more than three columns past its opener.** The site's parser ends the
+  fence at that line and `strip-code.mjs` does not, so every gate reading MDX through it (A1 to A11
+  above, `check-links`, `partials:check`, `images:presence`) treats the lines between as fence body
+  and blanks them. One stray indent switched eighteen lines of
   `launch-arbitrum-chain/integrations/da-api-integration-guide.mdx` off from all of them, two of
-  those lines being `Tab` element tags. Fix by closing at the opener's indentation, the one form both
+  those lines being `Tab` element tags. Fix by aligning the closer with its opener, the one form both
   parsers read alike. A fence nested four or more columns deep inside a list item is not flagged: the
   allowance is measured against its own opener, not against column 0.
+
+  **The message does not promise the page renders correctly, and neither does this entry.** On the
+  shape that prompted the rule it does: the fence was meant to end there, MDX ended it there, and
+  a writer sent to the page finds nothing wrong, which is why the reason has to be written down.
+  But the rule fires on two shapes where it does not. A fence whose own closer is missing, followed
+  later in the file by an unrelated over-indented closer, has MDX ending it at that later line and
+  swallowing the prose in between; and an outer fence documenting an indented inner fence ends at
+  the inner closer, early. Both were measured through this repo's processor (FS-2743). Neither
+  exists in `content/` today and a line-based scanner cannot tell any of the three apart from the
+  source alone, so the message names what the scanner saw and tells the writer to read the rendered
+  page before dedenting rather than asserting a render it cannot know.
 
 **The masking deliberately stays at the CommonMark reading.** Widening it so the scanner matches the
 renderer would remove the disagreement at its root, but it changes what every consumer sees across
