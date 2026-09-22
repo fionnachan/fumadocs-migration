@@ -24,7 +24,7 @@ Please fill out the form below to ensure your doc gets quickly approved and merg
 <!-- Mark completed items with an "x" -->
 
 - [ ] I have read the
-      [CONTRIBUTE.md](https://github.com/OffchainLabs/Fumadocs-test/blob/main/CONTRIBUTE.md)
+      [CONTRIBUTE.md](https://github.com/OffchainLabs/arbitrum-docs/blob/main/CONTRIBUTE.md)
       guidelines
 - [ ] My changes follow the style conventions outlined in CONTRIBUTE.md
 - [ ] I have used sentence-case for titles and headers
@@ -34,7 +34,7 @@ Please fill out the form below to ensure your doc gets quickly approved and merg
       `content_type`, `author`, `sme`)
 - [ ] I have added new pages to the appropriate `meta.json` for sidebar ordering
 - [ ] I searched
-      [`content/partials/CATALOG.md`](https://github.com/OffchainLabs/Fumadocs-test/blob/main/content/partials/CATALOG.md)
+      [`content/partials/CATALOG.md`](https://github.com/OffchainLabs/arbitrum-docs/blob/main/content/partials/CATALOG.md)
       before writing a new banner, note, or table
 - [ ] I have run `pnpm types:check`, `pnpm test`, `pnpm vars:check`, `pnpm nav:check`,
       `pnpm partials:check`, `pnpm references:check`, and `pnpm check-links` locally
