@@ -169,3 +169,36 @@ test('broken manifest entries fail instead of disappearing silently', () => {
     /Navigation page does not exist/,
   );
 });
+
+// A page can set its own sidebar_label, and a manifest entry can rename that same page with its
+// own `name`. Build a small synthetic source (rather than reusing the real content tree) so this
+// case is exercised even when no page in content/docs happens to carry both right now.
+function demoSource(children) {
+  const files = [
+    { type: 'meta', path: 'demo/meta.json', data: { title: 'Demo' } },
+    { type: 'page', path: 'demo/index.mdx', data: { title: 'Demo landing' } },
+    {
+      type: 'page',
+      path: 'demo/sample.mdx',
+      data: { title: 'Sample page', sidebar_label: 'From frontmatter' },
+    },
+  ];
+  const sections = [{ id: 'demo', name: 'Demo', sourceFolders: ['demo'], children }];
+  return loader({
+    baseUrl: '/docs',
+    source: { files },
+    pageTree: { transformers: [docsNavigationTransformer(sections)] },
+  });
+}
+
+test("a manifest entry name wins over the page's own sidebar_label", () => {
+  const tree = demoSource([{ page: '/docs/demo/sample', name: 'From manifest' }]).pageTree;
+  const node = searchPath(tree.children, '/docs/demo/sample').at(-1);
+  assert.equal(node.name, 'From manifest');
+});
+
+test('sidebar_label applies when the manifest entry gives the page no explicit name', () => {
+  const tree = demoSource([{ page: '/docs/demo/sample' }]).pageTree;
+  const node = searchPath(tree.children, '/docs/demo/sample').at(-1);
+  assert.equal(node.name, 'From frontmatter');
+});
