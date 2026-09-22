@@ -373,12 +373,8 @@ test('the contribute guide links back into this repository', { skip: !baseUrl },
    * literal braces inside an href. Nothing else would notice: `check-links` skips an external
    * destination, and a wrong-but-well-formed GitHub URL still renders as a link.
    */
-  const allowed = new Set([
-    // The cutover exception the partial carries an inline comment about, plus the placeholder
-    // profile in the community-contribution banner example.
-    'https://github.com/OffchainLabs/arbitrum-docs',
-    'https://github.com/handle',
-  ]);
+  // Placeholder profile in the community-contribution banner example.
+  const allowed = new Set(['https://github.com/handle']);
   const html = documentOnly(await head('/docs/contribute'));
   const hrefs = [...html.matchAll(/href="(https:\/\/github\.com\/[^"]*)"/g)].map((m) => m[1]);
 

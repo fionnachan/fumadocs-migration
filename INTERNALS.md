@@ -564,7 +564,7 @@ blocks the old syntax, and a placeholder whose name is not an identifier, so nei
 `docsRepositoryBranch`. Both sides read it from there: `gitConfig` in `lib/shared.ts` composes the
 edit link on every docs page and the "Request an update" issue link, and the contribute guide writes
 its own links as `{var:docsRepositoryUrl}/blob/{var:docsRepositoryBranch}/…` destinations. The
-"know more tools?" partial writes the seventh, `{var:docsRepositoryUrl}/issues/new`, which offers a
+"know more tools?" partial also writes `{var:docsRepositoryUrl}/issues/new`, which offers a
 reader the same issue tracker the "Request an update" button beside it opens. It named the other
 repository until the round 1 review of FS-2733 found it.
 
@@ -574,12 +574,10 @@ a variable while `lib/shared.ts` held a second copy of the same string. `check-l
 external destination, so a repository rename would have left six dead links on `/docs/contribute`
 with no gate turning red. The two comments are gone; the mechanism replaces them.
 
-**`docsRepositoryUrl` is the one value that flips at cutover**, when this repository takes over the
-`OffchainLabs/arbitrum-docs` name and URL. Editing that one string moves the content links and the
-two composed links together. `docsRepositoryBranch` does not flip. One link is deliberately already
-on the far side of the flip: the "fork the Arbitrum docs repo" step names `arbitrum-docs` today,
-because that is where a contributor forks from, and the partial carries an inline comment saying so.
-The rest cannot follow yet, since the files they name do not exist in that repository until cutover.
+The configured destination is `OffchainLabs/arbitrum-docs` on `master`. This change will only be
+merged into that repository when the migration is ready. The fork link now uses
+`{var:docsRepositoryUrl}` too, so every repository link in the contribute guide follows the same
+owner and the old fork-step exception is retired.
 
 Three details are load-bearing:
 
@@ -615,8 +613,7 @@ Two tests hold the agreement. `scripts/lib/contribute-repo-links.test.mjs` expan
 destinations and asserts each one belongs to the repository `gitConfig` names, which also proves the
 code value and the JSON value are the same string with no server running. Its third assertion is
 repository-wide: no `.mdx` file anywhere under `content/` may write a docs-repository URL out in
-full, under either the current name or the `arbitrum-docs` name this repository takes over, with one
-documented exception for the fork step. That rule is what a check pinned to the contribute guide
+full, including the fork step, with no exceptions. That rule is what a check pinned to the contribute guide
 could not give, and it is what caught the reader-facing issue link in
 `content/partials/_know-more-tools-box-partial.mdx`. The HTTP half in
 `scripts/static-docs-http.test.mjs` fetches `/docs/contribute` and applies the same rule to the
@@ -628,14 +625,10 @@ which GitHub redirects to `…/tree/CONTRIBUTE.md` and answers 404, and no other
 trailing slash on `docsRepositoryUrl` is deliberately not rejected, because the doubled slash it
 produces is answered 200.
 
-The cutover checklist, in full: flip `docsRepositoryUrl` in `content/vars.json`; flip the two URLs
-in `.github/pull_request_template.md` by hand, because GitHub renders that file, not this site, so
-no mechanism here reaches it; and retire the fork-step exception, since after the flip
-`gitConfig.url` equals the `arbitrum-docs` URL and the exception would let a hardcoded copy of the
-live URL sit unchallenged in the one file the mechanism otherwise owns. Retiring it means rewriting
-that link as `{var:docsRepositoryUrl}`, deleting its inline comment in the partial, and removing
-the `LITERAL_URL_EXCEPTIONS` entry and `CUTOVER_URL` from `ALLOWED` in
-`scripts/lib/contribute-repo-links.test.mjs`; the test then fails on any literal copy that is left.
+The two URLs in `.github/pull_request_template.md` remain literal because GitHub renders that
+file. A fourth offline assertion checks that their repository and branch match `gitConfig`, so a
+future identity change requires updating those links as well. The obsolete fork-step exception and
+its comment have been removed from both the content and the tests.
 
 ### Announcement banner
 
