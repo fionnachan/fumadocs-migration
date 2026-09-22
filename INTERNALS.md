@@ -1525,10 +1525,15 @@ CI runs on push and PR to `main` (`.github/workflows/ci.yml`) in three jobs. **T
 about the network rather than about content quality.
 
 "Blocking" here is a statement about intent that the workflow file can only half express. A job
-without `continue-on-error` fails its run, but what holds a merge is the repository's branch
-protection rule on `main`, which lists required checks by job name. Both `Gates` and `Build` have
-to be in that list; renaming a job renames its check, and a required check that never reports
-blocks every pull request indefinitely.
+without `continue-on-error` fails its run, but what holds a merge is a branch protection rule or
+ruleset on `main` that lists required checks by job name. **Neither repository has one today**
+(measured 2026-09-22 through the GitHub API: `fionnachan/fumadocs-migration` has no protection and
+no rulesets on `main`; `OffchainLabs/Fumadocs-test` has one ruleset requiring only an
+integration's `merge-controlled` context), so no CI job holds a merge anywhere yet, `Gates`
+included. To make them hold, create a rule (Settings, Branches) or a ruleset (Settings, Rules) on
+`main` and add both `Gates` and `Build` as required checks. Renaming a job renames its check, and a
+required check that never reports blocks every pull request indefinitely, which is why the old
+"Build (non-blocking)" name must not be listed.
 
 **`Gates` (blocking)** — thirteen steps:
 
@@ -1592,7 +1597,7 @@ this repository. Every one of them reported and passed anyway.
 
 **It stays a job of its own rather than folding into `Gates`.** The two run in parallel, so
 promoting the build costs no pull-request latency: a run already waits on whichever job is slower,
-and folding roughly seventy seconds of build plus a few seconds of HTTP behind thirteen checks
+and folding the build (53 s cold, 37 s warm, measured 2026-09-22) plus a few seconds of HTTP behind thirteen checks
 that do not need it would only serialise work that is already free.
 
 **One network dependency is left in the build and is accepted.** `app/layout.tsx` declares
@@ -1605,7 +1610,10 @@ so Google Fonts already gates shipping. Self-hosting that face under `public/fon
 four Aeonik faces already are, would take the last network call out of the build and is worth its
 own change. Nothing else in the job reaches the network: `redirects:check` reports an external
 destination as `SKIPPED` without fetching it, and the HTTP suite talks only to
-`STATIC_DOCS_TEST_URL`.
+`STATIC_DOCS_TEST_URL`. The same dependency now reaches `upstream-refresh.yml`'s `stylus` job,
+whose gate list mirrors `Gates` plus the build: a Google Fonts outage during the Monday run fails
+that job before `create-pull-request`, so no PR opens and nothing reports it beyond the run's own
+red mark, which nobody is watching. Accepted for the same reason; the next Monday retries.
 
 **`Network checks` (non-blocking)** runs `precompiles:check`, marked `continue-on-error`, and is
 the only job here that does not block. Reaching zero is not what would promote this one: it is already
@@ -1755,7 +1763,7 @@ Six things about it are worth knowing:
   the job runs `ci.yml`'s blocking set step for step against the regenerated tree and fails the
   weekly run rather than shipping a PR nothing has verified. That set is the `Gates` list plus
   `pnpm build` and the server step behind it, added when FS-2746 promoted the `Build` job; the
-  build is the half this payload most needs, since an MDX compile error is the defect no other
+  build is the half this payload most needs, since a render-time MDX failure is the defect no other
   step catches and upstream prose is where one would come from. **Keep the two lists in sync**: a
   gate added to `ci.yml` and not there is a gate that PR does not get. The alternative, a PAT or
   GitHub App token on `create-pull-request` so `ci.yml` runs for real, needs a secret nobody has

@@ -154,10 +154,11 @@ These seven are the ones a content change usually trips. `.github/workflows/ci.y
 `contracts:check`, `format:check` and `content:lint`.
 
 **A second job blocks too.** `Build` runs `pnpm build`, then serves the result and checks it over
-HTTP. It is the only thing in CI that compiles your MDX the way the site does, so a page that
-passes every check above can still fail there. If you touched MDX with components, imports or raw
-JSX in it, run `pnpm build` yourself before you push: it takes a couple of minutes and the error
-names the file and line. `Network checks` is the one job that reports without blocking.
+HTTP. It is the only thing in CI that renders your MDX the way the site does (`check-links` already
+compiles every page, so a syntax error fails earlier), so a page that passes every check above can
+still fail there, for example by using a component that does not exist. If you touched MDX with
+components, imports or raw JSX in it, run `pnpm build` yourself before you push: it takes about a
+minute and the error names the file and line. `Network checks` is the one job that reports without blocking.
 
 A green PR does not by itself mean the content renders correctly: `types:check` proves the
 frontmatter schema, not the render, and it exits 0 on a page that serves a literal `:::` or the
