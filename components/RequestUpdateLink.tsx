@@ -26,7 +26,7 @@ export function RequestUpdateLink({ pageUrl, className }: { pageUrl: string; cla
       "Psst, this issue will be closed with a templated response if it isn't a documentation update request.",
     ].join('\n\n'),
   });
-  const href = `https://github.com/${gitConfig.user}/${gitConfig.repo}/issues/new?${query}`;
+  const href = `${gitConfig.url}/issues/new?${query}`;
 
   return (
     <a

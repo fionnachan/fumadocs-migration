@@ -107,6 +107,13 @@ destination. Everywhere else, prose and link text included, use the component: a
 prose fails the build. `pnpm content:lint` (rule A11) fails on a `<Var>` left in a destination.
 After you edit a value in `vars.json`, restart `pnpm dev` or a link keeps showing the old one.
 
+A link to a file in this repository takes the same treatment, with `docsRepositoryUrl` and
+`docsRepositoryBranch`: write
+`[Contribute]({var:docsRepositoryUrl}/blob/{var:docsRepositoryBranch}/CONTRIBUTE.md)` rather than
+the URL. Those two values also build the edit link and the "Request an update" button, so one edit
+moves every link home together, and `pnpm check-links` never resolves an external URL that would
+catch a hardcoded one gone dead.
+
 To change a value, edit `vars.json` and run `pnpm vars:check`. To add a **new** variable, add the
 key to both `vars.json` **and** the `varsSchema` in `content/vars.ts` — miss either side and the
 gate fails, because the schema is a strict object that would otherwise silently drop the key and

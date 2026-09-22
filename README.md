@@ -231,6 +231,15 @@ files](INTERNALS.md#global-variables).)
 
 Never hardcode a version or chain parameter into a page.
 
+**Links to a file in this repository are variables too.** `docsRepositoryUrl` and
+`docsRepositoryBranch` hold this repository's own GitHub identity, so a link to `CONTRIBUTE.md`,
+`STYLE-GUIDE.md` or the partials catalog is written
+`[Contribute]({var:docsRepositoryUrl}/blob/{var:docsRepositoryBranch}/CONTRIBUTE.md)`. The same two
+values build the edit link and the "Request an update" button on every page, so editing
+`docsRepositoryUrl` once moves every link home at the same time. That is the one value that changes
+when this repository takes over the `arbitrum-docs` name. `pnpm check-links` skips an external URL
+without resolving it, so a hardcoded one would not be caught if it went dead.
+
 ### Announcement banner
 
 The bar above the navbar is configured from the same file, so turning it on, rewording it, or

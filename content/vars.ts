@@ -27,6 +27,32 @@ import varsJson from './vars.json';
  * only copy and there is nothing left to keep it in sync with.
  */
 const varsSchema = z.strictObject({
+  // --- This repository's own identity (FS-2733) ---------------------------
+  // The single owner of the docs repository's GitHub URL, read from two sides.
+  // `gitConfig` in `lib/shared.ts` composes the edit link and the "Request an
+  // update" issue link from it, and the contribute guide writes its own links
+  // as `{var:docsRepositoryUrl}/blob/{var:docsRepositoryBranch}/…`. Before
+  // this, that guide hardcoded six URLs beside a comment asking a human to
+  // retarget them by hand, and `check-links` skips every external destination,
+  // so a rename would have left six dead links with no gate turning red.
+  //
+  // `docsRepositoryUrl` is the one value that flips at cutover, when this
+  // repository takes over the `OffchainLabs/arbitrum-docs` name and URL.
+  // Everything else that names the repository follows from it.
+  //
+  // The branch is `.min(1)` for the same reason `announcementId` carries a
+  // pattern: an empty string passes every other gate and reaches the reader as
+  // a broken link: `…/blob//CONTRIBUTE.md` redirects to `…/tree/CONTRIBUTE.md`
+  // and ends at a GitHub 404, measured. Neither `vars:check` nor `check-links`
+  // would see it, since the one only proves the key exists and the other skips
+  // every external destination. A trailing slash on the URL is left alone by
+  // contrast, because GitHub answers 200 on the doubled slash it produces.
+  docsRepositoryUrl: z.url(),
+  docsRepositoryBranch: z
+    .string()
+    .min(1, 'docsRepositoryBranch must name a branch, because it is spliced into a /blob/ URL'),
+  // --- end repository identity --------------------------------------------
+
   arbOneChainId: z.number(),
   novaChainId: z.number(),
   nitroDocsRepo: z.url(),
