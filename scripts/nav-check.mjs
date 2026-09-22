@@ -1,11 +1,13 @@
 /**
- * nav-check — fail on meta.json navigation defects.
+ * nav-check — fail on navigation defects in the meta.json tree and in the navigation manifest.
  *
- * Three rules, all invisible to `types:check` and `build`:
+ * Four rules, all invisible to `types:check` and `build`:
  *   - ghost entries: a `pages` entry naming nothing on disk (silently ignored by Fumadocs).
  *   - hidden pages: a file on disk that no `pages` entry and no `"..."` lets through.
  *   - root coverage: a page outside every `"root": true` folder, or a link entry that shadows a
  *     real page and so steals its sidebar root (FS-2716).
+ *   - manifest duplicates: a `page` URL claimed twice in `lib/docs-navigation.json`, which leaves
+ *     one entry naming a page it does not open (FS-2740).
  *
  * Usage:
  *   pnpm nav:check          # human report; exits 1 if any defect exists
@@ -13,13 +15,14 @@
  */
 import path from 'node:path';
 
-import { checkRoots, checkTree, readTree } from './lib/nav.mjs';
+import { checkManifest, checkRoots, checkTree, readTree } from './lib/nav.mjs';
 
 function main() {
   const json = process.argv.slice(2).includes('--json');
   const root = path.join(process.cwd(), 'content', 'docs');
   const results = checkTree(root);
   const { rootless, shadowLinks } = checkRoots(readTree(root));
+  const duplicates = checkManifest(path.join(process.cwd(), 'lib', 'docs-navigation.json'));
 
   if (json) {
     console.log(
@@ -27,12 +30,18 @@ function main() {
         directories: results.map((r) => ({ ...r, dir: path.relative(process.cwd(), r.dir) })),
         rootless,
         shadowLinks,
+        duplicates,
       }),
     );
     return;
   }
 
-  if (results.length === 0 && rootless.length === 0 && shadowLinks.length === 0) {
+  if (
+    results.length === 0 &&
+    rootless.length === 0 &&
+    shadowLinks.length === 0 &&
+    duplicates.length === 0
+  ) {
     console.log('nav-check: no navigation defects.');
     return;
   }
@@ -68,6 +77,16 @@ function main() {
       );
     console.error(
       '    Fix: reference the page ("../name") from the one root folder that should own it, and drop the duplicate link.',
+    );
+  }
+
+  if (duplicates.length > 0) {
+    console.error(
+      `nav-check: ${duplicates.length} page URL(s) claimed more than once in lib/docs-navigation.json, so one entry names a page it does not open and that page falls into Additional guides:`,
+    );
+    for (const d of duplicates) console.error(`  ${d.url}\n    claimed by: ${d.names.join(', ')}`);
+    console.error(
+      '    Fix: point each entry at the page it names. Use "href" for a cross-section shortcut, which claims nothing.',
     );
   }
 
