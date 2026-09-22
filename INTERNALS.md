@@ -605,8 +605,9 @@ Three details are load-bearing:
 that module's closure is the second consumer to weigh before importing anything heavier here.
 Nothing arrived in it: the traced proxy closure is 98 files and 1,782,299 bytes
 (`.next/server/middleware.js.nft.json`), it does not list `content/vars.json`, and no traced file
-contains a `vars.json` key name or either new value, because `gitConfig` goes unused there and is
-dropped. Had it not been, the whole JSON is 2,653 bytes against that 1.78 MB, about 0.15 percent.
+contains a `vars.json` key name or `docsRepositoryUrl`'s value, because `gitConfig` goes unused
+there and is dropped. (`docsRepositoryBranch`'s value, `main`, does appear, in 16 of the 98 files,
+as the ordinary word; the same coincidence rule as the client chunks applies.) Had it not been, the whole JSON is 2,653 bytes against that 1.78 MB, about 0.15 percent.
 CLAUDE.md quotes that closure size as load-bearing, so weigh both consumers, not just the client
 chunks, before importing anything heavier into `lib/shared.ts`.
 
@@ -627,8 +628,14 @@ which GitHub redirects to `…/tree/CONTRIBUTE.md` and answers 404, and no other
 trailing slash on `docsRepositoryUrl` is deliberately not rejected, because the doubled slash it
 produces is answered 200.
 
-`.github/pull_request_template.md` still hardcodes two of these URLs. GitHub renders that file, not
-this site, so no mechanism here reaches it; flip those two by hand at cutover.
+The cutover checklist, in full: flip `docsRepositoryUrl` in `content/vars.json`; flip the two URLs
+in `.github/pull_request_template.md` by hand, because GitHub renders that file, not this site, so
+no mechanism here reaches it; and retire the fork-step exception, since after the flip
+`gitConfig.url` equals the `arbitrum-docs` URL and the exception would let a hardcoded copy of the
+live URL sit unchallenged in the one file the mechanism otherwise owns. Retiring it means rewriting
+that link as `{var:docsRepositoryUrl}`, deleting its inline comment in the partial, and removing
+the `LITERAL_URL_EXCEPTIONS` entry and `CUTOVER_URL` from `ALLOWED` in
+`scripts/lib/contribute-repo-links.test.mjs`; the test then fails on any literal copy that is left.
 
 ### Announcement banner
 
