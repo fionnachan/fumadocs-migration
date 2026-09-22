@@ -43,18 +43,44 @@ sidebar, but only if the page has no explicit `name` in `lib/docs-navigation.jso
 `name` always wins over `sidebar_label`, and a page the manifest never names renders its
 `sidebar_label`.
 
-**Sidebar order comes from `meta.json` in each content directory, not from file names.** Add your
-new page's basename to the `pages` array in the `meta.json` for that directory, in the position
-you want it to appear. `meta.json` also supports `...` rest-globs, `---Separator---` headings,
-`[text](url)` external links, and `!exclude`. Run `pnpm nav:check` after touching one.
+### Place your page in the sidebar
 
-**A new top-level section needs `"root": true` in its `meta.json`.** That is what makes the
-sidebar show only that section and what the root switcher above the sidebar names. A page that
-sits under no such directory gets an arbitrary sidebar, so `pnpm nav:check` fails on it and names
-the file. A page that belongs in an existing section needs nothing extra. Do not add a
-`[Title](/docs/…)` entry pointing at a page in this repo: a link entry becomes a real tree node
-and steals that page's sidebar root, which `nav:check` also fails on. Reference it as
-`"../name"` from the one section that should own it instead.
+**Two files decide where a page appears, and you may need only one of them.**
+
+`meta.json` in each content directory lists what that directory holds and in what order. Add your
+new page's basename to its `pages` array. The array also supports `...` rest-globs,
+`---Separator---` headings, `[text](url)` links to other sites, and `!exclude`.
+
+`lib/docs-navigation.json` decides the sidebar a reader sees: the nine sections, the groups inside
+them, the order, and the label on each entry. To give your page a place in a section's main menu,
+add an entry to that section's `children`:
+
+```json
+{ "name": "Run a full node", "page": "/docs/run-a-node/run-full-node" }
+```
+
+Use `page` for a page the section owns. Use `href` for a link to a page another section owns, which
+renders as a normal sidebar link and leaves the destination's own sidebar alone. Never add a second
+`page` entry for a URL another section already claims: `pnpm nav:check` fails on it.
+
+**If you do nothing, your page still reaches the sidebar.** A page the manifest never lists is
+appended to its section under **Additional guides**, keeping the label from its `sidebar_label`, or
+its `title` if it has none. That is a reasonable home for a reference page. Add an entry when the
+page belongs in the reading order.
+
+**A new top-level section needs two things**: `"root": true` in its `meta.json`, and its directory
+name in some section's `sourceFolders` array in `lib/docs-navigation.json`. Miss the first and
+`pnpm nav:check` fails and names every uncovered file. Miss the second and your pages render above
+the sections with no sidebar of their own, and no gate reports it.
+
+**Do not add a `[Title](/docs/…)` entry pointing at a page in this repo.** A link entry becomes a
+real node in the content tree, so it overwrites that page's sidebar label and can drag the page into
+your section. `pnpm nav:check` fails on it. Reference the page as `"../name"` from the one directory
+that should hold it, or link to it with an `href` entry in the manifest.
+
+Run `pnpm nav:check` after touching either file, and open the page at `http://localhost:3000` to see
+where it landed. [The sidebar and its roots](INTERNALS.md#the-sidebar-and-its-roots) in INTERNALS
+covers the rest of the manifest.
 
 ## Reuse a partial before you write new prose
 
@@ -143,7 +169,7 @@ against a running site.
 pnpm types:check       # regenerates .source/, generates Next types, tsc --noEmit — the main gate
 pnpm test              # node --test over the tooling scripts in scripts/
 pnpm vars:check        # every <Var name> resolves
-pnpm nav:check         # meta.json nav integrity + sidebar root coverage
+pnpm nav:check         # meta.json integrity, root coverage, navigation-manifest duplicates
 pnpm partials:check    # includes resolve, no routing leak, catalog fresh
 pnpm references:check  # glossary ids + <Reference> targets
 pnpm check-links       # broken internal doc links and MDX fragments
