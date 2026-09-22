@@ -1,3 +1,4 @@
+import vars from '../content/vars.json' with { type: 'json' };
 import { localSiteUrl, resolveSiteUrl } from './site-url.mjs';
 
 export const appName = 'Arbitrum docs';
@@ -21,10 +22,30 @@ export const docsContentRoute = '/llms.mdx/docs';
 
 export { localSiteUrl };
 
+/**
+ * This repository's own GitHub identity, for the edit link on every docs page and for the
+ * "Request an update" issue link (`components/RequestUpdateLink.tsx`).
+ *
+ * The values are `content/vars.json`'s, not this file's (FS-2733). The contribute guide renders
+ * the same URLs as `{var:docsRepositoryUrl}/blob/{var:docsRepositoryBranch}/…` link destinations,
+ * and two owners for one string is what the ticket closes: `check-links` skips every external
+ * destination, so a repository rename used to leave six dead links on that page with no gate
+ * turning red. One value, `docsRepositoryUrl`, flips at cutover and takes the code and the content
+ * with it.
+ *
+ * `url` rather than a `user`/`repo` pair because both call sites join the two immediately, so the
+ * split only offered a way for the halves to disagree.
+ *
+ * The JSON is imported with an explicit `with { type: 'json' }` attribute, and `content/vars.ts`
+ * is deliberately not imported instead. Two reasons, and both are load-bearing. `scripts/lib/shared.test.mjs`
+ * and `scripts/static-docs-http.test.mjs` import this module as `.ts` under `node --test`, where
+ * Node strips the types but still rejects a bare JSON import with `ERR_IMPORT_ATTRIBUTE_MISSING`;
+ * and `content/vars.ts` pulls in Zod, which this module must keep away from the client bundle,
+ * since `components/sidebar-resource-links.tsx` is a client component that imports from here.
+ */
 export const gitConfig = {
-  user: 'OffchainLabs',
-  repo: 'Fumadocs-test',
-  branch: 'main',
+  url: vars.docsRepositoryUrl,
+  branch: vars.docsRepositoryBranch,
 };
 
 /**

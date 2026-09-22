@@ -6,7 +6,7 @@ import test from 'node:test';
 // and for the reason it gives: Node 22 strips types natively and `lib/shared.ts` imports only the
 // plain-JS `./site-url.mjs`, so this asserts against the exact constant the page renders instead
 // of a copy that can drift from it.
-import { appName } from '../lib/shared.ts';
+import { appName, gitConfig } from '../lib/shared.ts';
 
 const baseUrl = process.env.STATIC_DOCS_TEST_URL;
 const livePath = '/docs/run-a-node/start-here';
@@ -362,5 +362,36 @@ test('docs page open graph tags', { skip: !baseUrl }, async (t) => {
     const docs = await head('/docs');
     assert.equal(meta(docs, 'og:type'), 'article');
     assert.equal(meta(docs, 'og:site_name'), appName);
+  });
+});
+
+test('the contribute guide links back into this repository', { skip: !baseUrl }, async (t) => {
+  /**
+   * The rendered half of FS-2733. `scripts/lib/contribute-repo-links.test.mjs` asserts the same
+   * rule over the source file and needs no server; this one is what proves the
+   * `{var:docsRepositoryUrl}` placeholders actually expanded, rather than reaching the reader as
+   * literal braces inside an href. Nothing else would notice: `check-links` skips an external
+   * destination, and a wrong-but-well-formed GitHub URL still renders as a link.
+   */
+  const allowed = new Set([
+    // The cutover exception the partial carries an inline comment about, plus the placeholder
+    // profile in the community-contribution banner example.
+    'https://github.com/OffchainLabs/arbitrum-docs',
+    'https://github.com/handle',
+  ]);
+  const html = documentOnly(await head('/docs/contribute'));
+  const hrefs = [...html.matchAll(/href="(https:\/\/github\.com\/[^"]*)"/g)].map((m) => m[1]);
+
+  await t.test('every GitHub link belongs to the repository gitConfig names', () => {
+    const own = hrefs.filter((url) => url === gitConfig.url || url.startsWith(`${gitConfig.url}/`));
+    assert.ok(own.length > 0, 'the page rendered no link back into this repository');
+    assert.deepEqual(
+      hrefs.filter((url) => !own.includes(url) && !allowed.has(url)),
+      [],
+    );
+  });
+
+  await t.test('no placeholder survived into the rendered page', () => {
+    assert.ok(!html.includes('{var:'), 'a {var:…} placeholder reached the reader unexpanded');
   });
 });

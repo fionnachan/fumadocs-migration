@@ -27,6 +27,22 @@ import varsJson from './vars.json';
  * only copy and there is nothing left to keep it in sync with.
  */
 const varsSchema = z.strictObject({
+  // --- This repository's own identity (FS-2733) ---------------------------
+  // The single owner of the docs repository's GitHub URL, read from two sides.
+  // `gitConfig` in `lib/shared.ts` composes the edit link and the "Request an
+  // update" issue link from it, and the contribute guide writes its own links
+  // as `{var:docsRepositoryUrl}/blob/{var:docsRepositoryBranch}/…`. Before
+  // this, that guide hardcoded six URLs beside a comment asking a human to
+  // retarget them by hand, and `check-links` skips every external destination,
+  // so a rename would have left six dead links with no gate turning red.
+  //
+  // `docsRepositoryUrl` is the one value that flips at cutover, when this
+  // repository takes over the `OffchainLabs/arbitrum-docs` name and URL.
+  // Everything else that names the repository follows from it.
+  docsRepositoryUrl: z.url(),
+  docsRepositoryBranch: z.string(),
+  // --- end repository identity --------------------------------------------
+
   arbOneChainId: z.number(),
   novaChainId: z.number(),
   nitroDocsRepo: z.url(),

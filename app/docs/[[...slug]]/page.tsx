@@ -131,7 +131,7 @@ export default async function Page({ params }: { params: Promise<{ slug?: string
         <MarkdownCopyButton markdownUrl={markdownUrl} />
         <ViewOptionsPopover
           markdownUrl={markdownUrl}
-          githubUrl={`https://github.com/${gitConfig.user}/${gitConfig.repo}/blob/${gitConfig.branch}/${repoPath}`}
+          githubUrl={`${gitConfig.url}/blob/${gitConfig.branch}/${repoPath}`}
         />
         <RequestUpdateLink pageUrl={page.url} />
         {versions ? (

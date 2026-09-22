@@ -87,7 +87,9 @@ route with no wiring; there is no per-page React file.
 **The action row** under the title holds `MarkdownCopyButton`, `ViewOptionsPopover`,
 `RequestUpdateLink` (`components/RequestUpdateLink.tsx`, the port of the Docusaurus `HeaderBadges`
 "Request an update" badge: a server-rendered link to a prefilled GitHub issue, built from
-`gitConfig`, `page.url`, and `NEXT_PUBLIC_SITE_URL`), and, on versioned pages only,
+`gitConfig`, which reads the repository URL from
+[`content/vars.json`](#this-repositorys-own-url-has-one-owner), plus `page.url` and
+`NEXT_PUBLIC_SITE_URL`), and, on versioned pages only,
 `VersionSwitcher`. The [last updated](#last-modified-dates) line sits above it, between the
 description and the row.
 
@@ -555,6 +557,50 @@ An unknown name is left in place rather than thrown on, which matches what `<Var
 the defect reaches the page and `vars:check` fails on it. Throwing inside a plugin that loads before
 any page is rendered would take the whole site down for a single typo. `content:lint` rule `A11`
 blocks the old syntax, and a placeholder whose name is not an identifier, so neither can come back.
+
+### This repository's own URL has one owner
+
+`content/vars.json` owns the docs repository's GitHub identity, as `docsRepositoryUrl` and
+`docsRepositoryBranch`. Both sides read it from there: `gitConfig` in `lib/shared.ts` composes the
+edit link on every docs page and the "Request an update" issue link, and the contribute guide writes
+its own links as `{var:docsRepositoryUrl}/blob/{var:docsRepositoryBranch}/…` destinations.
+
+Before FS-2733 the guide hardcoded six of those URLs beside a comment asking a human to retarget
+them by hand, because `<Var>` does not work in a destination and FS-2725 declined to move them onto
+a variable while `lib/shared.ts` held a second copy of the same string. `check-links` skips every
+external destination, so a repository rename would have left six dead links on `/docs/contribute`
+with no gate turning red. The two comments are gone; the mechanism replaces them.
+
+**`docsRepositoryUrl` is the one value that flips at cutover**, when this repository takes over the
+`OffchainLabs/arbitrum-docs` name and URL. Editing that one string moves the content links and the
+two composed links together. `docsRepositoryBranch` does not flip. One link is deliberately already
+on the far side of the flip: the "fork the Arbitrum docs repo" step names `arbitrum-docs` today,
+because that is where a contributor forks from, and the partial carries an inline comment saying so.
+The rest cannot follow yet, since the files they name do not exist in that repository until cutover.
+
+Three details are load-bearing:
+
+- `gitConfig` is `{ url, branch }`, not `{ user, repo, branch }`. Both call sites joined the first
+  two immediately, so the split only offered a way for the halves to disagree.
+- `lib/shared.ts` imports `content/vars.json` **with an explicit `with { type: 'json' }`
+  attribute**. `scripts/lib/shared.test.mjs`, `scripts/lib/contribute-repo-links.test.mjs` and
+  `scripts/static-docs-http.test.mjs` all import that module as `.ts` under `node --test`, where
+  Node 22 strips the types but still rejects a bare JSON import with `ERR_IMPORT_ATTRIBUTE_MISSING`.
+  `content/vars.ts` keeps its plain import, because nothing runs that file under bare Node.
+- It imports the JSON, never `content/vars.ts`, which would pull Zod into the module a client
+  component (`components/sidebar-resource-links.tsx`) imports from. Measured either way: with the
+  JSON import, `pnpm build` produced byte-identical client chunks (16,618,175 bytes over 379 files,
+  the chunk carrying `SidebarResourceLinks` still 2,530 bytes) and no `vars.json` value appears in
+  any of them, because the two keys are read in server components only and get inlined there.
+
+Two tests hold the agreement. `scripts/lib/contribute-repo-links.test.mjs` expands the partial's
+destinations and asserts each one belongs to the repository `gitConfig` names, which also proves the
+code value and the JSON value are the same string with no server running. The HTTP half in
+`scripts/static-docs-http.test.mjs` fetches `/docs/contribute` and applies the same rule to the
+rendered hrefs, which is what proves the placeholders expanded rather than shipping as braces.
+
+`.github/pull_request_template.md` still hardcodes two of these URLs. GitHub renders that file, not
+this site, so no mechanism here reaches it; flip those two by hand at cutover.
 
 ### Announcement banner
 
@@ -1661,6 +1707,11 @@ literal tag is exactly the defect it looks for.
 | `A9`  | A hand-written `<p>` around block content                                     |
 | `A10` | A `<tr>` that is a direct child of `<table>`                                  |
 | `A11` | `<Var>` in a link destination, which never substitutes and never parses       |
+
+`A5` judges a destination **after** `{var:name}` expansion, the way `check-links` does (FS-2733). A
+destination opening with a placeholder that holds an absolute URL reads as a relative path as
+written and is external once expanded, so judging the written string would flag a `.md` suffix that
+is correct: the target is a file in a git repository, not a route on this site.
 
 `A7` is the one rule the bare command does not run. It has three findings left, all on
 `content/docs/stylus/cli-tools/verify-contracts.mdx`, tracked as FS-2709; the command prints a note
