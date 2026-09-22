@@ -153,6 +153,31 @@ and nothing else reads content. The constraints that follow are deliberate:
 - Put URL derivation next to `source` — `getPageImage`, `getPageMarkdownUrl`, `getLLMText` — not
   in route handlers.
 
+**The markdown mirror is stringified from the page's own mdast, not compiled separately.**
+`fumadocs-mdx` builds one processor per collection and appends its own postprocess plugin last
+(`remarkPlugins: [remarkInclude, ...mdxOptions.remarkPlugins, [remarkPostprocess, …]]`), and that
+plugin calls `remarkLLMs` on the tree the page compile is about to turn into JSX. So a remark plugin
+listed in `lib/mdx-options.mjs` runs after includes are spliced in and before the mirror is written,
+and it cannot tell which output it is feeding: the fork is downstream of every plugin the site owns.
+
+**MDX comments are stripped from that output, deliberately (FS-2732).** `{/* … */}` renders as
+nothing, so it was never in the HTML, but it is an expression node in that shared tree and
+`remarkLLMs` wrote it back out verbatim: 100 comments reached `/llms-full.txt`, three reached
+`/docs/contribute.md`, two reached an archive mirror. `remarkStripMdxComments` in
+`lib/mdx-comments.mjs` now deletes every expression node whose parsed program has no statements and
+at least one comment, wherever it sits, including inside a JSX element's children. A comment is not
+content: every one of them is addressed to somebody editing the `.mdx` file, which is the one file
+the mirror's reader does not have. That holds for the do-not-edit banners too, which name a `pnpm`
+script in a checkout that reader never sees, and no generator reads a marker back out of a mirror
+(`cli:generate`, `stylus:generate`, `precompiles:generate` and `nitro:check-release` all read the
+raw file from disk). A comment written inside a fenced block or an inline code span is never an
+expression node, so it is served exactly as written. The plugin sits in `lib/mdx-options.mjs` rather
+than in `postprocess`, because it is a no-op for the page compile, because that module is shared
+with `check-links`, and because `postprocess` would have to state it once per collection.
+`scripts/lib/mdx-comments.test.mjs` runs the real processor plus the real `remarkLLMs`;
+`scripts/static-docs-http.test.mjs` asserts a page mirror, an archive mirror and `llms-full.txt` all
+come back with no `{/*` in them.
+
 **`lib/source` is server-only.** Never import it, or a constant that transitively pulls it, from a
 client component: it drags the compiled collection into the browser bundle. One such import once
 cost a 24 MB chunk on every docs page. No gate catches this — see
@@ -1016,7 +1041,10 @@ Three things this must keep getting right:
 
 - **`postprocess.includeProcessedMarkdown` is per collection.** The `docsVersions` collection sets
   it separately from `docs`; without it `getText('processed')` rejects and the archive mirrors fail
-  at request time, a long way from `source.config.ts`.
+  at request time, a long way from `source.config.ts`. What the mirror _contains_ is not per
+  collection, because the MDX comment stripping rides in `lib/mdx-options.mjs` rather than here (see
+  [`source` is a choke point](#source-is-a-choke-point)), so an archive is covered by the same
+  plugin a live page is.
 - **An archive is `noindex` with a canonical to the live page.** The HTML carries both tags. A
   markdown body can carry neither, so the mirror sends `X-Robots-Tag: noindex, follow` instead.
   Live markdown sends no such header.

@@ -235,6 +235,49 @@ test('built static docs routing', { skip: !baseUrl }, async (t) => {
   });
 });
 
+test('markdown mirrors carry no MDX comments', { skip: !baseUrl }, async (t) => {
+  // FS-2732. `{/* … */}` never reached the HTML, but the mirrors are stringified from the same
+  // mdast, so every maintainer note in `content/` was served to the one audience that cannot see
+  // the file it talks about. Three shapes are checked because each proves something the others
+  // cannot: a page whose comments come from its own body and an included partial, an archive (the
+  // `docsVersions` collection sets `includeProcessedMarkdown` separately, and its comments arrive
+  // inside a `<Tab>`), and the site-wide concatenation.
+  const noComments = (body, path) => {
+    assert.ok(body.length > 0, path);
+    assert.equal(body.includes('{/*'), false, `${path} still serves an MDX comment`);
+  };
+
+  await t.test('a page mirror is clean and still carries its prose', async () => {
+    for (const path of ['/docs/contribute.md', '/llms.mdx/docs/contribute/content.md']) {
+      const response = await get(path);
+      assert.equal(response.status, 200, path);
+      const body = await response.text();
+      noComments(body, path);
+      assert.match(body, /Arbitrum documentation/, path);
+    }
+  });
+
+  await t.test('an archive mirror is clean and still carries its archived body', async () => {
+    for (const path of [`${archivePath}.md`, archiveMirror]) {
+      const response = await get(path);
+      assert.equal(response.status, 200, path);
+      const body = await response.text();
+      noComments(body, path);
+      assert.ok(body.includes(archivedText), path);
+    }
+  });
+
+  await t.test('llms-full.txt is clean site-wide', async () => {
+    // The assertion that cannot go vacuous: 100 comments lived here, spread over ~80 pages, so it
+    // keeps meaning something however any single page is edited.
+    const response = await get('/llms-full.txt');
+    assert.equal(response.status, 200);
+    const body = await response.text();
+    noComments(body, '/llms-full.txt');
+    assert.ok(body.length > 100_000);
+  });
+});
+
 test('well-known MCP discovery card', { skip: !baseUrl }, async (t) => {
   const cardPath = '/.well-known/mcp/server-card.json';
 
