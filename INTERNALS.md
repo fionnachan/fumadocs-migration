@@ -437,9 +437,16 @@ be compiled outside the docs pipeline when ESM-imported, and there `fumadocs-mdx
 is undefined and crashes the build. `partials:check` enforces the distinction.
 
 **Neither scanner sees code.** `parseIncludes` and `parsePartialImports` strip fenced blocks and
-inline code spans before they match (`scripts/lib/strip-code.mjs`, the same helper `content:lint`
-uses for every A rule), so a directive quoted as an example is not validated as a real include and
-is not counted in the catalog's "used in" totals. `fumadocs-mdx` agrees at the other end:
+inline code spans before they match, so a directive quoted as an example is not validated as a real
+include and is not counted in the catalog's "used in" totals. They strip it with
+`scripts/lib/strip-code.mjs`, which since FS-2729 is the single scanner behind every content gate:
+`content:lint` masks with it for A1 to A5 and A7 to A11 and asks it for the code regions themselves
+for A6, `check-links` and `move-doc` mask with it (frontmatter and HTML comments included), and
+`images:check` masks with it too. It is one line-based, block-then-inline scan with one contract
+(same length, same offsets, same line count in and out) and a per-consumer choice of which region
+kinds to blank. Four separate implementations of "ignore code" used to exist, each with its own edge
+cases, and a one-line change to one of them silently hid 6,914 characters of prose from a blocking
+gate. `fumadocs-mdx` agrees at the other end:
 `remarkInclude` visits JSX and directive nodes only, so a fenced `<include>` is a `code` node it
 never expands. That is what lets the contribute guide print the syntax it teaches (FS-2723).
 

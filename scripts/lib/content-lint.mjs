@@ -17,10 +17,10 @@
  *   A5  Internal link target keeping a `.md`/`.mdx` suffix — 404s at runtime.
  *   A6  `<Var>` inside a fenced code block or inline code span. MDX does not evaluate components
  *       inside code, so the reader sees the literal `<Var name="…" />` tag instead of its value.
- *       Coverage matches `stripCode`, which models backtick and tilde fences and single-backtick
- *       spans only: a `<Var>` inside a four-space-indented block or a double-backtick span is not
- *       flagged. Widening A6 alone would make it disagree with A1..A5 about what "code" is, so the
- *       two move together or not at all. Neither form appears in `content/`.
+ *       Coverage matches the shared scanner in `strip-code.mjs`, which models backtick and tilde
+ *       fences and run-paired inline spans: a `<Var>` inside a four-space-indented block is not
+ *       flagged, that being the one code form nothing here models. Widening A6 alone would make it
+ *       disagree with A1..A5 about what "code" is, so the two move together or not at all.
  *   A7  A JSX/component `src` pointing at a local (site-relative) image with no file under
  *       `public/`. `<ImageZoom src="/img/…">` is a plain `<img>`, so this is the one image path
  *       nothing else validates: `pnpm images:presence` only blocks a *remote* src on *markdown*
@@ -69,7 +69,7 @@ import path from 'node:path';
 
 import { MALFORMED_VAR_PLACEHOLDER } from '../../lib/var-links.mjs';
 import { toPosix, walk } from './partials.mjs';
-import { stripCode } from './strip-code.mjs';
+import { codeRegions, stripCode } from './strip-code.mjs';
 
 export const ADMONITION_TYPES = new Set(['note', 'tip', 'info', 'warning', 'danger']);
 const isMdx = (p) => /\.mdx?$/i.test(p);
@@ -154,29 +154,22 @@ export function lintSource(source) {
   // A6: `<Var>` used inside code. MDX does not evaluate components inside a fenced block or an
   // inline code span, so the reader sees the literal `<Var name="…" />` tag, not its value.
   //
-  // Walk fenced blocks and inline spans against `source` directly (not the code-stripped `text`,
-  // which is exactly what we need to look *inside*), matching `stripCode`'s own regexes so a
-  // fence's own backticks are never mistaken for an inline-code delimiter.
+  // This is the one rule that looks *inside* code rather than past it, so it asks the shared scanner
+  // for the regions themselves instead of the masked text. Same scanner as every other rule, so A6
+  // cannot drift from A1..A5 about what "code" is (FS-2729); it used to carry its own copy of two
+  // fence regexes, which is exactly how that drift happens.
   const varRe = /<Var\b[^>]*\/?>/g;
-  for (const m of source.matchAll(/^([ \t]*)(`{3,}|~{3,})[\s\S]*?^\1?\2[^\n]*$/gm)) {
-    for (const vm of m[0].matchAll(varRe)) {
+  const where = {
+    fence: 'a fenced code block',
+    inlineCode: 'an inline code span',
+  };
+  for (const region of codeRegions(source, { mdxComments: true })) {
+    if (region.kind !== 'fence' && region.kind !== 'inlineCode') continue;
+    for (const vm of source.slice(region.start, region.end).matchAll(varRe)) {
       add(
         'A6',
-        m.index + vm.index,
-        '<Var> inside a fenced code block renders as a literal tag, not its value',
-      );
-    }
-  }
-  const withoutFences = source.replace(/^([ \t]*)(`{3,}|~{3,})[\s\S]*?^\1?\2[^\n]*$/gm, (m) =>
-    m.replace(/[^\n]/g, ' '),
-  );
-  for (const m of withoutFences.matchAll(/`[^`\n]*`/g)) {
-    const span = source.slice(m.index, m.index + m[0].length);
-    for (const vm of span.matchAll(varRe)) {
-      add(
-        'A6',
-        m.index + vm.index,
-        '<Var> inside an inline code span renders as a literal tag, not its value',
+        region.start + vm.index,
+        `<Var> inside ${where[region.kind]} renders as a literal tag, not its value`,
       );
     }
   }

@@ -1,12 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import {
-  extractRemoteImages,
-  isReachable,
-  stripCodeFences,
-  stripInlineCode,
-} from './lib/remote-images.mjs';
+import { extractRemoteImages, isReachable } from './lib/remote-images.mjs';
+import { maskCode } from './lib/strip-code.mjs';
 
 test('extractRemoteImages finds markdown images with a remote src', () => {
   const found = extractRemoteImages('![a diagram](https://example.com/a.png)\n');
@@ -107,7 +103,7 @@ test('extractRemoteImages skips fenced code blocks and reports true line numbers
   assert.equal(found[0].line, 7);
 });
 
-test('stripCodeFences does not close a four-backtick fence on an inner three-backtick line', () => {
+test('a four-backtick fence does not close on an inner three-backtick line', () => {
   const source = [
     '````markdown',
     '```js',
@@ -126,14 +122,14 @@ test('stripCodeFences does not close a four-backtick fence on an inner three-bac
   assert.equal(found[0].line, 7);
 });
 
-test('stripCodeFences does not close a backtick fence on a tilde fence', () => {
+test('a backtick fence does not close on a tilde fence', () => {
   const source = ['```', '~~~', '![fenced](https://example.com/a.png)', '```', ''].join('\n');
   assert.deepEqual(extractRemoteImages(source), []);
 });
 
-test('stripCodeFences preserves the line count', () => {
+test('masking a fence preserves the line count reported for an image below it', () => {
   const source = ['a', '```js', 'const x = 1;', '```', 'b'].join('\n');
-  assert.equal(stripCodeFences(source).split('\n').length, source.split('\n').length);
+  assert.equal(maskCode(source).split('\n').length, source.split('\n').length);
 });
 
 test('extractRemoteImages finds every reference-style spelling of a remote image', () => {
@@ -196,7 +192,7 @@ test('extractRemoteImages ignores images written inside an inline code span', ()
   assert.equal(found[0].line, 4);
 });
 
-test('stripInlineCode leaves an unmatched backtick run as literal text', () => {
+test('an unmatched backtick run is literal text, so the image beside it still counts', () => {
   const source = '![real](https://example.com/a.png) and a stray ` backtick';
   assert.deepEqual(
     extractRemoteImages(source).map((image) => image.url),
@@ -204,14 +200,14 @@ test('stripInlineCode leaves an unmatched backtick run as literal text', () => {
   );
 });
 
-test('stripInlineCode closes a span only on a run of the same length', () => {
+test('a code span closes only on a run of the same length', () => {
   const source = '``code with a ` tick and ![x](https://example.com/in.png)`` ok';
   assert.deepEqual(extractRemoteImages(source), []);
 });
 
-test('stripInlineCode preserves length and line count', () => {
+test('masking inline code preserves length and line count', () => {
   const source = ['a `x` b', 'c `![i](https://example.com/a.png)` d'].join('\n');
-  const stripped = stripInlineCode(source);
+  const stripped = maskCode(source);
   assert.equal(stripped.length, source.length);
   assert.equal(stripped.split('\n').length, source.split('\n').length);
 });
