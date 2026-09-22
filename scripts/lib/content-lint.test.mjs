@@ -149,6 +149,19 @@ test('A5 ignores external and fragment targets', () => {
   assert.deepEqual(rules('[x](/docs/a/b)'), []);
 });
 
+test('A5 judges a destination after {var:…} expansion, not as written', () => {
+  // `docsRepositoryUrl` holds an absolute URL, so this destination is external once expanded even
+  // though it opens with a brace and reads as a relative path (FS-2733). A `.md` suffix on a file
+  // in a git repository is correct, and flagging it would be telling the writer to break the link.
+  assert.deepEqual(
+    rules('[x]({var:docsRepositoryUrl}/blob/{var:docsRepositoryBranch}/CONTRIBUTE.md#types)'),
+    [],
+  );
+  assert.deepEqual(rules('<a href="{var:docsRepositoryUrl}/blob/main/STYLE-GUIDE.md">x</a>'), []);
+  // A placeholder that expands to nothing external leaves an internal target, still a defect.
+  assert.deepEqual(rules('[x](/docs/{var:nitroRepositorySlug}/b.mdx)'), ['A5']);
+});
+
 test('findings carry 1-indexed line numbers', () => {
   const found = lintSource('line1\nline2\n:::note\n');
   assert.equal(found[0].line, 3);

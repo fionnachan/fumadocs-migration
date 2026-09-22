@@ -67,7 +67,11 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { MALFORMED_VAR_PLACEHOLDER } from '../../lib/var-links.mjs';
+import {
+  MALFORMED_VAR_PLACEHOLDER,
+  expandVarPlaceholders,
+  readVars,
+} from '../../lib/var-links.mjs';
 import { toPosix, walk } from './partials.mjs';
 import { stripCode } from './strip-code.mjs';
 
@@ -80,6 +84,15 @@ const isMdx = (p) => /\.mdx?$/i.test(p);
 export { stripCode };
 
 const lineOf = (source, index) => source.slice(0, index).split('\n').length;
+
+/**
+ * `content/vars.json`, read once on the first rule that needs it and kept.
+ *
+ * Lazy rather than read at module load, because `lintSource` is the unit every test drives and a
+ * file read at import time would run in each of them for a rule most of them never reach.
+ */
+let varsCache;
+const vars = () => (varsCache ??= readVars());
 
 export function lintSource(source) {
   const findings = [];
@@ -139,14 +152,24 @@ export function lintSource(source) {
   }
 
   // A5 — internal link targets that keep a .md/.mdx suffix.
+  //
+  // The destination is judged after `{var:name}` expansion, the way `check-links` judges one
+  // (`expandRefUrl` in `doc-links.mjs`). A destination that opens with a placeholder holding an
+  // absolute URL is external once expanded, and reads as a relative path before: the contribute
+  // guide's links to this repository's own `CONTRIBUTE.md` and `STYLE-GUIDE.md` are exactly that
+  // shape (FS-2733). Judging the written string would flag a `.md` suffix that is correct, since
+  // the destination is a file in a git repository and not a route on this site.
   const internal = (t) => t && !/^(?:[a-z]+:|\/\/|#)/i.test(t);
+  const resolved = (t) => expandVarPlaceholders(t, vars());
   for (const m of text.matchAll(/\]\(([^)\s]+)\)/g)) {
-    if (internal(m[1]) && /\.mdx?(?:#[^)]*)?$/i.test(m[1])) {
+    const target = resolved(m[1]);
+    if (internal(target) && /\.mdx?(?:#[^)]*)?$/i.test(target)) {
       add('A5', m.index, `link target keeps a .md/.mdx suffix: ${m[1]}`);
     }
   }
   for (const m of text.matchAll(/\b(?:href|to)\s*=\s*["']([^"']+)["']/g)) {
-    if (internal(m[1]) && /\.mdx?(?:#[^"']*)?$/i.test(m[1])) {
+    const target = resolved(m[1]);
+    if (internal(target) && /\.mdx?(?:#[^"']*)?$/i.test(target)) {
       add('A5', m.index, `link target keeps a .md/.mdx suffix: ${m[1]}`);
     }
   }
