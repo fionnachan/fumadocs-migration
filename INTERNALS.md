@@ -1526,12 +1526,14 @@ about the network rather than about content quality.
 
 "Blocking" here is a statement about intent that the workflow file can only half express. A job
 without `continue-on-error` fails its run, but what holds a merge is a branch protection rule or
-ruleset on `main` that lists required checks by job name. **Neither repository has one today**
-(measured 2026-09-22 through the GitHub API: `fionnachan/fumadocs-migration` has no protection and
-no rulesets on `main`; `OffchainLabs/Fumadocs-test` has one ruleset requiring only an
-integration's `merge-controlled` context), so no CI job holds a merge anywhere yet, `Gates`
-included. To make them hold, create a rule (Settings, Branches) or a ruleset (Settings, Rules) on
-`main` and add both `Gates` and `Build` as required checks. Renaming a job renames its check, and a
+ruleset on `main` that lists required checks by job name. Measured 2026-09-22 through the GitHub
+API: `fionnachan/fumadocs-migration` has no protection and no rulesets on `main`, so no CI job
+holds a merge on the fork, `Gates` included. `OffchainLabs/Fumadocs-test` reports `main` as
+protected by a classic branch-protection rule whose contents the API refuses to this token (its
+ruleset layer requires only an integration's `merge-controlled` context), so whether `Gates` is
+already required there has to be read in Settings, Branches. On either repository the step is
+the same: edit or create the rule (Settings, Branches) or a ruleset (Settings, Rules) on `main`
+and make sure both `Gates` and `Build` are required checks. Renaming a job renames its check, and a
 required check that never reports blocks every pull request indefinitely, which is why the old
 "Build (non-blocking)" name must not be listed.
 
@@ -1588,9 +1590,11 @@ turned it red for reasons unrelated to the change under review. That reason is g
 longer touches the network for images (see
 [Remote images are never fetched at build](#remote-images-are-never-fetched-at-build)).
 
-What only this job sees, and what therefore blocked nothing until the promotion: MDX compile
-errors `types:check` cannot reach, because that check proves the frontmatter schema and the
-TypeScript, not the compile; the 404 shape and prerendered-route assertions of FS-2688 and
+What only this job sees, and what therefore blocked nothing until the promotion: render-time MDX
+failures, a page that compiles but throws at prerender (an undefined component, for instance);
+a plain MDX syntax error was already caught by `check-links`, which compiles every page to
+validate anchors, and `types:check` sees neither, because it proves the frontmatter schema and
+the TypeScript, not the compile; the 404 shape and prerendered-route assertions of FS-2688 and
 FS-2698; `redirects:check`; FS-2724's `og:*` tags; FS-2732's three "no MDX comment in the
 mirrors" assertions; and FS-2733's assertion that the rendered contribute page links back into
 this repository. Every one of them reported and passed anyway.
@@ -1612,8 +1616,10 @@ own change. Nothing else in the job reaches the network: `redirects:check` repor
 destination as `SKIPPED` without fetching it, and the HTTP suite talks only to
 `STATIC_DOCS_TEST_URL`. The same dependency now reaches `upstream-refresh.yml`'s `stylus` job,
 whose gate list mirrors `Gates` plus the build: a Google Fonts outage during the Monday run fails
-that job before `create-pull-request`, so no PR opens and nothing reports it beyond the run's own
-red mark, which nobody is watching. Accepted for the same reason; the next Monday retries.
+that job before `create-pull-request`, so no PR opens; the run goes red and GitHub emails the user
+who last edited the workflow's cron schedule, which is the only signal. The job could already fail
+on any of its thirteen gates the same way, so the build adds a cause, not the gap. Accepted for the
+same reason; the next Monday retries.
 
 **`Network checks` (non-blocking)** runs `precompiles:check`, marked `continue-on-error`, and is
 the only job here that does not block. Reaching zero is not what would promote this one: it is already

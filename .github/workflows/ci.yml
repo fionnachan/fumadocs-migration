@@ -133,8 +133,9 @@ jobs:
     # to the change under review. FS-2681 set `remarkImageOptions: { external: false }` in
     # source.config.ts, and the build no longer touches the network for images.
     #
-    # What it blocks on, none of which any step in `gates` can see: MDX compile errors that
-    # types:check cannot reach, the 404 shape and prerender assertions of FS-2698 and FS-2688,
+    # What it blocks on, none of which any step in `gates` can see: render-time MDX failures
+    # (a page that compiles but throws at prerender; a syntax error already fails check-links),
+    # the 404 shape and prerender assertions of FS-2698 and FS-2688,
     # `redirects:check`, FS-2724's og:* tags, FS-2732's "no MDX comment in the mirrors", and
     # FS-2733's rendered link back into this repository.
     #
