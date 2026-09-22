@@ -80,7 +80,8 @@ pnpm types:check   # the main verification gate
 pnpm check-links   # broken internal links and MDX fragments
 ```
 
-CI runs thirteen blocking checks, including Prettier formatting and the MDX structural lint.
+CI runs thirteen blocking checks, including Prettier formatting and the MDX structural lint, plus a
+blocking `pnpm build` that also serves the built site and checks it over HTTP.
 `pnpm build` runs the same link check, so a broken link fails the Vercel deploy too. See
 [The gates](INTERNALS.md#the-gates) for the full list.
 

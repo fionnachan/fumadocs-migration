@@ -151,11 +151,18 @@ pnpm check-links       # broken internal doc links and MDX fragments
 
 These seven are the ones a content change usually trips. `.github/workflows/ci.yml`'s blocking
 `Gates` job runs them alongside `versioned-docs-check.mjs`, `faq:check`, `images:presence`,
-`contracts:check`, `format:check` and `content:lint`. A green PR
-does not by itself mean the content renders correctly: `types:check` proves the frontmatter
-schema, not the render — it exits 0 on a page that serves a literal `:::` or the string
-`undefined`. **Always open a changed page on `http://localhost:3000` and confirm it looks right**,
-in light and dark mode if you touched styling.
+`contracts:check`, `format:check` and `content:lint`.
+
+**A second job blocks too.** `Build` runs `pnpm build`, then serves the result and checks it over
+HTTP. It is the only thing in CI that compiles your MDX the way the site does, so a page that
+passes every check above can still fail there. If you touched MDX with components, imports or raw
+JSX in it, run `pnpm build` yourself before you push: it takes a couple of minutes and the error
+names the file and line. `Network checks` is the one job that reports without blocking.
+
+A green PR does not by itself mean the content renders correctly: `types:check` proves the
+frontmatter schema, not the render, and it exits 0 on a page that serves a literal `:::` or the
+string `undefined`. **Always open a changed page on `http://localhost:3000` and confirm it looks
+right**, in light and dark mode if you touched styling.
 
 Two of those, `pnpm format:check` and `pnpm content:lint`, reported without blocking while they
 still failed on pre-existing debt. Both reached zero on 2026-09-15 and moved into `Gates`, so a
