@@ -286,6 +286,42 @@ test('a CRLF blank line bounds a span the way an LF one does', () => {
   assert.ok(kept('para `x\r\n \t\r\nSHOWN_THREE\r\n\r\nmore y` tail\r\n', 'SHOWN_THREE'));
 });
 
+test('a span does not cross a setext heading underline', () => {
+  // `Title\n===` is a heading, so the paragraph the span opened in ends at the underline. The `---`
+  // form is covered by the thematic-break case above.
+  const src = lines('para `x', 'SHOWN_SETEXT', '===', 'body y` tail', '');
+  assert.ok(kept(src, 'body y'));
+  assert.ok(kept(src, 'SHOWN_SETEXT'));
+  assert.ok(
+    kept(lines('para `x', 'Heading', '=', 'SHOWN_ONE_EQUALS y` tail', ''), 'SHOWN_ONE_EQUALS'),
+  );
+});
+
+test('a thematic break and a frontmatter fence bound a span on CRLF input too', () => {
+  // `content-lint` reads files verbatim, so a `---\r` line must still end the paragraph. Prettier
+  // rejects CRLF, so this cannot reach content/, but the scanner should not depend on that.
+  assert.ok(kept('para `x\r\n---\r\nSHOWN_AFTER_BREAK y` tail\r\n', 'SHOWN_AFTER_BREAK'));
+  assert.ok(kept('para `x\r\n* * *\r\nSHOWN_AFTER_STARS y` tail\r\n', 'SHOWN_AFTER_STARS'));
+  const fm = '---\r\ntitle: a `b\r\n---\r\nSHOWN_BODY prose\r\nmore `c` end\r\n';
+  assert.ok(kept(fm, 'SHOWN_BODY'));
+});
+
+test('a hash that is not a heading does not bound a span', () => {
+  // `#hashtag` and `#5` have no space after the hashes, so CommonMark reads them as prose and the
+  // span keeps running.
+  for (const row of ['#hashtag HIDDEN_TAG', '#5 HIDDEN_TAG', '#######  HIDDEN_TAG']) {
+    assert.ok(blanked(lines('para `x', row, 'more y` tail', ''), 'HIDDEN_TAG'), row);
+  }
+});
+
+test('a tag closed on the same line by a different element still opens a block', () => {
+  // `INLINE_ELEMENT` requires the closing tag to name the element the line opened. `<Foo>x</Bar>`
+  // fails that, so it is read as a flow element and bounds the span.
+  const src = lines('para `x', '<Foo>SHOWN_MISMATCH</Bar>', 'more y` tail', '');
+  assert.ok(kept(src, 'SHOWN_MISMATCH'));
+  assert.ok(kept(src, 'more y'));
+});
+
 test('a backtick in frontmatter cannot pair with one in the body under stripCode', () => {
   // `stripCode` leaves frontmatter visible on purpose, so the closing `---` is what has to stop the
   // search. It does, being a thematic break. No blank line after it, which is the shape that breaks.
