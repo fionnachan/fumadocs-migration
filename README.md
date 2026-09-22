@@ -137,8 +137,8 @@ sme: reviewing-sme-handle
 Sidebar order, labels and groups come from `lib/docs-navigation.json`. Directory `meta.json` files
 supply the underlying content tree; see
 [The sidebar and its roots](INTERNALS.md#the-sidebar-and-its-roots). `sidebar_label` becomes the
-page's sidebar name only when its manifest entry there gives the page no explicit `name` of its
-own — a manifest `name` always wins.
+page's sidebar name only if the page has no explicit `name` in that manifest; a manifest `name`
+always wins, and a page the manifest never names renders its `sidebar_label`.
 
 ## Use a partial
 

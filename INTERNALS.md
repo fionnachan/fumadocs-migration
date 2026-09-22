@@ -225,9 +225,11 @@ changing the layout or reference renderer.
 A missing or invalid field fails `types:check` and `build`. This is the most common reason a build
 breaks after adding content.
 
-`sidebar_label`, when set, becomes the page's name in the sidebar tree, but only when its manifest
-entry in `lib/docs-navigation.json` gives the page no explicit `name` of its own; a manifest `name`
-always wins. See [The sidebar and its roots](#the-sidebar-and-its-roots).
+`sidebar_label`, when set, becomes the page's name in the sidebar tree, but only if the page has no
+explicit `name` in `lib/docs-navigation.json`; a manifest `name` always wins. A page the manifest
+never names, whether it has an unnamed entry, arrives through a `folder` entry, or falls into an
+Additional guides group, renders its `sidebar_label`. See
+[The sidebar and its roots](#the-sidebar-and-its-roots).
 
 ## Last modified dates
 
