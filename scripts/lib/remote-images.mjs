@@ -20,78 +20,7 @@
  * limit is deliberate rather than an oversight. It is narrow in practice: the syntax that 500s is
  * markdown, and markdown has no expressions. The JSX forms it cannot see are the forms that render.
  */
-
-/**
- * Blank out fenced code blocks, keeping the line count intact so reported line numbers stay true.
- *
- * A URL inside a shell or HTML sample is documentation, not an image reference. The opening fence's
- * own length is remembered, because CommonMark closes a fence only on a run of the same character
- * that is at least as long: a ```` ```` ```` block may contain ``` ``` ``` lines, and treating one
- * of those as the close would expose the rest of the sample to the scanners.
- */
-export function stripCodeFences(source) {
-  /** @type {{ char: string, length: number } | null} */
-  let fence = null;
-
-  return source
-    .split('\n')
-    .map((line) => {
-      const match = /^\s*(`{3,}|~{3,})/.exec(line);
-
-      if (!match) return fence === null ? line : '';
-
-      const marker = match[1];
-
-      if (fence === null) {
-        fence = { char: marker[0], length: marker.length };
-      } else if (marker[0] === fence.char && marker.length >= fence.length) {
-        fence = null;
-      }
-
-      return '';
-    })
-    .join('\n');
-}
-
-/**
- * Blank out inline code spans, keeping every character position intact so reported line numbers
- * stay true.
- *
- * `![alt](https://…)` written between backticks is documentation *about* the syntax, not a use of
- * it. `--presence` is a blocking gate, so a false positive fails a pull request for a file that
- * renders perfectly. That costs more than the same mistake would in the advisory network mode.
- *
- * CommonMark opens a span on a run of backticks and closes it on a run of exactly the same length,
- * so a run that never finds its match is literal text and is left alone.
- */
-export function stripInlineCode(source) {
-  let out = '';
-  let index = 0;
-
-  while (index < source.length) {
-    if (source[index] !== '`') {
-      out += source[index];
-      index += 1;
-      continue;
-    }
-
-    const open = /^`+/.exec(source.slice(index))[0];
-    const closer = new RegExp(String.raw`(?<!\`)\`{${open.length}}(?!\`)`);
-    const match = closer.exec(source.slice(index + open.length));
-
-    if (!match) {
-      out += open;
-      index += open.length;
-      continue;
-    }
-
-    const span = source.slice(index, index + open.length + match.index + open.length);
-    out += span.replace(/[^\n]/g, ' ');
-    index += span.length;
-  }
-
-  return out;
-}
+import { maskCode } from './strip-code.mjs';
 
 const MARKDOWN_IMAGE = /!\[([^\]]*)\]\(\s*<?(https?:\/\/[^\s<>)]+)>?[^)]*\)/g;
 
@@ -148,7 +77,10 @@ const NOT_IMAGES = new Set(['script', 'iframe', 'video', 'audio', 'source', 'tra
  * @returns {{ url: string, line: number, alt: string, element: string, syntax: 'markdown' | 'jsx' }[]}
  */
 export function extractRemoteImages(source) {
-  const scannable = stripInlineCode(stripCodeFences(source));
+  // Fences and inline code only: a URL inside a shell or HTML sample is documentation, not an image
+  // reference, and a false positive here fails a pull request for a page that renders perfectly.
+  // Frontmatter and both comment forms stay visible, which is what this script has always scanned.
+  const scannable = maskCode(source);
   const found = [];
 
   const lineOf = (index) => scannable.slice(0, index).split('\n').length;

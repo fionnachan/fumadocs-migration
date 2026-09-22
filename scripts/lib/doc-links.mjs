@@ -16,6 +16,7 @@ import path from 'node:path';
 
 import { expandVarPlaceholders, readVars } from '../../lib/var-links.mjs';
 import { isPartial } from './partials.mjs';
+import { maskRegions } from './strip-code.mjs';
 
 const posix = path.posix;
 
@@ -167,62 +168,6 @@ export function buildIndex(repoRoot) {
     urlByAbs,
     byUrl,
   };
-}
-
-/**
- * Blank frontmatter, fenced code, inline code, and HTML comments to equal-length whitespace
- * (newlines preserved), so link regexes never match inside them and every range still indexes the
- * original source for splicing.
- */
-function maskRegions(source) {
-  // Regex indexes and string slices count UTF-16 code units, including both halves of an emoji.
-  const chars = source.split('');
-  const blank = (s, e) => {
-    for (let i = s; i < e; i++) if (chars[i] !== '\n') chars[i] = ' ';
-  };
-
-  let bodyStart = 0;
-  const fm = /^---\r?\n[\s\S]*?\n---[ \t]*(?:\r?\n|$)/.exec(source);
-  if (fm && fm.index === 0) {
-    blank(0, fm[0].length);
-    bodyStart = fm[0].length;
-  }
-
-  const lines = source.split('\n');
-  let offset = 0;
-  let inFence = false;
-  let fenceChar = '';
-  let fenceLength = 0;
-  for (const line of lines) {
-    const lineStart = offset;
-    const lineEnd = offset + line.length;
-    const open = /^[ \t]*(`{3,}|~{3,})/.exec(line);
-    if (!inFence && open && lineStart >= bodyStart) {
-      inFence = true;
-      fenceChar = open[1][0];
-      fenceLength = open[1].length;
-      blank(lineStart, lineEnd);
-    } else if (inFence) {
-      blank(lineStart, lineEnd);
-      const close = /^[ \t]*(`{3,}|~{3,})[ \t]*$/.exec(line);
-      if (close && close[1][0] === fenceChar && close[1].length >= fenceLength) inFence = false;
-    }
-    offset = lineEnd + 1;
-  }
-
-  let masked = chars.join('');
-  // Code spans close with a run of the same number of backticks and may contain newlines or
-  // shorter runs. Pair whole runs so ``code with `ticks` `` is not mistaken for prose.
-  const runs = [...masked.matchAll(/`+/g)];
-  for (let i = 0; i < runs.length; i++) {
-    const close = runs.findIndex((run, j) => j > i && run[0].length === runs[i][0].length);
-    if (close === -1) continue;
-    blank(runs[i].index, runs[close].index + runs[close][0].length);
-    i = close;
-  }
-  masked = chars.join('');
-  masked = masked.replace(/<!--[\s\S]*?-->/g, (m) => m.replace(/[^\n]/g, ' '));
-  return masked;
 }
 
 /**

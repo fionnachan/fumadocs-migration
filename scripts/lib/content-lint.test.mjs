@@ -176,6 +176,14 @@ test('A6 fires on a Var in an inline code span', () => {
   assert.match(found[0].message, /inline code span/);
 });
 
+test('A6 fires on a Var in a double-backtick span, which the old scanner missed', () => {
+  assert.deepEqual(rules('a ``<Var name="x" /> and a ` tick`` b'), ['A6']);
+});
+
+test('A6 does NOT fire on a Var inside an MDX comment, which renders nothing at all', () => {
+  assert.deepEqual(rules('{/* `<Var name="x" />` */}'), []);
+});
+
 test('A6 checks fenced blocks inside a partial too', () => {
   // Partials have no frontmatter and are consumed via <include>, but lintSource itself is
   // frontmatter-agnostic: it is only ever handed the raw text of one file, partial or page.
