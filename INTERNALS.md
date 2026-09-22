@@ -1527,13 +1527,14 @@ about the network rather than about content quality.
 "Blocking" here is a statement about intent that the workflow file can only half express. A job
 without `continue-on-error` fails its run, but what holds a merge is a branch protection rule or
 ruleset on `main` that lists required checks by job name. Measured 2026-09-22 through the GitHub
-API: `fionnachan/fumadocs-migration` has no protection and no rulesets on `main`, so no CI job
-holds a merge on the fork, `Gates` included. `OffchainLabs/Fumadocs-test` reports `main` as
-protected by a classic branch-protection rule whose contents the API refuses to this token (its
-ruleset layer requires only an integration's `merge-controlled` context), so whether `Gates` is
-already required there has to be read in Settings, Branches. On either repository the step is
-the same: edit or create the rule (Settings, Branches) or a ruleset (Settings, Rules) on `main`
-and make sure both `Gates` and `Build` are required checks. Renaming a job renames its check, and a
+API: `fionnachan/fumadocs-migration` has no protection and no rulesets on `main`, so a rule or
+ruleset has to be created there. `OffchainLabs/Fumadocs-test` reports `protected: true`, but that
+flag comes from its ruleset layer: classic branch protection is off (`protection.enabled: false`,
+zero required contexts) and the one active ruleset, "Merge control", requires only an
+integration's `merge-controlled` context, so it lives under Settings, Rules, not Settings,
+Branches. On both repositories, then, **no CI job holds a merge today, `Gates` included**. The fix
+is the same on each: add both `Gates` and `Build` as required checks, to a new rule or ruleset on
+the fork and to the "Merge control" ruleset on origin. Renaming a job renames its check, and a
 required check that never reports blocks every pull request indefinitely, which is why the old
 "Build (non-blocking)" name must not be listed.
 
