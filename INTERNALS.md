@@ -215,8 +215,9 @@ otherwise the page's own `sidebar_label` frontmatter is honored, because `docsNa
 `buildDocsNavigation` applies the manifest, and a manifest entry only overrides that name when it
 passes one explicitly. A folder entry with `flatten: true` inserts its children directly into the
 category. Missing pages, references or folders throw an error instead of silently dropping menu
-items, and so does a `page` URL two entries claim, which is the one broken shape the missing-page
-check cannot see, since both claims name a page that exists (FS-2740).
+items, and so does a `page` URL two entries claim, one broken shape the missing-page check cannot
+see, since both claims name a page that exists (FS-2740). The rule walks each section's `children`
+only, so a `children` claim on the section's own derived landing page is still unseen.
 
 **Cross-section links must use `href`.** Fumadocs finds a page's sidebar by walking the tree to the
 first matching page node, then taking its last root folder. Repeating a canonical `page` in another

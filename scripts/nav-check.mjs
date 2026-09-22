@@ -1,5 +1,5 @@
 /**
- * nav-check — fail on navigation defects in the meta.json tree and in the navigation manifest.
+ * nav-check: fail on navigation defects in the meta.json tree and in the navigation manifest.
  *
  * Four rules, all invisible to `types:check` and `build`:
  *   - ghost entries: a `pages` entry naming nothing on disk (silently ignored by Fumadocs).
