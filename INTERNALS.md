@@ -172,7 +172,8 @@ script in a checkout that reader never sees, and no generator reads a marker bac
 (`cli:generate`, `stylus:generate`, `precompiles:generate` and `nitro:check-release` all read the
 raw file from disk). A comment written inside a fenced block or an inline code span is never an
 expression node, so it is served exactly as written. The plugin sits in `lib/mdx-options.mjs` rather
-than in `postprocess`, because it is a no-op for the page compile, because that module is shared
+than in `postprocess`, because the page compile loses only an invisible newline per comment (each
+one rendered as an empty JSX expression plus a `"\n"` text child), because that module is shared
 with `check-links`, and because `postprocess` would have to state it once per collection.
 `scripts/lib/mdx-comments.test.mjs` runs the real processor plus the real `remarkLLMs`;
 `scripts/static-docs-http.test.mjs` asserts a page mirror, an archive mirror and `llms-full.txt` all

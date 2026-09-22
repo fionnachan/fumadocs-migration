@@ -239,7 +239,7 @@ test('markdown mirrors carry no MDX comments', { skip: !baseUrl }, async (t) => 
   // FS-2732. `{/* … */}` never reached the HTML, but the mirrors are stringified from the same
   // mdast, so every maintainer note in `content/` was served to the one audience that cannot see
   // the file it talks about. Three shapes are checked because each proves something the others
-  // cannot: a page whose comments come from its own body and an included partial, an archive (the
+  // cannot: a page whose comments all arrive through an included partial, an archive (the
   // `docsVersions` collection sets `includeProcessedMarkdown` separately, and its comments arrive
   // inside a `<Tab>`), and the site-wide concatenation.
   const noComments = (body, path) => {
