@@ -170,6 +170,51 @@ test('broken manifest entries fail instead of disappearing silently', () => {
   );
 });
 
+// A URL claimed by two entries is the one broken shape `page()` cannot see, because both claims
+// name a page that exists. The transformer rejects it up front so a dev server fails loudly, rather
+// than leaving the reader a sidebar entry that opens a different page and the real page exiled to
+// Additional guides. `pnpm nav:check` applies the same rule, but no gate runs during `pnpm dev`.
+test('a page URL claimed by two manifest entries fails instead of rendering a wrong sidebar', () => {
+  assert.throws(
+    () =>
+      buildDocsNavigation(tree, [
+        {
+          id: 'run-a-node',
+          name: 'Run an Arbitrum node',
+          sourceFolders: ['run-a-node'],
+          children: [
+            { name: 'Overview', page: '/docs/run-a-node/arbos-releases/overview' },
+            { name: 'Elara (ArbOS 61)', page: '/docs/run-a-node/arbos-releases/overview' },
+          ],
+        },
+      ]),
+    /Navigation page claimed more than once: \/docs\/run-a-node\/arbos-releases\/overview \(Overview, Elara \(ArbOS 61\)\)/,
+  );
+});
+
+test('the real manifest places every page that was falling into Additional guides', () => {
+  // The six pages FS-2740 freed. Each was exiled because another entry had taken its URL.
+  const placed = {
+    '/docs/launch-arbitrum-chain/configuration/costs/parent-chain-data-fee-pricing':
+      'Parent chain data fee pricing',
+    '/docs/launch-arbitrum-chain/configuration/costs/priority-fees': 'Priority fees',
+    '/docs/launch-arbitrum-chain/configuration/sequencer/sequencer-config-reference':
+      'Sequencer configuration reference',
+    '/docs/launch-arbitrum-chain/operate/error-index': 'Error index',
+    '/docs/launch-arbitrum-chain/operate/sequencer-troubleshooting': 'Sequencer troubleshooting',
+    '/docs/run-a-node/arbos-releases/arbos61': 'Elara (ArbOS 61)',
+  };
+  for (const [url, name] of Object.entries(placed)) {
+    const path = searchPath(tree.children, url);
+    assert.ok(path, `missing ${url}`);
+    assert.equal(path.at(-1).name, name, url);
+    assert.ok(
+      !path.some((node) => node.name === 'Additional guides'),
+      `${url} is still in Additional guides`,
+    );
+  }
+});
+
 // A page can set its own sidebar_label, and a manifest entry can rename that same page with its
 // own `name`. Build a small synthetic source (rather than reusing the real content tree) so this
 // case is exercised even when no page in content/docs happens to carry both right now.

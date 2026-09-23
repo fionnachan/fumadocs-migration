@@ -215,7 +215,9 @@ otherwise the page's own `sidebar_label` frontmatter is honored, because `docsNa
 `buildDocsNavigation` applies the manifest, and a manifest entry only overrides that name when it
 passes one explicitly. A folder entry with `flatten: true` inserts its children directly into the
 category. Missing pages, references or folders throw an error instead of silently dropping menu
-items.
+items, and so does a `page` URL two entries claim, one broken shape the missing-page check cannot
+see, since both claims name a page that exists (FS-2740). The rule walks each section's `children`
+only, so a `children` claim on the section's own derived landing page is still unseen.
 
 **Cross-section links must use `href`.** Fumadocs finds a page's sidebar by walking the tree to the
 first matching page node, then taking its last root folder. Repeating a canonical `page` in another
@@ -237,7 +239,10 @@ footer wrapper does not hide the links on desktop. Its links live in `lib/shared
 checked by `scripts/lib/shared.test.mjs`.
 
 `pnpm nav:check` checks the underlying `meta.json` tree for missing entries, hidden files, uncovered
-pages and shadowing links. `scripts/docs-navigation.test.mjs` additionally loads the real local
+pages and shadowing links, and the manifest for a `page` URL claimed more than once. That last rule
+lives in `lib/docs-navigation-rules.mjs`, imported by both the gate and `buildDocsNavigation`, so a
+duplicate fails a dev server as well as CI; a repeated `href` is exempt, because a shortcut claims
+nothing. `scripts/docs-navigation.test.mjs` additionally loads the real local
 content through Fumadocs and verifies the final hierarchy, complete page coverage, unique section
 ownership, and cross-section destinations. Check rendered desktop and mobile navigation when
 changing the layout or reference renderer.
@@ -1529,7 +1534,7 @@ blocks.**
 | `types:check`              | Frontmatter schema violations, TypeScript errors                              |
 | `test`                     | Regressions in the tooling scripts themselves                                 |
 | `vars:check`               | A `<Var name>` with no matching key in `vars.json`                            |
-| `nav:check`                | `meta.json` navigation integrity, including sidebar root coverage             |
+| `nav:check`                | `meta.json` navigation integrity, sidebar root coverage, manifest duplicates  |
 | `partials:check`           | Unresolved includes, routing leaks, stale catalog, `cwd` include in a partial |
 | `versioned-docs-check.mjs` | Archived-page registry drift                                                  |
 | `references:check`         | Glossary ids and `<Reference>` targets                                        |
