@@ -376,9 +376,11 @@ test('duplicateManifestPages leaves repeated href shortcuts alone', () => {
 
 /**
  * The section-landing rule (FS-2749). `buildDocsNavigation` derives a landing node for each section
- * from its source folder's index, and that node is not in `children`, so `duplicateManifestPages`
- * above walks straight past an entry claiming the same URL. The real manifest carried exactly one,
- * `/docs/get-started`, which this ticket rewrote as an `href`.
+ * from its source folder's index, and that node is in no section's `children`, so
+ * `duplicateManifestPages` above walks straight past an entry claiming the same URL. The real
+ * manifest carried exactly one, `/docs/get-started`, which this ticket rewrote as an `href`. The
+ * claiming entry can sit in any section, which is why the rule checks every landing against every
+ * section's children rather than pairing each section with its own id.
  */
 
 test('sectionLandingClaims reports an entry claiming its own section landing', () => {
@@ -394,7 +396,63 @@ test('sectionLandingClaims reports an entry claiming its own section landing', (
     },
   ]);
   assert.deepEqual(landings, [
-    { url: '/docs/get-started', section: 'get-started', names: ['Get started'] },
+    {
+      url: '/docs/get-started',
+      section: 'get-started',
+      claims: [{ section: 'get-started', name: 'Get started' }],
+    },
+  ]);
+});
+
+test('sectionLandingClaims reports a landing claimed from a different section', () => {
+  // The same two-node defect, and the shape a rule pairing each section with its own id was blind
+  // to. Measured with a `page` entry for `/docs/get-started` in Notices: both static rules returned
+  // empty while the transformer threw
+  // `Navigation page on more than one node: /docs/get-started (Get started > (index) | Notices)`.
+  const landings = sectionLandingClaims([
+    {
+      id: 'get-started',
+      name: 'Get started',
+      sourceFolders: ['get-started'],
+      children: [
+        { name: 'Arbitrum: introduction', page: '/docs/get-started/arbitrum-introduction' },
+      ],
+    },
+    {
+      id: 'notices',
+      name: 'Notices',
+      sourceFolders: ['notices'],
+      children: [{ name: 'GS landing', page: '/docs/get-started' }],
+    },
+  ]);
+  assert.deepEqual(landings, [
+    {
+      url: '/docs/get-started',
+      section: 'get-started',
+      claims: [{ section: 'notices', name: 'GS landing' }],
+    },
+  ]);
+});
+
+test('sectionLandingClaims collects every claim on one landing, wherever they sit', () => {
+  const landings = sectionLandingClaims([
+    {
+      id: 'get-started',
+      name: 'Get started',
+      sourceFolders: ['get-started'],
+      children: [{ name: 'Own', page: '/docs/get-started' }],
+    },
+    {
+      id: 'notices',
+      name: 'Notices',
+      sourceFolders: ['notices'],
+      children: [{ name: 'Elsewhere', page: '/docs/get-started' }],
+    },
+  ]);
+  assert.deepEqual(landings.length, 1);
+  assert.deepEqual(landings[0].claims, [
+    { section: 'get-started', name: 'Own' },
+    { section: 'notices', name: 'Elsewhere' },
   ]);
 });
 

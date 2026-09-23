@@ -273,13 +273,44 @@ test('the real navigation puts every page URL on exactly one tree node', () => {
   assert.equal(places.size, source.getPages().length);
 });
 
-test('a manifest entry claiming its own section landing fails instead of building two nodes', () => {
+test('a manifest entry claiming a section landing fails instead of building two nodes', () => {
   // The shape the real manifest carried until this ticket: Get started's first `children` entry
   // claimed `/docs/get-started`, which `buildDocsNavigation` also derives from the source folder's
   // index. Two nodes, one page, and `duplicateManifestPages` silent because it walks `children`.
   assert.throws(
     () => demoSource([{ name: 'Demo', page: '/docs/demo' }]).pageTree,
-    /Navigation section landing claimed by its own children: \/docs\/demo \(Demo\)/,
+    /Navigation section landing claimed by a page entry: \/docs\/demo \(Demo in demo\)/,
+  );
+});
+
+test('a section landing claimed from another section fails the same way', () => {
+  // Measured on the real manifest: a `page` entry for `/docs/get-started` in the Notices section
+  // passed both static rules while the transformer threw on the built tree. The static rule now
+  // checks every section's landing against every section's children, so it fires first and names
+  // the entry and the section holding it (FS-2749 review).
+  const files = [
+    { type: 'meta', path: 'demo/meta.json', data: { title: 'Demo' } },
+    { type: 'page', path: 'demo/index.mdx', data: { title: 'Demo landing' } },
+    { type: 'meta', path: 'other/meta.json', data: { title: 'Other' } },
+    { type: 'page', path: 'other/index.mdx', data: { title: 'Other landing' } },
+  ];
+  const sections = [
+    { id: 'demo', name: 'Demo', sourceFolders: ['demo'], children: [] },
+    {
+      id: 'other',
+      name: 'Other',
+      sourceFolders: ['other'],
+      children: [{ name: 'Demo landing', page: '/docs/demo' }],
+    },
+  ];
+  assert.throws(
+    () =>
+      loader({
+        baseUrl: '/docs',
+        source: { files },
+        pageTree: { transformers: [docsNavigationTransformer(sections)] },
+      }).pageTree,
+    /Navigation section landing claimed by a page entry: \/docs\/demo \(Demo landing in other\)/,
   );
 });
 

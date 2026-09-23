@@ -81,13 +81,14 @@ Use `page` for a page the section owns. Use `href` for a link to a page another 
 renders as a normal sidebar link and leaves the destination's own sidebar alone. Never write a
 second `page` entry for a URL the manifest already claims, in your section or in any other:
 `pnpm nav:check` fails on it. Two claims are easy to miss because they are not written in
-`children`. A section already shows its own landing page, so a `page` entry for `/docs/<section id>`
-is one node too many; use `href` there, as Get started does. And a `folder` entry pulls in every
-page under it, so a `page` entry naming one of those is too. `buildDocsNavigation` throws on either,
+`children`. Every section already shows its own landing page, so a `page` entry for
+`/docs/<section id>` is one node too many, in that section or in any other; use `href` there, as Get
+started does. And a `folder` entry pulls in every page under it, so a `page` entry naming one of
+those is too. `buildDocsNavigation` throws on either,
 which fails `pnpm dev`, `pnpm build` and `pnpm test`.
 
 **Landing pages.** A folder's `index.mdx` that no entry claims goes to Additional guides like any
-other page. Twenty-seven do today and they stay there by design; the reasoning is in
+other page. Twenty-nine do today and they stay there by design; the reasoning is in
 [INTERNALS](INTERNALS.md#pages-the-manifest-never-lists). To put one in the reading order, give its
 group a `page` of its own:
 

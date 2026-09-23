@@ -150,12 +150,16 @@ function main() {
 
   if (landings.length > 0) {
     console.error(
-      `nav-check: ${landings.length} section landing(s) claimed by an entry in the same section's children, which puts one page on two tree nodes:`,
+      `nav-check: ${landings.length} section landing(s) claimed by a page entry, which puts one page on two tree nodes:`,
     );
     for (const l of landings)
-      console.error(`  ${l.url} (section "${l.section}")\n    claimed by: ${l.names.join(', ')}`);
+      console.error(
+        `  ${l.url}, the landing of section "${l.section}"\n    claimed by: ${l.claims
+          .map((c) => `"${c.name}" in section "${c.section}"`)
+          .join(', ')}`,
+      );
     console.error(
-      '    Fix: the section already shows its landing page, derived from the source folder index. Use "href" for a row that links to it and claims nothing, or drop the entry.',
+      '    Fix: every section already shows its landing page, derived from the source folder index. Use "href" for a row that links to it and claims nothing, or drop the entry.',
     );
   }
 

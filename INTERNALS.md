@@ -299,18 +299,23 @@ group today, holding 58 pages between them; Run an Arbitrum chain alone holds 43
 Solidity and Arbitrum bridge have none. To place a page in the main menu, give it an entry.
 
 **Folder landing pages stay in that group, and that is a decision, not an oversight** (FS-2749).
-Twenty-seven of the 58 are a folder's `index.mdx`, nineteen of them under Run an Arbitrum chain.
-Every one is a `Cards` grid: the nineteen carry no prose outside the grid at all, and the other
-eight carry one sentence each. So they restate the sidebar, and pulling them out of the group is
-tempting. Do not. **Sixteen of the twenty-seven have no incoming link from any page that is not
-itself one of these landings**, measured over every `.mdx` under `content/`, counting only a link
-whose destination is exactly that URL. Excluding a folder index from the fallback group would
-therefore not move those sixteen into the parent's card grid, which is where the argument for
-excluding them assumes they already are. It would leave them reachable by URL alone, while they stay
-in the sitemap and in `llms.txt`: indexed and unnavigable, which is worse than a hub page behind a
-collapsed toggle. It would also remove about six folder nodes whose only content is their landing,
-and hide any future landing page that does carry prose, silently, since the rule would be structural
-rather than editorial.
+**Twenty-nine of the 58 entries are an `index.mdx`, twenty of them under Run an Arbitrum chain.**
+Twenty-seven of the twenty-nine are attached as a folder's index node, so they render as that
+folder's own clickable title; the other two, `/docs/oracles` and
+`/docs/launch-arbitrum-chain/migrate`, render as plain rows. Count the index nodes rather than the
+files and the two figures read twenty-seven and nineteen, which is the same population seen from the
+tree instead of from disk. Every one of the twenty-nine is a `Cards` grid: the ones under Run an
+Arbitrum chain carry no prose outside the grid at all, and the rest carry one sentence each. So they
+restate the sidebar, and pulling them out of the group is tempting. Do not. **Sixteen of the
+twenty-nine have no incoming link from any page that is not itself one of these landings**, measured
+over every `.mdx` under `content/`, counting only a link whose destination is exactly that URL. The
+two plain rows are not among the sixteen, so the figure is the same under either reading of the
+population. Excluding a folder index from the fallback group would therefore not move those sixteen
+into the parent's card grid, which is where the argument for excluding them assumes they already
+are. It would leave them reachable by URL alone, while they stay in the sitemap and in `llms.txt`:
+indexed and unnavigable, which is worse than a hub page behind a collapsed toggle. It would also
+remove about six folder nodes whose only content is their landing, and hide any future landing page
+that does carry prose, silently, since the rule would be structural rather than editorial.
 
 The fix that does work, if a landing belongs in the reading order, is the one Docusaurus spelled
 `link: { type: 'doc' }`: give the manifest group a `page` of its own, which `buildDocsNavigation`
@@ -477,19 +482,23 @@ Six rules, none of them visible to `types:check` or `build`:
 6. **Section landings** (FS-2749). A `children` entry claiming its own section's landing URL, which
    rule 5 cannot see because the landing node is derived rather than listed. `sectionLandingClaims`
    sits beside the duplicate rule in `lib/docs-navigation-rules.mjs` and the transformer imports it
-   too. The rule is exact with no content tree, because the landing node exists whenever
-   `/docs/<section id>` exists, and if the URL does not exist `page()` throws on the entry instead.
+   too, and it checks every section's landing against every section's `children`, because a `page`
+   entry in one section naming another's landing builds the identical two-node defect. The rule is
+   exact with no content tree, because the landing node exists whenever `/docs/<section id>` exists.
+   Where it judges without knowing is a manifest already broken twice over, one whose landing URL
+   does not exist at all: the rule runs ahead of the build, so it fires first and the reader gets a
+   landing-flavoured message for what is really a nonexistent page. The build fails either way.
 
 One shape gets past rule 5, recorded in FS-2749: an entry can point at a folder index that exists
 while the page it was meant to name sits in Additional guides. Every URL involved is real and every
 URL is on one node, so neither the missing-page throw, nor the duplicate rule, nor the one-node rule
-below sees it. Four of the 238 `page` claims name a folder index, and three of those four look like
-this shape: "Test chain configuration" points at
-`/docs/launch-arbitrum-chain/configuration/validation` while
-`configuration/validation/test-chain-configuration.mdx` sits in Additional guides, "Token bridge
-troubleshooting" points at `/docs/launch-arbitrum-chain/deploy` while
+below sees it. Three of the 238 `page` claims name a folder index, and all three look like this
+shape: "Test chain configuration" points at `/docs/launch-arbitrum-chain/configuration/validation`
+while `configuration/validation/test-chain-configuration.mdx` sits in Additional guides, "Token
+bridge troubleshooting" points at `/docs/launch-arbitrum-chain/deploy` while
 `deploy/token-bridge-troubleshooting.mdx` does, and "FAQ" points at `/docs/how-arbitrum-works/bold`.
-The fourth, Get started's landing, is now an `href`.
+A fourth was Get started's landing, one of the 239 claims the manifest carried before FS-2749 made
+it an `href`.
 
 ### One URL, one page node (FS-2749)
 

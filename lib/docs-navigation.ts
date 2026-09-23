@@ -57,12 +57,15 @@ export function buildDocsNavigation(tree: Root, sections: NavigationSection[]): 
     throw new Error(`Navigation page claimed more than once: ${detail}`);
   }
 
-  // A `children` entry naming its own section's landing URL is the same mistake against the landing
-  // node this function derives below, which is not in `children` for the rule above to see.
+  // A `page` entry naming a section's landing URL is the same mistake against the landing node this
+  // function derives below, which is in no section's `children` for the rule above to see. The
+  // claim can sit in any section, not only the one the landing belongs to.
   const landings = sectionLandingClaims(sections);
   if (landings.length > 0) {
-    const detail = landings.map((l) => `${l.url} (${l.names.join(', ')})`).join('; ');
-    throw new Error(`Navigation section landing claimed by its own children: ${detail}`);
+    const detail = landings
+      .map((l) => `${l.url} (${l.claims.map((c) => `${c.name} in ${c.section}`).join(', ')})`)
+      .join('; ');
+    throw new Error(`Navigation section landing claimed by a page entry: ${detail}`);
   }
 
   const pages = new Map<string, Item>();
