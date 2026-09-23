@@ -213,8 +213,11 @@ Moving a page between menu categories changes neither its URL nor its file.
 
 ### The manifest
 
-Nine sections, one per navbar entry. Each has an `id` naming its folder in the content tree, a
-`name`, a `sourceFolders` array assigning local content to it, and `children`. The twelve
+Nine sections, one per navbar destination. `lib/layout.shared.tsx` carries ten links to them, four
+of those inside the "Build apps" menu: two of the ten name the same section, and the Stylus link
+points at `stylus/quickstart` rather than at that section's index. Each section has an `id` naming
+its folder in the content tree, a `name`, a `sourceFolders` array assigning local content to it, and
+`children`. The twelve
 `sourceFolders` cover every top-level directory under `content/docs`, and each directory belongs to
 exactly one section.
 
@@ -228,8 +231,9 @@ throws if it is none of them:
 | `children` | 44         | a nested category built from the entries inside it                |
 | `folder`   | 2          | a whole local subtree, copied in place                            |
 
-Two modifiers: `flatten: true` on a `folder` entry lifts its children into the surrounding category,
-used once, on `third-party-docs`; and `defaultOpen` opens a `children` category, which the
+Two modifiers: `flatten: true` lifts an entry's children into the surrounding category, applied to
+any entry that builds a folder and so to a `children` category as much as a `folder`, used once
+today, on the `third-party-docs` folder; and `defaultOpen` opens a `children` category, which the
 transformer supports and the manifest does not use today.
 
 A page gets its name from the first of these that exists: the manifest entry's `name`, then the
@@ -239,16 +243,43 @@ overrides that only when it passes a `name` of its own. See
 [The frontmatter contract](#the-frontmatter-contract). 316 of the 326 entries carry a `name`; the
 ten that do not are eight oracle pages and the two `folder` entries.
 
+### How a page gets its sidebar
+
+`TreeContextProvider` (`fumadocs-ui/contexts/tree`) resolves the current pathname against the
+rendered tree with `searchPath` (`fumadocs-core/breadcrumb`), a depth-first search that stops at the
+**first** page node carrying that URL and returns the chain of folders from the top of the tree down
+to it. It then takes the **last** folder on that chain whose `root` is true, with
+`path.findLast((item) => item.type === 'folder' && item.root)`, and renders that folder as the
+sidebar. A page on no such chain, or on one holding no root folder, falls back to the whole tree.
+
+Two consequences run through the rest of this section. A URL that sits on two page nodes gets
+whichever node the depth-first walk reaches first, and the folder above the other node never gets a
+look, which is why one `page` entry per URL is a rule rather than a preference. And a page nested
+under two root folders gets the inner one, since that is the last on the chain.
+
+Three places in the repository already lean on this rule: the comment above `nav:check`'s
+root-coverage check (`scripts/lib/nav.mjs:111`) names `path.findLast` outright, the `owner()` helper
+in `scripts/docs-navigation.test.mjs` re-implements it to assert one section owner per page, and the
+`tabs={false}` comment in `app/docs/layout.tsx` states it in words.
+
 ### Cross-section links use `href`
 
-A `page` entry is a claim. Fumadocs finds a page's sidebar by walking the tree to the first node
-with that URL, so repeating a canonical `page` in a second section would give the destination the
-wrong tree. An `href` entry instead becomes a separator node carrying a URL, which
-`SidebarNavigationReference` renders as an ordinary sidebar link while Fumadocs' page lookup and
-previous/next traversal skip it. Repeating one is free, and the manifest repeats five URLs. Of the
-seventeen distinct internal `href` URLs, sixteen are also claimed by a `page` entry in the section
-that owns them. That is what lets the Stylus quickstart appear under Get started while opening the
-Stylus sidebar.
+A `page` entry is a claim, because it is the page node the search above resolves to. Repeating a
+canonical `page` in a second section would therefore give the destination the wrong tree. An `href`
+entry instead becomes a separator node carrying a URL, which `SidebarNavigationReference` renders as
+an ordinary sidebar link while Fumadocs' page lookup and previous/next traversal skip it. Repeating
+one is free, and the manifest repeats five URLs. Of the seventeen distinct internal `href` URLs,
+sixteen are also claimed by a `page` entry in the section that owns them. That is what lets the
+Stylus quickstart appear under Get started while opening the Stylus sidebar.
+
+Of the forty-one `href` entries, seventeen leave the site altogether, and three of those point at
+`docs.arbitrum.io`: "PGA" under Run an Arbitrum chain, and "How PGA works" and "Introduction to the
+Fast Feed" under How Arbitrum works. They are deliberate. The commit that introduced the manifest
+(`4317cf9`) records them as "three PGA/Fast Feed pages absent locally", and nothing under
+`content/docs` covers either topic today, so the entries point at pages this site never carried.
+Replace them with `page` entries when local equivalents land. The synced Stylus examples are the
+opposite case and are local: a `folder` entry pulls the whole subtree in under Build apps with
+Stylus, in its Reference group.
 
 ### Pages the manifest never lists
 
@@ -264,11 +295,18 @@ root and no section sidebar. `content/docs/index.mdx` already sits there by desi
 docs index is the section list. A new top-level directory that nobody adds to a `sourceFolders`
 array lands in the same place, and no gate reports it.
 
-`_fallback` is fumadocs-core's, not ours. `transformerFallback` runs a second tree build over the
-files no transformer touched and stores it as `root.fallback`, passing `_fallback: true` in the
-build context. Our `root()` hook returns that tree untouched, because rebuilding the manifest
-sections from a partial file set would produce a wrong tree. The hook never fires today: with no
-i18n configured, `root.fallback` is `undefined`.
+`_fallback` is fumadocs-core's, not ours. `transformerFallback` counts the files the tree build
+reached; when that count is short of the storage's own file count, it runs a **second** tree build
+over the files nothing reached, stores the result as `root.fallback`, and passes `_fallback: true`
+in the build context. Our `root()` hook returns that second tree untouched, because rebuilding the
+manifest sections from a partial file set would produce a wrong tree. i18n is one way to leave files
+unreached, not the condition.
+
+That branch never runs here, and nothing about the branch is i18n-specific. Measured: `root.fallback`
+is `undefined` on the real content, and dropping one page from a `meta.json` is enough to make it
+defined with that one page in it. What keeps it undefined is `nav:check`'s hidden-page rule, which
+fails on a file no `pages` entry and no `"..."` lets through. Note that `root()` itself, the hook
+holding the guard, fires on every build: it is what installs the whole navigation.
 
 ### There is no root switcher
 
@@ -285,32 +323,61 @@ footer wrapper does not hide the links on desktop. Its links live in `lib/shared
 
 ### `"root": true` no longer reaches the rendered tree
 
-Twelve `meta.json` files declare it. The transformer overwrites `root` on everything it emits:
-`true` on the nine section folders it builds, `false` on every folder it copies or carries over.
-Rebuilding the tree with all twelve flags deleted produces a structurally identical tree.
+Twelve `meta.json` files declare it. The transformer sets `root: true` on the nine section folders
+it builds and `root: false` on every folder it copies or carries over, and leaves the categories it
+builds from a `children` array with no `root` key at all. Counted in the rendered tree: of 117
+folder nodes, 9 are `true`, 57 are `false` and 51 carry no such key, which every consumer reads as
+false. Rebuilding the tree with all twelve flags deleted produces a structurally identical tree, so
+the flags decide nothing a reader sees.
 
-The flags still have one consumer, `pnpm nav:check`, which reads them off disk. Deleting one is not
-free: with `stylus`'s flag removed the gate reports 61 uncovered pages, and with all twelve removed
-it reports 348 of 349. Keep declaring it on a new top-level section, and add that section to a
-`sourceFolders` array as well, because the two answer different questions.
+**The one consumer left is `pnpm nav:check`, and its case for the flags closes on itself.** The
+root-coverage rule (`scripts/lib/nav.mjs:191`) reads them off disk and fails on a page under no
+`"root": true` folder: with `stylus`'s flag removed it reports 61 uncovered pages, and with all
+twelve removed 348 of 349. But the flags are also that rule's only input, so all it proves is that
+the flags exist. The question that now decides where a top-level directory's pages land, whether the
+directory is named in some section's `sourceFolders`, is read by no gate: `nav:check` never opens the
+manifest's `sourceFolders` arrays at all. Measured, by adding a `scratch-zone` directory carrying
+`"root": true` and naming it in no section: the gate still reports zero uncovered pages, while the
+page renders above the nine sections with no section root, exactly as
+[Pages the manifest never lists](#pages-the-manifest-never-lists) describes.
+
+**FS-2751 owns the decision**, which is whether to delete the twelve flags together with the rule or
+to replace the rule with one comparing `sourceFolders` against the top-level content directories.
+The gate's own failure text and the comment above the rule both still explain root coverage in terms
+of the root switcher, which has not existed since PR #73, and they are in that ticket's scope too.
+Until it lands, declare the flag on a new top-level section and add that section to a
+`sourceFolders` array as well, because only the second of those two changes anything a reader sees.
 
 ### Link entries in a `meta.json` still cause damage, differently
 
 FS-2716 was a `"[Chain info](/docs/chain-info)"` entry in every root folder's `pages`. A link entry
-becomes a real page node in the content tree, the depth-first path search found that copy first, and
-`/docs/chain-info` served the Get started tree under a "Third-party docs" label.
+becomes a real page node in the content tree, so `/docs/chain-info` had two nodes, the depth-first
+search in [How a page gets its sidebar](#how-a-page-gets-its-sidebar) found the injected copy first,
+and the page served the Get started tree under a "Third-party docs" label.
 
 The transformer rebuilds every root from the manifest, so that exact failure is gone: with such an
 entry added back, `/docs/chain-info` still has one node and still belongs to Get started. Two
-failures remain, and both hit only a page the manifest does not name explicitly:
+failures remain, both against a page the manifest does not name explicitly, and each is decided by a
+different ordering, so a given entry can produce either, both, or neither:
 
-- **The label leaks.** `collect()` indexes page nodes by URL and the last write wins, so the link
-  entry's text becomes the page's sidebar name. Measured: adding
-  `"[Docker](/docs/run-a-node/nitro/docker-and-cli-binaries)"` renamed that page to "Docker".
-- **The page moves.** Sections are processed in manifest order, and the first to reach an unclaimed
-  page keeps it. The same entry placed in `notices/meta.json` left the page under Run an Arbitrum
-  node, which is processed earlier; placed in `get-started/meta.json`, it pulled the page into Get
-  started's Additional guides.
+- **The label leaks, if the linking directory is walked after the page.** `collect()` indexes page
+  nodes by URL as it walks the content tree and the last write wins, so the link entry's text
+  becomes the page's sidebar name only when its copy is the last node collected for that URL.
+  Measured: `"[Docker](/docs/run-a-node/nitro/docker-and-cli-binaries)"` in `notices/meta.json`
+  renamed that page to "Docker", because `notices` follows `run-a-node` in
+  `content/docs/meta.json`; the same entry in `get-started/meta.json` left the page's own name
+  standing, because the real node is collected last.
+- **The page moves, if the linking section is processed first.** Sections are processed in manifest
+  order, and the first to reach an unclaimed page keeps it. Measured: that same entry in
+  `notices/meta.json` left the page under Run an Arbitrum node, which the manifest lists earlier;
+  in `get-started/meta.json`, which it lists first, the page was pulled into Get started's
+  Additional guides.
+
+The two orderings are independent, and both failures land together when they disagree. Measured:
+`"[Zzz](/docs/how-arbitrum-works/bold/bold-faq)"` in `arbitrum-bridge/meta.json` both renamed that
+page to "Zzz" and moved it into Arbitrum bridge's Additional guides, because `arbitrum-bridge`
+follows `how-arbitrum-works` in `content/docs/meta.json` while the manifest lists it first. So do
+not reason from which failure you can see.
 
 So the rule stands: never write a `[Title](/docs/…)` entry pointing at a page in this repo. It
 applies to all three shapes Fumadocs accepts, `[Title](/docs/…)`, `[Icon][Title](/docs/…)` and
@@ -333,10 +400,14 @@ Four rules, none of them visible to `types:check` or `build`:
 1. **Ghost entries.** A `pages` entry naming nothing on disk, which Fumadocs ignores in silence.
 2. **Hidden pages.** A file on disk that no `pages` entry and no `"..."` lets through.
 3. **Root coverage and shadowing links.** A page under no `"root": true` folder, and a link entry
-   pointing at a real docs page.
+   pointing at a real docs page. Read the first half against
+   [`"root": true` no longer reaches the rendered tree](#root-true-no-longer-reaches-the-rendered-tree):
+   it proves the flags are declared and nothing more.
 4. **Manifest duplicates.** A `page` URL that `lib/docs-navigation.json` claims twice, which always
    means one entry names a page it does not open while the page it was meant to name falls into
-   Additional guides (FS-2740). The rule lives in `lib/docs-navigation-rules.mjs` and both
+   Additional guides (FS-2740). A URL claimed twice is a URL on two nodes, and
+   [How a page gets its sidebar](#how-a-page-gets-its-sidebar) is why only one of them is ever
+   found. The rule lives in `lib/docs-navigation-rules.mjs` and both
    `buildDocsNavigation` and the gate import it, so a duplicate throws in a dev server as well as in
    CI. A repeated `href` is exempt, because a shortcut claims nothing.
 

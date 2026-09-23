@@ -56,12 +56,13 @@ them, the order, and the label on each entry. To give your page a place in a sec
 add an entry to that section's `children`:
 
 ```json
-{ "name": "Run a full node", "page": "/docs/run-a-node/run-full-node" }
+{ "name": "Run a full node in Docker", "page": "/docs/run-a-node/nitro/docker-and-cli-binaries" }
 ```
 
 Use `page` for a page the section owns. Use `href` for a link to a page another section owns, which
-renders as a normal sidebar link and leaves the destination's own sidebar alone. Never add a second
-`page` entry for a URL another section already claims: `pnpm nav:check` fails on it.
+renders as a normal sidebar link and leaves the destination's own sidebar alone. Never write a
+second `page` entry for a URL the manifest already claims, in your section or in any other:
+`pnpm nav:check` fails on it.
 
 **If you do nothing, your page still reaches the sidebar.** A page the manifest never lists is
 appended to its section under **Additional guides**, keeping the label from its `sidebar_label`, or
