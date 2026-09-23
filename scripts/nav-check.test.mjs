@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { duplicateManifestPages } from '../lib/docs-navigation-rules.mjs';
+import { duplicateManifestPages, sectionLandingClaims } from '../lib/docs-navigation-rules.mjs';
 import {
   checkDir,
   checkSections,
@@ -374,9 +374,77 @@ test('duplicateManifestPages leaves repeated href shortcuts alone', () => {
   assert.deepEqual(duplicates, []);
 });
 
-test('the real navigation manifest claims no page URL twice', () => {
-  const manifest = new URL('../lib/docs-navigation.json', import.meta.url);
-  assert.deepEqual(duplicateManifestPages(readSections(fileURLToPath(manifest))), []);
+/**
+ * The section-landing rule (FS-2749). `buildDocsNavigation` derives a landing node for each section
+ * from its source folder's index, and that node is not in `children`, so `duplicateManifestPages`
+ * above walks straight past an entry claiming the same URL. The real manifest carried exactly one,
+ * `/docs/get-started`, which this ticket rewrote as an `href`.
+ */
+
+test('sectionLandingClaims reports an entry claiming its own section landing', () => {
+  const landings = sectionLandingClaims([
+    {
+      id: 'get-started',
+      name: 'Get started',
+      sourceFolders: ['get-started'],
+      children: [
+        { name: 'Get started', page: '/docs/get-started' },
+        { name: 'Arbitrum: introduction', page: '/docs/get-started/arbitrum-introduction' },
+      ],
+    },
+  ]);
+  assert.deepEqual(landings, [
+    { url: '/docs/get-started', section: 'get-started', names: ['Get started'] },
+  ]);
+});
+
+test('sectionLandingClaims sees a claim nested inside a children group', () => {
+  const landings = sectionLandingClaims([
+    {
+      id: 'stylus',
+      name: 'Stylus',
+      sourceFolders: ['stylus'],
+      children: [{ name: 'Reference', children: [{ name: 'Overview', page: '/docs/stylus' }] }],
+    },
+  ]);
+  assert.deepEqual(
+    landings.map((l) => l.url),
+    ['/docs/stylus'],
+  );
+});
+
+test('sectionLandingClaims leaves an href to the landing alone', () => {
+  // An href builds a display-only separator node, so it adds no second page node. That is the fix
+  // this ticket applied to Get started, and it keeps the row a reader clicks.
+  const landings = sectionLandingClaims([
+    {
+      id: 'get-started',
+      name: 'Get started',
+      sourceFolders: ['get-started'],
+      children: [{ name: 'Get started', href: '/docs/get-started' }],
+    },
+  ]);
+  assert.deepEqual(landings, []);
+});
+
+test('sectionLandingClaims leaves a page inside the section alone', () => {
+  const landings = sectionLandingClaims([
+    {
+      id: 'notices',
+      name: 'Notices',
+      sourceFolders: ['notices'],
+      children: [{ name: 'Fusaka', page: '/docs/notices/fusaka-upgrade-notice' }],
+    },
+  ]);
+  assert.deepEqual(landings, []);
+});
+
+test('the real navigation manifest claims no page URL twice, and no section landing', () => {
+  const sections = readSections(
+    fileURLToPath(new URL('../lib/docs-navigation.json', import.meta.url)),
+  );
+  assert.deepEqual(duplicateManifestPages(sections), []);
+  assert.deepEqual(sectionLandingClaims(sections), []);
 });
 
 test('the real manifest and the real content tree agree on section coverage', () => {

@@ -247,3 +247,69 @@ test('sidebar_label applies when the manifest entry gives the page no explicit n
   const node = searchPath(tree.children, '/docs/demo/sample').at(-1);
   assert.equal(node.name, 'From frontmatter');
 });
+
+/**
+ * One URL, one page node (FS-2749). `searchPath` stops at the first node carrying a URL, so a
+ * second node is never reached and the folder above it never gives that page its section. The
+ * manifest rule FS-2740 added reads each section's `children`, which leaves two shapes it cannot
+ * see, both covered here against the finished tree.
+ */
+
+test('the real navigation puts every page URL on exactly one tree node', () => {
+  const places = new Map();
+  const walk = (nodes, trail) => {
+    for (const node of nodes) {
+      if (node.type === 'page') places.set(node.url, [...(places.get(node.url) ?? []), trail]);
+      if (node.type !== 'folder') continue;
+      const next = `${trail} > ${node.name}`;
+      if (node.index)
+        places.set(node.index.url, [...(places.get(node.index.url) ?? []), `${next} (index)`]);
+      walk(node.children, next);
+    }
+  };
+  walk(tree.children, '');
+  const repeated = [...places].filter(([, at]) => at.length > 1);
+  assert.deepEqual(repeated, []);
+  assert.equal(places.size, source.getPages().length);
+});
+
+test('a manifest entry claiming its own section landing fails instead of building two nodes', () => {
+  // The shape the real manifest carried until this ticket: Get started's first `children` entry
+  // claimed `/docs/get-started`, which `buildDocsNavigation` also derives from the source folder's
+  // index. Two nodes, one page, and `duplicateManifestPages` silent because it walks `children`.
+  assert.throws(
+    () => demoSource([{ name: 'Demo', page: '/docs/demo' }]).pageTree,
+    /Navigation section landing claimed by its own children: \/docs\/demo \(Demo\)/,
+  );
+});
+
+function folderSource(children) {
+  const files = [
+    { type: 'meta', path: 'demo/meta.json', data: { title: 'Demo' } },
+    { type: 'page', path: 'demo/index.mdx', data: { title: 'Demo landing' } },
+    { type: 'meta', path: 'demo/guides/meta.json', data: { title: 'Guides' } },
+    { type: 'page', path: 'demo/guides/first.mdx', data: { title: 'First guide' } },
+  ];
+  const sections = [{ id: 'demo', name: 'Demo', sourceFolders: ['demo'], children }];
+  return loader({
+    baseUrl: '/docs',
+    source: { files },
+    pageTree: { transformers: [docsNavigationTransformer(sections)] },
+  });
+}
+
+test('a page entry naming a page a folder entry already copied fails', () => {
+  // `copyFolder` claims every page in the subtree, so nothing in the manifest is repeated and the
+  // static rule returns zero. Measured on the real content with a `page` entry for
+  // /docs/stylus/stylus-by-example/basic_examples/hello_world, already inside the Stylus Reference
+  // group's `folder` entry: the transformer used to build it onto two nodes.
+  assert.doesNotThrow(() => folderSource([{ folder: 'demo/guides' }]).pageTree);
+  assert.throws(
+    () =>
+      folderSource([
+        { folder: 'demo/guides' },
+        { name: 'First guide', page: '/docs/demo/guides/first' },
+      ]).pageTree,
+    /Navigation page on more than one node: \/docs\/demo\/guides\/first/,
+  );
+});
