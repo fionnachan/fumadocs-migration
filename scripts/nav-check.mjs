@@ -4,9 +4,9 @@
  * Five rules, all invisible to `types:check` and `build`:
  *   - ghost entries: a `pages` entry naming nothing on disk (silently ignored by Fumadocs).
  *   - hidden pages: a file on disk that no `pages` entry and no `"..."` lets through.
- *   - source folders: a `sourceFolders` entry naming no directory, a directory two sections claim,
- *     and a top-level directory or loose page no section covers, which renders above the sections
- *     with no section sidebar (FS-2751).
+ *   - source folders: a `sourceFolders` entry naming no folder in the content tree, a folder named
+ *     more than once across those arrays, and a top-level directory or loose page no section
+ *     covers, which renders above the sections with no section sidebar (FS-2751).
  *   - shadowing links: a `pages` link entry pointing at a real page in this repo, which renames it
  *     and can pull it into the linking directory's section (FS-2716).
  *   - manifest duplicates: a `page` URL claimed twice in `lib/docs-navigation.json`, which leaves
@@ -71,22 +71,26 @@ function main() {
 
   if (missingFolders.length > 0) {
     console.error(
-      `nav-check: ${missingFolders.length} sourceFolders entry/entries in lib/docs-navigation.json naming a directory that does not exist, which makes the transformer throw and the dev server fail:`,
+      `nav-check: ${missingFolders.length} sourceFolders entry/entries in lib/docs-navigation.json naming no folder in the content tree, which makes the transformer throw and the dev server fail:`,
     );
     for (const f of missingFolders) console.error(`  ${f.section}: "${f.folder}"`);
     console.error(
-      '    Fix: name an existing directory under content/docs, or drop the entry if the directory is gone.',
+      '    Fix: name a directory under content/docs that holds at least one .mdx or a meta.json, or drop the entry. A directory of images alone builds no folder node.',
     );
   }
 
   if (sharedFolders.length > 0) {
     console.error(
-      `nav-check: ${sharedFolders.length} source folder(s) claimed by more than one section, so only the section listed first collects anything from it:`,
+      `nav-check: ${sharedFolders.length} source folder(s) named more than once across the sections' sourceFolders arrays, so only the first listing collects anything from it:`,
     );
     for (const f of sharedFolders)
-      console.error(`  "${f.folder}"\n    claimed by: ${f.sections.join(', ')}`);
+      console.error(
+        f.sections.length > 1
+          ? `  "${f.folder}"\n    named by: ${f.sections.join(', ')}`
+          : `  "${f.folder}"\n    named ${f.count} times by: ${f.sections[0]}`,
+      );
     console.error(
-      '    Fix: leave the folder in the one section that should hold its unlisted pages. Use "href" entries for cross-section shortcuts.',
+      '    Fix: name the folder once, in the section that should hold its unlisted pages. Use "href" entries for cross-section shortcuts.',
     );
   }
 

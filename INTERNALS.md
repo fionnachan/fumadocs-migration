@@ -401,10 +401,14 @@ segment, so a page joins a folder without moving and without a redirect. Claims 
 `sourceFolder` of Get started, which is what puts those four pages in that section.
 
 **That claim is the directory's whole job now.** It carried `"root": true` as well until FS-2751,
-which is gone with the other eleven, and it holds no `.mdx` file of its own. Deleting the directory
-would leave the four pages in a section anyway, because a manifest `page` entry names each of them,
-but it would leave a fifth loose page with nowhere to go, so `nav:check` reports a top-level `.mdx`
-no covered directory claims.
+which is gone with the other eleven, and it holds no `.mdx` file of its own. **Deleting it takes two
+edits, not one**: the directory and Get started's `"resources"` entry in `sourceFolders`. Measured,
+dropping the directory alone: `buildDocsNavigation` throws
+`Navigation source folder does not exist: resources`, so the dev server dies rather than the sidebar
+rearranging. Dropping both, the four pages still land in Get started, because a manifest `page`
+entry names each of them. What the directory buys is the fifth loose page: without it, a new `.mdx`
+at the top of `content/docs` has no covered directory to claim it, and `nav:check` reports it. The
+`missingFolders` rule is what forces the second edit.
 
 ### What `nav:check` checks
 
@@ -416,11 +420,17 @@ Five rules, none of them visible to `types:check` or `build`:
    `scripts/lib/nav.mjs` models fumadocs-core's `own()` to work out which directory owns each page
    and each folder, then asks whether that chain of claims reaches a directory some section names in
    `sourceFolders`, which is the set `buildDocsNavigation` sweeps for leftovers. It reports a
-   `sourceFolders` entry naming no directory (the transformer throws on this, so the gate turns a
-   stack trace into a named entry), a directory two sections claim (only the first one listed
-   collects anything, in silence), a top-level directory no section covers, and a page no section
-   covers, which in practice means a loose `.mdx` at the top of `content/docs` that no directory's
-   `pages` array claims. A page inside an already-reported directory is left out of the last list, so
+   `sourceFolders` entry that will not resolve to a folder node (the transformer throws on this, so
+   the gate turns a stack trace into a named entry), a folder named more than once across those
+   arrays, whether by two sections or twice by one (only the first listing collects anything, in
+   silence), a top-level directory no section covers, and a page no section covers, which in
+   practice means a loose `.mdx` at the top of `content/docs` that no directory's `pages` array
+   claims. The first of those four tests for what the transformer needs rather than for a directory
+   on disk: fumadocs-core builds a folder node only where `storage.readDir` finds a file, and that
+   storage holds only `.mdx` pages and `meta.json`, so a directory of images alone gets no node.
+   Measured, with a `content/docs/empty-zone/` holding one `.txt` and named in a `sourceFolders`
+   array: a plain directory-exists test reported no defect while the transformer threw
+   `Navigation source folder does not exist: empty-zone`. A page inside an already-reported directory is left out of the last list, so
    one root cause gives one message. `content/docs/index.mdx` is the one exemption,
    `SECTIONLESS_BY_DESIGN`.
 4. **Shadowing links.** A `pages` link entry pointing at a real page in this repo (FS-2716). Under
@@ -1755,7 +1765,7 @@ required check that never reports blocks every pull request indefinitely, which 
 | `types:check`              | Frontmatter schema violations, TypeScript errors                              |
 | `test`                     | Regressions in the tooling scripts themselves                                 |
 | `vars:check`               | A `<Var name>` with no matching key in `vars.json`                            |
-| `nav:check`                | `meta.json` navigation integrity, sidebar root coverage, manifest duplicates  |
+| `nav:check`                | `meta.json` navigation integrity, section coverage, manifest duplicates       |
 | `partials:check`           | Unresolved includes, routing leaks, stale catalog, `cwd` include in a partial |
 | `versioned-docs-check.mjs` | Archived-page registry drift                                                  |
 | `references:check`         | Glossary ids and `<Reference>` targets                                        |

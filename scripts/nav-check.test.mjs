@@ -128,6 +128,39 @@ test('checkSections flags a sourceFolders entry naming no directory', () => {
   assert.deepEqual(missingFolders, [{ section: 'notices', folder: 'gone-missing' }]);
 });
 
+test('checkSections flags a sourceFolders entry naming a directory with no content', () => {
+  // The transformer needs a folder node, and fumadocs-core builds one only for a directory whose
+  // storage holds a file, which means an `.mdx` or a `meta.json`. Measured: a `content/docs/
+  // empty-zone/` holding one `.txt` passed a plain directory-exists test while `pnpm dev` threw
+  // `Navigation source folder does not exist: empty-zone`.
+  const { missingFolders } = checkSections({
+    dirs: new Map([
+      ['', { pages: ['notices', '...'] }],
+      ['notices', { pages: ['...'] }],
+      ['empty-zone', undefined],
+    ]),
+    pages: new Set(['notices/index']),
+    sections: [{ ...SECTION, sourceFolders: ['notices', 'empty-zone'] }],
+  });
+  assert.deepEqual(missingFolders, [{ section: 'notices', folder: 'empty-zone' }]);
+});
+
+test('checkSections accepts a meta-less directory that holds pages, or one that holds only a meta', () => {
+  // Both shapes do build a folder node, so neither is a missing folder. A directory with no
+  // meta.json of its own but a page below it is the first; `content/docs/resources/` is the second.
+  const { missingFolders } = checkSections({
+    dirs: new Map([
+      ['', { pages: ['loose', 'resources', '...'] }],
+      ['loose', undefined],
+      ['loose/deeper', undefined],
+      ['resources', { pages: ['../chain-info'] }],
+    ]),
+    pages: new Set(['chain-info', 'loose/deeper/page']),
+    sections: [{ id: 'demo', name: 'Demo', sourceFolders: ['loose', 'resources'] }],
+  });
+  assert.deepEqual(missingFolders, []);
+});
+
 test('checkSections flags a source folder two sections claim', () => {
   const { sharedFolders } = checkSections({
     dirs: new Map([
@@ -137,7 +170,23 @@ test('checkSections flags a source folder two sections claim', () => {
     pages: new Set(['notices/index']),
     sections: [SECTION, { id: 'stylus', name: 'Stylus', sourceFolders: ['notices'] }],
   });
-  assert.deepEqual(sharedFolders, [{ folder: 'notices', sections: ['notices', 'stylus'] }]);
+  assert.deepEqual(sharedFolders, [
+    { folder: 'notices', sections: ['notices', 'stylus'], count: 2 },
+  ]);
+});
+
+test('checkSections flags one section listing the same folder twice, as one section', () => {
+  // The defect is the same, only the first listing collects anything, but the report has to send
+  // the reader to one section rather than claim two are involved.
+  const { sharedFolders } = checkSections({
+    dirs: new Map([
+      ['', { pages: ['notices'] }],
+      ['notices', { pages: ['...'] }],
+    ]),
+    pages: new Set(['notices/index']),
+    sections: [{ ...SECTION, sourceFolders: ['notices', 'notices'] }],
+  });
+  assert.deepEqual(sharedFolders, [{ folder: 'notices', sections: ['notices'], count: 2 }]);
 });
 
 test('checkSections covers a page inside a source folder', () => {
@@ -343,7 +392,14 @@ test('the real manifest and the real content tree agree on section coverage', ()
   assert.deepEqual(sharedFolders, []);
   assert.deepEqual(uncoveredFolders, []);
   assert.deepEqual(unsectioned, []);
-  // Every top-level directory is named exactly once, which is what makes the three lists empty.
+  // Every top-level directory is named exactly once, which is what makes the four lists empty.
+  //
+  // This last pair of assertions is a deliberate pin, and it is stricter than the rule above: the
+  // rule also accepts a top-level directory covered through a cross-directory `pages` claim, the
+  // shape `checkSections inherits coverage through a cross-directory folder claim` blesses. No such
+  // directory exists today, and one named in no `sourceFolders` array is worth a second look even
+  // when it is covered, so this fails on it rather than passing quietly. A content change that
+  // deliberately takes that shape relaxes this pin; it does not mean the rule is wrong.
   const topLevel = [...tree.dirs.keys()].filter((dir) => dir !== '' && !dir.includes('/'));
   const claimed = sections.flatMap((section) => section.sourceFolders);
   assert.deepEqual([...topLevel].sort(), [...claimed].sort());

@@ -174,11 +174,17 @@ function topLevelOf(p) {
  * `buildDocsNavigation` sweeps for leftovers.
  *
  * Returns, in the order a report should read them:
- * - `missingFolders`: a `sourceFolders` entry naming no directory on disk. The transformer throws
- *   on this, so it is a broken dev server rather than a wrong sidebar, but the gate names the
- *   section and the entry instead of leaving a stack trace to read.
- * - `sharedFolders`: a directory named by more than one section. Sections are swept in manifest
- *   order and the first one takes every leftover, so the later section's claim does nothing.
+ * - `missingFolders`: a `sourceFolders` entry that will not resolve to a folder node. The
+ *   transformer throws on this, so it is a broken dev server rather than a wrong sidebar, but the
+ *   gate names the section and the entry instead of leaving a stack trace to read. It tests for what
+ *   the transformer needs rather than for a directory on disk, because fumadocs-core's `buildFolder`
+ *   returns nothing when `storage.readDir` finds no file, and that storage holds only `.mdx` and
+ *   `meta.json`. Measured: a `content/docs/empty-zone/` holding one `.txt` and named in a
+ *   `sourceFolders` array passed the disk test while `pnpm dev` threw
+ *   `Navigation source folder does not exist: empty-zone`.
+ * - `sharedFolders`: a folder named more than once across the sections' `sourceFolders` arrays,
+ *   whether by two sections or twice by one. Sections are swept in manifest order and the first
+ *   listing takes every leftover, so the later one does nothing.
  * - `uncoveredFolders`: a top-level directory no section covers.
  * - `unsectioned`: a page no section covers, skipping pages whose top-level directory is already in
  *   `uncoveredFolders` so that one root cause produces one message. In practice what is left is a
@@ -213,17 +219,30 @@ export function checkSections({ dirs, pages, sections, exempt = SECTIONLESS_BY_D
     }
   }
 
+  // What `buildDocsNavigation` looks up is a folder node, which fumadocs-core builds only for a
+  // directory whose storage holds at least one file, and that storage holds only `.mdx` pages and
+  // `meta.json`. A directory of images, or one left empty mid-edit, has neither and gets no node.
+  const hasFolderNode = (dir) => {
+    if (!dirs.has(dir)) return false;
+    if (dirs.get(dir) !== undefined) return true;
+    const prefix = `${dir}/`;
+    for (const page of pages) if (page.startsWith(prefix)) return true;
+    for (const [other, meta] of dirs)
+      if (meta !== undefined && other.startsWith(prefix)) return true;
+    return false;
+  };
+
   const claims = new Map();
   const missingFolders = [];
   for (const section of sections ?? []) {
     for (const folder of section.sourceFolders ?? []) {
-      if (!dirs.has(folder)) missingFolders.push({ section: section.id, folder });
+      if (!hasFolderNode(folder)) missingFolders.push({ section: section.id, folder });
       claims.set(folder, [...(claims.get(folder) ?? []), section.id]);
     }
   }
   const sharedFolders = [...claims]
     .filter(([, ids]) => ids.length > 1)
-    .map(([folder, ids]) => ({ folder, sections: ids }));
+    .map(([folder, ids]) => ({ folder, sections: [...new Set(ids)], count: ids.length }));
 
   const covered = new Map();
   const isCovered = (dir, seen = new Set()) => {
