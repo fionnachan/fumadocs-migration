@@ -69,10 +69,16 @@ appended to its section under **Additional guides**, keeping the label from its 
 its `title` if it has none. That is a reasonable home for a reference page. Add an entry when the
 page belongs in the reading order.
 
-**A new top-level section needs two things**: `"root": true` in its `meta.json`, and its directory
-name in some section's `sourceFolders` array in `lib/docs-navigation.json`. Miss the first and
-`pnpm nav:check` fails and names every uncovered file. Miss the second and your pages render above
-the sections with no sidebar of their own, and no gate reports it.
+**A new top-level section needs one thing**: its directory name in some section's
+`sourceFolders` array in `lib/docs-navigation.json`. Miss it and your pages render above the
+sections with no sidebar of their own; `pnpm nav:check` fails and names the directory. Do not add
+`"root": true` to its `meta.json`, and do not copy one from an older directory: the sidebar
+transformer decides which folders are roots, and no `meta.json` under `content/docs` carries that
+flag any more.
+
+**A new loose page at the top of `content/docs`** (beside `chain-info.mdx` and the other three)
+needs a `"../your-page"` entry in `content/docs/resources/meta.json`, which is the directory those
+four belong to. Without it the page renders above the sections too, and `pnpm nav:check` names it.
 
 **Do not add a `[Title](/docs/…)` entry pointing at a page in this repo.** A link entry becomes a
 real node in the content tree, so it overwrites that page's sidebar label and can drag the page into
@@ -170,7 +176,7 @@ against a running site.
 pnpm types:check       # regenerates .source/, generates Next types, tsc --noEmit — the main gate
 pnpm test              # node --test over the tooling scripts in scripts/
 pnpm vars:check        # every <Var name> resolves
-pnpm nav:check         # meta.json integrity, root coverage, navigation-manifest duplicates
+pnpm nav:check         # meta.json integrity, section coverage, navigation-manifest duplicates
 pnpm partials:check    # includes resolve, no routing leak, catalog fresh
 pnpm references:check  # glossary ids + <Reference> targets
 pnpm check-links       # broken internal doc links and MDX fragments

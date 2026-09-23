@@ -1,7 +1,6 @@
 {
   "title": "Third-party docs",
   "icon": "Boxes",
-  "root": true,
   "description": "Guides for tools and services in the Arbitrum ecosystem.",
   "pages": [
     "index",

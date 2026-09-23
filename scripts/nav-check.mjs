@@ -1,11 +1,14 @@
 /**
  * nav-check: fail on navigation defects in the meta.json tree and in the navigation manifest.
  *
- * Four rules, all invisible to `types:check` and `build`:
+ * Five rules, all invisible to `types:check` and `build`:
  *   - ghost entries: a `pages` entry naming nothing on disk (silently ignored by Fumadocs).
  *   - hidden pages: a file on disk that no `pages` entry and no `"..."` lets through.
- *   - root coverage: a page outside every `"root": true` folder, or a link entry that shadows a
- *     real page and so steals its sidebar root (FS-2716).
+ *   - source folders: a `sourceFolders` entry naming no directory, a directory two sections claim,
+ *     and a top-level directory or loose page no section covers, which renders above the sections
+ *     with no section sidebar (FS-2751).
+ *   - shadowing links: a `pages` link entry pointing at a real page in this repo, which renames it
+ *     and can pull it into the linking directory's section (FS-2716).
  *   - manifest duplicates: a `page` URL claimed twice in `lib/docs-navigation.json`, which leaves
  *     one entry naming a page it does not open (FS-2740).
  *
@@ -15,20 +18,26 @@
  */
 import path from 'node:path';
 
-import { checkManifest, checkRoots, checkTree, readTree } from './lib/nav.mjs';
+import { duplicateManifestPages } from '../lib/docs-navigation-rules.mjs';
+import { checkSections, checkTree, readSections, readTree } from './lib/nav.mjs';
 
 function main() {
   const json = process.argv.slice(2).includes('--json');
   const root = path.join(process.cwd(), 'content', 'docs');
   const results = checkTree(root);
-  const { rootless, shadowLinks } = checkRoots(readTree(root));
-  const duplicates = checkManifest(path.join(process.cwd(), 'lib', 'docs-navigation.json'));
+  const sections = readSections(path.join(process.cwd(), 'lib', 'docs-navigation.json'));
+  const { missingFolders, sharedFolders, uncoveredFolders, unsectioned, shadowLinks } =
+    checkSections({ ...readTree(root), sections });
+  const duplicates = duplicateManifestPages(sections);
 
   if (json) {
     console.log(
       JSON.stringify({
         directories: results.map((r) => ({ ...r, dir: path.relative(process.cwd(), r.dir) })),
-        rootless,
+        missingFolders,
+        sharedFolders,
+        uncoveredFolders,
+        unsectioned,
         shadowLinks,
         duplicates,
       }),
@@ -36,12 +45,15 @@ function main() {
     return;
   }
 
-  if (
-    results.length === 0 &&
-    rootless.length === 0 &&
-    shadowLinks.length === 0 &&
-    duplicates.length === 0
-  ) {
+  const defects =
+    results.length +
+    missingFolders.length +
+    sharedFolders.length +
+    uncoveredFolders.length +
+    unsectioned.length +
+    shadowLinks.length +
+    duplicates.length;
+  if (defects === 0) {
     console.log('nav-check: no navigation defects.');
     return;
   }
@@ -57,26 +69,57 @@ function main() {
     }
   }
 
-  if (rootless.length > 0) {
+  if (missingFolders.length > 0) {
     console.error(
-      `nav-check: ${rootless.length} page(s) outside every "root": true folder, so the sidebar root switcher names the wrong section or nothing at all:`,
+      `nav-check: ${missingFolders.length} sourceFolders entry/entries in lib/docs-navigation.json naming a directory that does not exist, which makes the transformer throw and the dev server fail:`,
     );
-    for (const page of rootless) console.error(`  content/docs/${page}.mdx`);
+    for (const f of missingFolders) console.error(`  ${f.section}: "${f.folder}"`);
     console.error(
-      '    Fix: declare "root": true on a folder above the page, or list it from a root folder\'s "pages" (a "../name" reference works across directories).',
+      '    Fix: name an existing directory under content/docs, or drop the entry if the directory is gone.',
+    );
+  }
+
+  if (sharedFolders.length > 0) {
+    console.error(
+      `nav-check: ${sharedFolders.length} source folder(s) claimed by more than one section, so only the section listed first collects anything from it:`,
+    );
+    for (const f of sharedFolders)
+      console.error(`  "${f.folder}"\n    claimed by: ${f.sections.join(', ')}`);
+    console.error(
+      '    Fix: leave the folder in the one section that should hold its unlisted pages. Use "href" entries for cross-section shortcuts.',
+    );
+  }
+
+  if (uncoveredFolders.length > 0) {
+    console.error(
+      `nav-check: ${uncoveredFolders.length} top-level director(y/ies) named in no section's sourceFolders, so their pages render above the sections with no section sidebar:`,
+    );
+    for (const dir of uncoveredFolders) console.error(`  content/docs/${dir}/`);
+    console.error(
+      '    Fix: add the directory name to one section\'s "sourceFolders" array in lib/docs-navigation.json.',
+    );
+  }
+
+  if (unsectioned.length > 0) {
+    console.error(
+      `nav-check: ${unsectioned.length} page(s) no section covers, so they render above the sections with no section sidebar:`,
+    );
+    for (const page of unsectioned) console.error(`  content/docs/${page}.mdx`);
+    console.error(
+      '    Fix: claim the page from a directory a section already covers (a "../name" entry in that directory\'s meta.json, as content/docs/resources/meta.json does), or give its own directory a "sourceFolders" entry.',
     );
   }
 
   if (shadowLinks.length > 0) {
     console.error(
-      `nav-check: ${shadowLinks.length} link entry/entries pointing at a real docs page, which hands that page this folder's sidebar root:`,
+      `nav-check: ${shadowLinks.length} link entry/entries pointing at a real docs page, which overwrites that page's sidebar label and can pull it into this directory's section:`,
     );
     for (const s of shadowLinks)
       console.error(
         `  content/docs/${s.dir ? `${s.dir}/` : ''}meta.json: ${s.entry} -> content/docs/${s.page}.mdx`,
       );
     console.error(
-      '    Fix: reference the page ("../name") from the one root folder that should own it, and drop the duplicate link.',
+      '    Fix: reference the page ("../name") from the one directory that should own it, and link to it with an "href" entry in lib/docs-navigation.json.',
     );
   }
 

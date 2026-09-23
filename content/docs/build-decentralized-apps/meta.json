@@ -1,7 +1,6 @@
 {
   "title": "Build apps with Solidity",
   "icon": "Code",
-  "root": true,
   "description": "Deploy Solidity smart contracts to Arbitrum chains.",
   "pages": [
     "quickstart-solidity-remix",

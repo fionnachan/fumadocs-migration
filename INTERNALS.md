@@ -219,7 +219,8 @@ points at `stylus/quickstart` rather than at that section's index. Each section 
 its folder in the content tree, a `name`, a `sourceFolders` array assigning local content to it, and
 `children`. The twelve
 `sourceFolders` cover every top-level directory under `content/docs`, and each directory belongs to
-exactly one section.
+exactly one section. That is an invariant, not a coincidence: `pnpm nav:check` has held it since
+FS-2751, and [What `nav:check` checks](#what-navcheck-checks) says how.
 
 An entry in `children` is one of four shapes, and `buildDocsNavigation` (`lib/docs-navigation.ts`)
 throws if it is none of them:
@@ -257,10 +258,10 @@ whichever node the depth-first walk reaches first, and the folder above the othe
 look, which is why one `page` entry per URL is a rule rather than a preference. And a page nested
 under two root folders gets the inner one, since that is the last on the chain.
 
-Three places in the repository already lean on this rule: the comment above `nav:check`'s
-root-coverage check (`scripts/lib/nav.mjs:111`) names `path.findLast` outright, the `owner()` helper
-in `scripts/docs-navigation.test.mjs` re-implements it to assert one section owner per page, and the
-`tabs={false}` comment in `app/docs/layout.tsx` states it in words.
+Two places in the repository lean on this rule: the `owner()` helper in
+`scripts/docs-navigation.test.mjs` re-implements it to assert one section owner per page, and the
+`tabs={false}` comment in `app/docs/layout.tsx` states it in words. A third used to, the comment
+above `nav:check`'s root-coverage rule, and went with that rule in FS-2751.
 
 ### Cross-section links use `href`
 
@@ -292,8 +293,12 @@ Solidity and Arbitrum bridge have none. To place a page in the main menu, give i
 A page in a directory that **no** `sourceFolders` list covers is still reachable, but it is
 appended to the top of the tree beside the sections rather than inside one, so it gets no section
 root and no section sidebar. `content/docs/index.mdx` already sits there by design, because the
-docs index is the section list. A new top-level directory that nobody adds to a `sourceFolders`
-array lands in the same place, and no gate reports it.
+docs index is the section list, and `SECTIONLESS_BY_DESIGN` in `scripts/lib/nav.mjs` is that
+exemption. A new top-level directory that nobody adds to a `sourceFolders` array lands in the same
+place, and since FS-2751 `pnpm nav:check` reports it. Measured, with a `scratch-zone` directory
+holding one page and a loose `loose-probe.mdx` at the top of `content/docs`: the rendered tree's
+top-level children read `index`, `loose-probe`, `Scratch zone`, then the nine section folders, and
+the first three carry no section root.
 
 `_fallback` is fumadocs-core's, not ours. `transformerFallback` counts the files the tree build
 reached; when that count is short of the storage's own file count, it runs a **second** tree build
@@ -321,32 +326,34 @@ section menus. `SidebarResourceLinks` is passed as a component so the notebook l
 footer wrapper does not hide the links on desktop. Its links live in `lib/shared.ts` and
 `scripts/lib/shared.test.mjs` asserts each resolves to a real page.
 
-### `"root": true` no longer reaches the rendered tree
+### `"root": true` is gone from `content/docs` (FS-2751)
 
-Twelve `meta.json` files declare it. The transformer sets `root: true` on the nine section folders
-it builds and `root: false` on every folder it copies or carries over, and leaves the categories it
-builds from a `children` array with no `root` key at all. Counted in the rendered tree: of 117
-folder nodes, 9 are `true`, 57 are `false` and 51 carry no such key, which every consumer reads as
-false. Rebuilding the tree with all twelve flags deleted produces a structurally identical tree, so
-the flags decide nothing a reader sees.
+Twelve `meta.json` files used to declare it. **Nothing in a content directory declares it now**, and
+a new one should not: the transformer decides which folders are roots. It sets `root: true` on the
+nine section folders it builds and `root: false` on every folder it copies or carries over, and
+leaves the categories it builds from a `children` array with no `root` key at all, which every
+consumer reads as false. Counted in the rendered tree: of 117 folder nodes, 9 are `true`, 57 are
+`false` and 51 carry no such key.
 
-**The one consumer left is `pnpm nav:check`, and its case for the flags closes on itself.** The
-root-coverage rule (`scripts/lib/nav.mjs:191`) reads them off disk and fails on a page under no
-`"root": true` folder: with `stylus`'s flag removed it reports 61 uncovered pages, and with all
-twelve removed 348 of 349. But the flags are also that rule's only input, so all it proves is that
-the flags exist. The question that now decides where a top-level directory's pages land, whether the
-directory is named in some section's `sourceFolders`, is read by no gate: `nav:check` never opens the
-manifest's `sourceFolders` arrays at all. Measured, by adding a `scratch-zone` directory carrying
-`"root": true` and naming it in no section: the gate still reports zero uncovered pages, while the
-page renders above the nine sections with no section root, exactly as
-[Pages the manifest never lists](#pages-the-manifest-never-lists) describes.
+The flags decided nothing a reader saw. Measured, by rebuilding the tree through Fumadocs with all
+twelve deleted and comparing leaf keys (URL, name and the folder chain above each node): 391 keys
+both ways, 0 differing, identical order. The one thing `metadata.root` changes inside fumadocs-core
+is that a root folder's `index.mdx` is not auto-attached as `node.index`, and `buildDocsNavigation`
+already falls back to `pages.get('/docs/<section id>')` for exactly that case, which is why nothing
+moved. Nothing else in `app/`, `lib/`, `components/` or `scripts/` read a node's `root`.
 
-**FS-2751 owns the decision**, which is whether to delete the twelve flags together with the rule or
-to replace the rule with one comparing `sourceFolders` against the top-level content directories.
-The gate's own failure text and the comment above the rule both still explain root coverage in terms
-of the root switcher, which has not existed since PR #73, and they are in that ticket's scope too.
-Until it lands, declare the flag on a new top-level section and add that section to a
-`sourceFolders` array as well, because only the second of those two changes anything a reader sees.
+There is one branch where a meta.json `root` would still decide a sidebar, and it does not run here:
+`root.fallback`, the second tree `transformerFallback` builds over unreached files, which our
+`root()` hook returns untransformed. Measured `undefined` on the real content, for the reason
+[Pages the manifest never lists](#pages-the-manifest-never-lists) gives.
+
+**The rule that read them went too.** Root coverage failed on a page under no `"root": true` folder,
+but the flags were also its only input, so all it proved was that the flags existed: circular. Worse,
+it reported zero on a `scratch-zone` directory that declared the flag and appeared in no
+`sourceFolders` array, while that directory's page rendered above the nine sections with no section
+sidebar. `pnpm nav:check` now checks `sourceFolders` against the content tree instead, which is the
+question that actually decides where a top-level directory's pages land. See
+[What `nav:check` checks](#what-navcheck-checks).
 
 ### Link entries in a `meta.json` still cause damage, differently
 
@@ -393,17 +400,34 @@ segment, so a page joins a folder without moving and without a redirect. Claims 
 `content/docs/meta.json` and their names must not also be listed there. `resources` is then a
 `sourceFolder` of Get started, which is what puts those four pages in that section.
 
+**That claim is the directory's whole job now.** It carried `"root": true` as well until FS-2751,
+which is gone with the other eleven, and it holds no `.mdx` file of its own. Deleting the directory
+would leave the four pages in a section anyway, because a manifest `page` entry names each of them,
+but it would leave a fifth loose page with nowhere to go, so `nav:check` reports a top-level `.mdx`
+no covered directory claims.
+
 ### What `nav:check` checks
 
-Four rules, none of them visible to `types:check` or `build`:
+Five rules, none of them visible to `types:check` or `build`:
 
 1. **Ghost entries.** A `pages` entry naming nothing on disk, which Fumadocs ignores in silence.
 2. **Hidden pages.** A file on disk that no `pages` entry and no `"..."` lets through.
-3. **Root coverage and shadowing links.** A page under no `"root": true` folder, and a link entry
-   pointing at a real docs page. Read the first half against
-   [`"root": true` no longer reaches the rendered tree](#root-true-no-longer-reaches-the-rendered-tree):
-   it proves the flags are declared and nothing more.
-4. **Manifest duplicates.** A `page` URL that `lib/docs-navigation.json` claims twice, which always
+3. **Section coverage** (FS-2751), in four reports from one pass. `checkSections` in
+   `scripts/lib/nav.mjs` models fumadocs-core's `own()` to work out which directory owns each page
+   and each folder, then asks whether that chain of claims reaches a directory some section names in
+   `sourceFolders`, which is the set `buildDocsNavigation` sweeps for leftovers. It reports a
+   `sourceFolders` entry naming no directory (the transformer throws on this, so the gate turns a
+   stack trace into a named entry), a directory two sections claim (only the first one listed
+   collects anything, in silence), a top-level directory no section covers, and a page no section
+   covers, which in practice means a loose `.mdx` at the top of `content/docs` that no directory's
+   `pages` array claims. A page inside an already-reported directory is left out of the last list, so
+   one root cause gives one message. `content/docs/index.mdx` is the one exemption,
+   `SECTIONLESS_BY_DESIGN`.
+4. **Shadowing links.** A `pages` link entry pointing at a real page in this repo (FS-2716). Under
+   the manifest it no longer gives the page a second node, but it still renames the page and can
+   still pull it into the linking directory's section: see
+   [Link entries in a `meta.json` still cause damage, differently](#link-entries-in-a-metajson-still-cause-damage-differently).
+5. **Manifest duplicates.** A `page` URL that `lib/docs-navigation.json` claims twice, which always
    means one entry names a page it does not open while the page it was meant to name falls into
    Additional guides (FS-2740). A URL claimed twice is a URL on two nodes, and
    [How a page gets its sidebar](#how-a-page-gets-its-sidebar) is why only one of them is ever
@@ -411,7 +435,7 @@ Four rules, none of them visible to `types:check` or `build`:
    `buildDocsNavigation` and the gate import it, so a duplicate throws in a dev server as well as in
    CI. A repeated `href` is exempt, because a shortcut claims nothing.
 
-Two shapes get past rule 4, both recorded in FS-2749:
+Two shapes get past rule 5, both recorded in FS-2749:
 
 - The rule walks each section's `children` only. A section's landing page is derived separately from
   the source folder's index, so listing that same URL in `children` puts one URL on two nodes and
