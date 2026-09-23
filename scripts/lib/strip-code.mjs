@@ -14,6 +14,9 @@
  *   - `doc-links.mjs` calls `maskRegions`, which blanks fences, inline code, frontmatter and HTML
  *     comments, because a link written in either of those is not a link a reader can follow.
  *   - `remote-images.mjs` calls `maskCode` with the default region set, fences and inline code only.
+ *   - `content-lint.mjs` rules A12 and A13 call `fenceDefects`, because they are about the fence
+ *     boundary itself rather than about what is inside it. Same scan as everything above, so a rule
+ *     about where a fence ends cannot disagree with the masking that acts on it.
  *
  * This module imports nothing, deliberately. `content-lint.mjs` and `partials.mjs` are pure string
  * tooling and the scanner is the thing they all agree on, so it must not drag `node:fs` or a docs
@@ -38,7 +41,8 @@
  * closes on a later line holding a run of the *same character*, *at least as long as the opener*,
  * indented no more than three columns past the opener, with nothing but whitespace after it. An
  * unclosed fence runs to the end of the file, which is what the page itself renders. Every one of
- * those clauses was checked against `mdast-util-from-markdown` rather than assumed.
+ * those clauses was checked against `mdast-util-from-markdown` rather than assumed. The scan itself
+ * is `scanFences`, one generator, which `codeRegions` and `fenceDefects` both read.
  *
  * **Phase 2, inline level.** One left-to-right scan over everything phase 1 left, where whichever
  * delimiter opens first wins. An inline code span opens on a run of backticks and closes on the next
@@ -71,6 +75,12 @@
  *   spaces and measures a nested one against its container; a scanner with no notion of containers
  *   cannot tell the two apart, and fences four or more columns deep inside a list item are ordinary
  *   in `content/`.
+ * - The closer's three-column allowance is CommonMark's, not the MDX parser's. This site compiles
+ *   with `remark-mdx`, which turns off indented code blocks and with them that cap, so a closer the
+ *   masking here reads as fence body is a real closer to the renderer (FS-2743). The masking is
+ *   deliberately left at the CommonMark reading, because widening it would change what every
+ *   consumer sees; `fenceDefects` reports the disagreement instead, and A13 blocks it in `content/`,
+ *   so no file in the tree relies on the difference.
  * - `endsParagraph` reads a block opener's indentation from column 0, capped at three the way
  *   CommonMark caps a top-level one. The same missing notion of containers applies: a block nested
  *   inside a list item sits four or more columns deep, and a span is not bounded there.
@@ -95,6 +105,109 @@ const lineEndFrom = (source, start) => {
   const nl = source.indexOf('\n', start);
   return nl === -1 ? source.length : nl;
 };
+
+/**
+ * Every fence in one source, in order, each with both readings of where it closes.
+ *
+ * The one fence scan in this repo. `codeRegions` takes `start` and `end` from it and nothing else;
+ * `fenceDefects` takes the two closer offsets. Keeping them on one generator is the point: a second
+ * fence regex somewhere else is exactly the drift FS-2729 removed.
+ *
+ * `closerStart` is the CommonMark reading. The closer repeats the opener's character at least as
+ * many times, holds nothing else, and is indented no more than three columns past the opener.
+ * CommonMark measures that three against the container block rather than the opener, but a scanner
+ * with no notion of containers cannot see one, and the opener sits in the same container, so it is
+ * the closest available proxy. Verified against `mdast-util-from-markdown` for the four shapes that
+ * matter: a 2-space closer under an unindented opener closes, a 4-space one does not, a 4-space
+ * closer under a 4-space opener inside a list item closes, and a closer carrying trailing text
+ * never closes.
+ *
+ * `looseCloserStart` is the same line test with the indentation cap lifted, which is how the MDX
+ * parser this site compiles with reads it: `remark-mdx` turns off indented code blocks, and with
+ * them the cap. Measured over closer indents 0 to 6 on one input, `mdast-util-from-markdown` stops
+ * closing at 4 while `remark-parse` plus `remark-mdx` keeps closing at 4, 5 and 6 (FS-2743). Where
+ * the two readings disagree the page renders fine and every scanner-based gate goes blind over the
+ * lines between, which is what `fenceDefects` reports and what rule A13 blocks.
+ *
+ * Masking deliberately keeps the CommonMark reading. Widening it here would change what every
+ * consumer sees across the whole tree, so the source is made unambiguous instead.
+ *
+ * Both offsets are -1 when no such closer exists, in which case `end` is the end of the file, which
+ * is what the page itself renders.
+ *
+ * @param {string} source raw MDX
+ * @param {number} bodyStart offset to start scanning at, past frontmatter when it was consumed
+ * @returns {Generator<{start: number, end: number, closerStart: number, looseCloserStart: number}>}
+ */
+function* scanFences(source, bodyStart) {
+  let cursor = bodyStart;
+  while (cursor < source.length) {
+    const lineEnd = lineEndFrom(source, cursor);
+    const open = FENCE_OPEN.exec(source.slice(cursor, lineEnd));
+
+    if (!open) {
+      cursor = lineEnd + 1;
+      continue;
+    }
+
+    const marker = open[1];
+    const indent = open[0].length - marker.length;
+    const closes = new RegExp(
+      `^[ \\t]{0,${indent + 3}}\\${marker[0]}{${marker.length},}[ \\t\\r]*$`,
+    );
+    const closesAtAnyIndent = new RegExp(`^[ \\t]*\\${marker[0]}{${marker.length},}[ \\t\\r]*$`);
+
+    let end = source.length;
+    let closerStart = -1;
+    let looseCloserStart = -1;
+    let scan = lineEnd + 1;
+    while (scan <= source.length) {
+      const scanEnd = lineEndFrom(source, scan);
+      const line = source.slice(scan, scanEnd);
+      if (looseCloserStart === -1 && closesAtAnyIndent.test(line)) looseCloserStart = scan;
+      if (closes.test(line)) {
+        end = scanEnd;
+        closerStart = scan;
+        break;
+      }
+      if (scanEnd >= source.length) break;
+      scan = scanEnd + 1;
+    }
+
+    yield { start: cursor, end, closerStart, looseCloserStart };
+    cursor = end + 1;
+  }
+}
+
+/**
+ * Every fence whose closer the two parsers do not agree on, in source order.
+ *
+ * Two kinds, because the fixes are opposite:
+ *
+ * - `unclosed`: no closer at any indentation. The fence runs to the end of the file, so the page
+ *   renders an empty code box (a stray trailing fence) or swallows its own tail (a real opener
+ *   whose closer is missing). Reader-visible.
+ * - `indentedCloser`: a closer indented more than three columns past its opener. MDX closes the
+ *   fence there, so the page renders correctly and the reader sees nothing, but every gate reading
+ *   this module's CommonMark masking treats the lines between as fence body and stops checking
+ *   them. `closerStart` points at that closer, which is where the fix goes.
+ *
+ * @param {string} source raw MDX
+ * @returns {{kind: 'unclosed'|'indentedCloser', start: number, closerStart: number}[]}
+ */
+export function fenceDefects(source) {
+  const defects = [];
+  for (const { start, closerStart, looseCloserStart } of scanFences(source, 0)) {
+    // The overwhelmingly common case: one line is both readings' closer.
+    if (closerStart !== -1 && closerStart === looseCloserStart) continue;
+    defects.push({
+      kind: looseCloserStart === -1 ? 'unclosed' : 'indentedCloser',
+      start,
+      closerStart: looseCloserStart,
+    });
+  }
+  return defects;
+}
 
 /**
  * Every code (and, on request, comment or frontmatter) region in one source, in source order and
@@ -129,44 +242,8 @@ export function codeRegions(source, options = {}) {
   }
 
   if (fences) {
-    let cursor = bodyStart;
-    while (cursor < source.length) {
-      const lineEnd = lineEndFrom(source, cursor);
-      const open = FENCE_OPEN.exec(source.slice(cursor, lineEnd));
-
-      if (!open) {
-        cursor = lineEnd + 1;
-        continue;
-      }
-
-      const marker = open[1];
-      const indent = open[0].length - marker.length;
-      // The closer repeats the opener's character at least as many times, holds nothing else, and
-      // is indented no more than three columns past the opener. CommonMark measures that three
-      // against the container block rather than the opener, but a scanner with no notion of
-      // containers cannot see one, and the opener sits in the same container, so it is the closest
-      // available proxy. Verified against `mdast-util-from-markdown` for the four shapes that
-      // matter: a 2-space closer under an unindented opener closes, a 4-space one does not, a
-      // 4-space closer under a 4-space opener inside a list item closes, and a closer carrying
-      // trailing text never closes.
-      const closes = new RegExp(
-        `^[ \\t]{0,${indent + 3}}\\${marker[0]}{${marker.length},}[ \\t\\r]*$`,
-      );
-
-      let end = source.length;
-      let scan = lineEnd + 1;
-      while (scan <= source.length) {
-        const scanEnd = lineEndFrom(source, scan);
-        if (closes.test(source.slice(scan, scanEnd))) {
-          end = scanEnd;
-          break;
-        }
-        if (scanEnd >= source.length) break;
-        scan = scanEnd + 1;
-      }
-
-      regions.push({ kind: 'fence', start: cursor, end });
-      cursor = end + 1;
+    for (const fence of scanFences(source, bodyStart)) {
+      regions.push({ kind: 'fence', start: fence.start, end: fence.end });
     }
   }
 
