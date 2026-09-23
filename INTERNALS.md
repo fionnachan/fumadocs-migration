@@ -879,8 +879,9 @@ running, so run it with `pnpm dev` up, or point it at any other origin with `--b
 
 **CI runs it in the `Build` job**, as a step after `pnpm build`: it starts `next start`, polls
 `/llms.txt` until the server answers, runs the check, and kills the server on the way out. The
-build is already happening in that job, so the whole step costs about three seconds. It is
-non-blocking only because that job is; promoting `Build` into `Gates` promotes this with it.
+build is already happening in that job, so the whole step costs about three seconds. It blocks,
+because that job does: FS-2746 dropped `continue-on-error` from `Build` and this check was
+promoted with it.
 
 `next start` directly, not `pnpm start`: backgrounding the pnpm script makes `$!` the wrapper's
 PID, so the cleanup trap kills the wrapper and leaves the Next server orphaned on port 3000.
@@ -1293,8 +1294,9 @@ both reliable and optimized. Where a third party's own CDN copy has to be used, 
 supported way, as `content/docs/third-party-docs/Particle/particle.mdx` does.
 
 **Why `external: false` and not `onError: 'ignore'`.** Both stop the compile from throwing.
-`external: false` also stops the compile from touching the network at all, which keeps it
-deterministic and lets the `Build` job become blocking. `onError: 'ignore'` would keep a network
+`external: false` also stops the compile from touching the network for images at all, which keeps
+it deterministic and is what let the `Build` job become blocking in FS-2746. `onError: 'ignore'`
+would keep a network
 round trip per remote image for a `width` that markdown cannot use anyway. Local images are still
 measured from disk, and `onError` stays at its default `error`, so a missing or corrupt file under
 `public/` still fails the build rather than shipping a broken page.
@@ -1524,8 +1526,23 @@ pollute production data.
 
 ## The gates
 
-CI runs on push and PR to `main` (`.github/workflows/ci.yml`) in three jobs. **Only the first
-blocks.**
+CI runs on push and PR to `main` (`.github/workflows/ci.yml`) in three jobs. **Two of them block**,
+`Gates` and `Build`. Only `Network checks` reports without blocking, and it does so for a reason
+about the network rather than about content quality.
+
+"Blocking" here is a statement about intent that the workflow file can only half express. A job
+without `continue-on-error` fails its run, but what holds a merge is a branch protection rule or
+ruleset on `main` that lists required checks by job name. Measured 2026-09-22 through the GitHub
+API: `fionnachan/fumadocs-migration` has no protection and no rulesets on `main`, so a rule or
+ruleset has to be created there. `OffchainLabs/Fumadocs-test` reports `protected: true`, but that
+flag comes from its ruleset layer: classic branch protection is off (`protection.enabled: false`,
+zero required contexts) and the one active ruleset, "Merge control", requires only an
+integration's `merge-controlled` context, so it lives under Settings, Rules, not Settings,
+Branches. On both repositories, then, **no CI job holds a merge today, `Gates` included**. The fix
+is the same on each: add both `Gates` and `Build` as required checks, to a new rule or ruleset on
+the fork and to the "Merge control" ruleset on origin. Renaming a job renames its check, and a
+required check that never reports blocks every pull request indefinitely, which is why the old
+"Build (non-blocking)" name must not be listed.
 
 **`Gates` (blocking)** — thirteen steps:
 
@@ -1573,30 +1590,61 @@ inherited rather than introduced. Both reached zero, so the tier had done its jo
 No promote-when-zero rule is left to apply, and a failure in either step now means the PR under
 review introduced it.
 
-**`Network checks` (non-blocking)** — `precompiles:check`, marked `continue-on-error`. Reaching
-zero is not what would promote this one: it is already green. It fetches about thirty Solidity
-sources from `raw.githubusercontent` on every run, so a GitHub blip turns it red for reasons
-unrelated to the change under review, the same argument that keeps `Build` non-blocking. Its
-sibling `contracts:check` reads a registry that ships inside `@arbitrum/sdk` at an exact pin, so
-it is offline and blocks. Losing the network dependency is what would promote
-`precompiles:check`.
+**`Build` (blocking since FS-2746)** runs `pnpm build`, then starts `next start` and runs
+`redirects:check` and `scripts/static-docs-http.test.mjs` against it. It was advisory until then
+because the MDX image pipeline fetched remote images at build time, so a dead third-party URL
+turned it red for reasons unrelated to the change under review. That reason is gone: the build no
+longer touches the network for images (see
+[Remote images are never fetched at build](#remote-images-are-never-fetched-at-build)).
 
-**`Build` (non-blocking)** runs `pnpm build`. It catches MDX compile errors that `types:check` cannot
-see. It was made non-blocking because the MDX image pipeline fetched remote images at build time, so
-a dead third-party URL turned it red for reasons unrelated to the change under review. That reason
-is gone: the build no longer touches the network for images (see
-[Remote images are never fetched at build](#remote-images-are-never-fetched-at-build)). Promoting
-this job into `Gates` is now possible and wants its own change, not least because a full build is
-the slowest job here.
+What only this job sees, and what therefore blocked nothing until the promotion: render-time MDX
+failures, a page that compiles but throws at prerender (an undefined component, for instance);
+a plain MDX syntax error was already caught by `check-links`, which compiles every page to
+validate anchors, and `types:check` sees neither, because it proves the frontmatter schema and
+the TypeScript, not the compile; the 404 shape and prerendered-route assertions of FS-2688 and
+FS-2698; `redirects:check`; FS-2724's `og:*` tags; FS-2732's three "no MDX comment in the
+mirrors" assertions; and FS-2733's assertion that the rendered contribute page links back into
+this repository. Every one of them reported and passed anyway.
+
+**It stays a job of its own rather than folding into `Gates`.** The two run in parallel, so
+promoting the build costs no pull-request latency: a run already waits on whichever job is slower,
+and folding the build (53 s cold, 37 s warm, measured 2026-09-22) plus a few seconds of HTTP behind thirteen checks
+that do not need it would only serialise work that is already free.
+
+**One network dependency is left in the build and is accepted.** `app/layout.tsx` declares
+`--font-code` with `JetBrains_Mono` from `next/font/google`, so `next build` fetches that face's
+CSS from `fonts.googleapis.com` and its `woff2` files from `fonts.gstatic.com` and self-hosts them
+into `.next/static/media`. The loader retries three times and falls back to a local face only in
+dev (`node_modules/next/dist/compiled/@next/font/dist/google/loader.js`), so in a production build
+an outage throws. This is not a new exposure: the same `next build` runs on every Vercel deploy,
+so Google Fonts already gates shipping. Self-hosting that face under `public/fonts/`, the way all
+four Aeonik faces already are, would take the last network call out of the build and is worth its
+own change. Nothing else in the job reaches the network: `redirects:check` reports an external
+destination as `SKIPPED` without fetching it, and the HTTP suite talks only to
+`STATIC_DOCS_TEST_URL`. The same dependency now reaches `upstream-refresh.yml`'s `stylus` job,
+whose gate list mirrors `Gates` plus the build: a Google Fonts outage during the Monday run fails
+that job before `create-pull-request`, so no PR opens; the run goes red and GitHub emails the user
+who last edited the workflow's cron schedule, which is the only signal. The job could already fail
+on any of its thirteen gates the same way, so the build adds a cause, not the gap. Accepted for the
+same reason; the next Monday retries.
+
+**`Network checks` (non-blocking)** runs `precompiles:check`, marked `continue-on-error`, and is
+the only job here that does not block. Reaching zero is not what would promote this one: it is already
+green. It fetches about thirty Solidity sources from `raw.githubusercontent` on every run with no
+retry, so a GitHub blip turns it red for reasons unrelated to the change under review. That is a
+different failure profile from the build's one host, two requests and three retries, which is why
+the two ended up on opposite sides. Its sibling `contracts:check` reads a registry that ships
+inside `@arbitrum/sdk` at an exact pin, so it is offline and blocks. Losing the network dependency
+is what would promote `precompiles:check`.
 
 **Run by hand only:** `cli:check`, `stylus:check`, and the network mode of `images:check`.
 `images:check` reaches out to third-party hosts, so its result depends on somebody else's uptime;
-its offline sibling `images:presence` does run in CI. `redirects:check` is no
-longer hand-only for a PR either — it runs as the last step of the `Build` job, against `next start`
-on localhost (see [Redirects](#redirects)). It is not in the blocking `Gates` job because it needs a
-running site, and the only cheap way to get one is to reuse the build that `Build` already does;
-promoting `Build` promotes it too. It is still available by hand with `--base-url`, against a local
-`pnpm dev` or any other URL.
+its offline sibling `images:presence` does run in CI. `redirects:check` is not on this list at
+all: it runs as the last step of the `Build` job, against `next start` on localhost (see
+[Redirects](#redirects)), and blocks there since FS-2746. It is not a step in `Gates` because it
+needs a running site, and the only cheap way to get one is to reuse the build that `Build` already
+does. It is still available by hand with `--base-url`, against a local `pnpm dev` or any other
+URL.
 
 `upstream-refresh.yml` runs Mondays at 08:00 UTC and on `workflow_dispatch`, in two independent
 jobs. **"Upstream" in its name means the pinned Nitro release, go-ethereum, the `@arbitrum/sdk`
@@ -1607,8 +1655,9 @@ FS-2706 deleted the third job, `drift`, which compared the two content trees and
 - **`refresh`** runs `nitro:check-release`, then `precompiles:generate`, `contracts:generate` and
   `cli:generate`, opening `automated/upstream-refresh` as a PR if anything changed. It never writes
   to `main` and no-ops when the tree is clean.
-- **`stylus`** regenerates `content/docs/stylus/stylus-by-example/`, runs `ci.yml`'s whole `Gates`
-  list against the result, and only then opens `automated/stylus-by-example` as its own PR.
+- **`stylus`** regenerates `content/docs/stylus/stylus-by-example/`, runs `ci.yml`'s whole blocking
+  set against the result (the `Gates` list, then `pnpm build` and the server step that is the
+  `Build` job), and only then opens `automated/stylus-by-example` as its own PR.
 
 The two jobs have no `needs` between them on purpose, so a failing generator never hides the other
 job's result.
@@ -1724,8 +1773,11 @@ Six things about it are worth knowing:
   push/pull_request against `main`, so **nothing checks the PR this job opens**; its checks tab
   arrives empty, which reads as green. The payload is prose and frontmatter from a repository this
   project neither controls nor pins, which makes it the automated PR most in need of checking, so
-  the job runs `ci.yml`'s `Gates` list step for step against the regenerated tree and fails the
-  weekly run rather than shipping a PR nothing has verified. **Keep the two lists in sync**: a
+  the job runs `ci.yml`'s blocking set step for step against the regenerated tree and fails the
+  weekly run rather than shipping a PR nothing has verified. That set is the `Gates` list plus
+  `pnpm build` and the server step behind it, added when FS-2746 promoted the `Build` job; the
+  build is the half this payload most needs, since a render-time MDX failure is the defect no other
+  step catches and upstream prose is where one would come from. **Keep the two lists in sync**: a
   gate added to `ci.yml` and not there is a gate that PR does not get. The alternative, a PAT or
   GitHub App token on `create-pull-request` so `ci.yml` runs for real, needs a secret nobody has
   provisioned. The sibling `refresh` job has the same no-CI shape and no gates of its own; its

@@ -102,10 +102,11 @@ jobs:
     #
     # What is left reports rather than blocks for a different reason, and reaching zero is not
     # what would promote it: it is already green. It fetches ~30 Solidity sources from
-    # raw.githubusercontent at every run, so a GitHub blip turns it red for reasons unrelated to
-    # the change under review. Same argument as `build`. Its sibling `contracts:check` is offline,
-    # which is why that one blocks and this one cannot. Losing the network dependency is what
-    # would promote it.
+    # raw.githubusercontent at every run, with no retry, so a GitHub blip turns it red for reasons
+    # unrelated to the change under review. This is now the only job here that does not block:
+    # `build` was promoted by FS-2746 once FS-2681 took the network out of it. Its sibling
+    # `contracts:check` is offline, which is why that one blocks and this one cannot. Losing the
+    # network dependency is what would promote it.
     name: Network checks (non-blocking)
     runs-on: ubuntu-latest
     steps:
@@ -127,20 +128,31 @@ jobs:
         continue-on-error: true
 
   build:
-    # Still non-blocking, but the original reason no longer holds. This job was left
-    # advisory because the MDX image pipeline fetched remote images at build time, so a
-    # dead third-party URL turned it red for reasons unrelated to the change under
-    # review. FS-2681 set `remarkImageOptions: { external: false }` in source.config.ts,
-    # and the build no longer touches the network for images.
+    # Blocking since FS-2746. It was advisory until then because the MDX image pipeline fetched
+    # remote images at build time, so a dead third-party URL turned it red for reasons unrelated
+    # to the change under review. FS-2681 set `remarkImageOptions: { external: false }` in
+    # source.config.ts, and the build no longer touches the network for images.
     #
-    # Promoting this job into `gates` is therefore possible now. It is deliberately left
-    # out of that change: a full build is the slowest job here, so flipping it wants its
-    # own PR and a look at the added PR latency. It would promote the redirect check too.
+    # What it blocks on, none of which any step in `gates` can see: render-time MDX failures
+    # (a page that compiles but throws at prerender; a syntax error already fails check-links),
+    # the 404 shape and prerender assertions of FS-2698 and FS-2688,
+    # `redirects:check`, FS-2724's og:* tags, FS-2732's "no MDX comment in the mirrors", and
+    # FS-2733's rendered link back into this repository.
     #
-    # It catches MDX compile errors that types:check cannot see.
-    name: Build (non-blocking)
+    # It stays a job of its own rather than folding into `gates`, so the build keeps running in
+    # parallel with those thirteen steps and promoting it costs no PR latency.
+    #
+    # One network dependency is left and is accepted: `app/layout.tsx` declares --font-code with
+    # `JetBrains_Mono` from next/font/google, so the build fetches that face from Google Fonts and
+    # self-hosts it. The loader retries three times and only falls back to a local face in dev, so
+    # an outage fails the build. The same `next build` already runs on every Vercel deploy, so this
+    # adds no dependency production does not already have. Self-hosting that face under
+    # public/fonts/, as all four Aeonik faces are, would remove it.
+    #
+    # "Required" is a branch-protection setting, not something this file can express: the check
+    # name `Build` has to be in the required list on `main` for a red run to hold a merge.
+    name: Build
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
