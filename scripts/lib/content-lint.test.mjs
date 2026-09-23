@@ -534,3 +534,75 @@ test('A11 fires on a <Var> inside a markdown image destination', () => {
   // `![alt](…)` ends in the same `](` the link probe reads, so an image is covered by it.
   assert.deepEqual(rules('![a](https://x/<Var name="nitroVersionTag" />/i.png)'), ['A11']);
 });
+
+// --- A12 and A13: a fence whose closer the two parsers read differently (FS-2743) ---------------
+
+test('A12 fires on a stray trailing fence, which renders an empty code box', () => {
+  const found = lintSource('- a bullet list\n- and another\n```\n');
+  assert.deepEqual(
+    found.map((f) => f.rule),
+    ['A12'],
+  );
+  assert.equal(found[0].line, 3);
+  assert.match(found[0].message, /never closed/);
+});
+
+test('A12 fires on an opener whose closer is missing, which swallows the page tail', () => {
+  assert.deepEqual(rules('# Title\n\n```js\nconst x = 1;\n\nmore prose\n'), ['A12']);
+});
+
+test('A12 does NOT fire on a closed fence', () => {
+  assert.deepEqual(rules('```js\nconst x = 1;\n```\n'), []);
+});
+
+test('A13 fires on a closer indented four columns past an unindented opener', () => {
+  const found = lintSource('```json\n{"a":1}\n    ```\n');
+  assert.deepEqual(
+    found.map((f) => f.rule),
+    ['A13'],
+  );
+  // The closer's line, not the opener's: that is where the one-character fix goes.
+  assert.equal(found[0].line, 3);
+  assert.match(found[0].message, /indented more than three columns/);
+});
+
+test('A13 reports the over-indented closer, not the conforming one further down', () => {
+  // The shape that actually occurred in `content/`. Every other A13 case here has no conforming
+  // closer at all, so the strict offset is -1 and the line arithmetic on it lands on the asserted
+  // line by coincidence; this input is the one that distinguishes the two readings, and reporting
+  // the strict closer would send the writer to line 9 rather than to the line holding the defect.
+  const found = lintSource(
+    '```json\n{"a":1}\n    ```\n\nprose between the fences\n\n```js\nconst x = 1;\n```\n',
+  );
+  assert.deepEqual(
+    found.map((f) => f.rule),
+    ['A13'],
+  );
+  assert.equal(found[0].line, 3);
+});
+
+test('A13 does NOT fire inside the three columns CommonMark allows', () => {
+  assert.deepEqual(rules('```json\n{"a":1}\n   ```\n'), []);
+});
+
+test('A13 does NOT fire on a fence nested in a list item and closed at its own indentation', () => {
+  assert.deepEqual(rules('- item\n\n    ```js\n    x\n    ```\n'), []);
+});
+
+test('A13, not A12, fires when the only closer is over-indented and sits at end of file', () => {
+  // The fence runs to EOF under the CommonMark reading, but a closer exists and the fix is to
+  // dedent it, so reporting the id whose fix is to delete a line would send the writer the wrong
+  // way.
+  assert.deepEqual(rules('```js\nx\n    ```'), ['A13']);
+});
+
+test('A13 leaves the rest of the rule set reading the lines a bad closer used to hide', () => {
+  // The masking still follows CommonMark, so the `:::note` below is inside the fence as far as A3
+  // is concerned. A13 is what stops a page shipping in that state.
+  const found = lintSource('```js\nx\n    ```\n\n:::note\n\n```\n');
+  assert.ok(found.some((f) => f.rule === 'A13'));
+});
+
+test('A12 and A13 do not fire on a fence documented inside a longer fence', () => {
+  assert.deepEqual(rules('````md\n```js\nx\n```\n````\n'), []);
+});

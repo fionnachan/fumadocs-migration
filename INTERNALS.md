@@ -626,10 +626,11 @@ is undefined and crashes the build. `partials:check` enforces the distinction.
 **Neither scanner sees code.** `parseIncludes` and `parsePartialImports` strip fenced blocks and
 inline code spans before they match, so a directive quoted as an example is not validated as a real
 include and is not counted in the catalog's "used in" totals. They strip it with
-`scripts/lib/strip-code.mjs`, which since FS-2729 is the single scanner behind every content gate:
-`content:lint` masks with it for A1 to A5 and A7 to A11 and asks it for the code regions themselves
-for A6, `check-links` and `move-doc` mask with it (frontmatter and HTML comments included), and
-`images:check` masks with it too. It is one line-based, block-then-inline scan with one contract
+`scripts/lib/strip-code.mjs`, which since FS-2729 is the single scanner behind every content gate.
+`content:lint` asks it three different things: masking for A1 to A5 and A7 to A11, the code regions
+themselves for A6, and where each fence closes for A12 and A13. `check-links` and `move-doc` mask
+with it (frontmatter and HTML comments included), and `images:check` masks with it too. It is one
+line-based, block-then-inline scan with one contract
 (same length, same offsets, same line count in and out) and a per-consumer choice of which region
 kinds to blank. Four separate implementations of "ignore code" used to exist, each with its own edge
 cases, and a one-line change to one of them silently hid 6,914 characters of prose from a blocking
@@ -1722,7 +1723,7 @@ blocks.**
 | `check-links`              | Broken internal doc links and MDX fragments                                   |
 | `contracts:check`          | The generated contract-address partial matches `@arbitrum/sdk`                |
 | `format:check`             | Prettier style drift                                                          |
-| `content:lint`             | MDX structural defects, rules A1 through A11 except A7                        |
+| `content:lint`             | MDX structural defects, rules A1 through A13 except A7                        |
 
 `check-links` exists because Fumadocs has no equivalent of Docusaurus's `onBrokenLinks: 'throw'`.
 `pnpm build` chains it ahead of `next build`, so a broken link or fragment also fails the Vercel deploy.
@@ -1966,6 +1967,8 @@ literal tag is exactly the defect it looks for.
 | `A9`  | A hand-written `<p>` around block content                                     |
 | `A10` | A `<tr>` that is a direct child of `<table>`                                  |
 | `A11` | `<Var>` in a link destination, which never substitutes and never parses       |
+| `A12` | A fenced code block with no closer, which runs to the end of the file         |
+| `A13` | A fence closer indented past the column every code-masking gate reads it at   |
 
 `A5` judges a destination **after** `{var:name}` expansion, the way `check-links` does (FS-2733). A
 destination opening with a placeholder that holds an absolute URL reads as a relative path as
@@ -2012,6 +2015,58 @@ reader sees a flash and loses any client state in it.
 
 They are three ids rather than one because the report groups by id and each shape has its own fix. A
 single "invalid nesting" id would print one count covering three unrelated edits.
+
+### A12 and A13 are a pair: this repo has two markdown parsers and they disagree
+
+`scripts/lib/strip-code.mjs` models CommonMark. The site compiles with `remark-mdx`, which turns off
+indented code blocks and, with them, CommonMark's three-column cap on a closing fence. Measured
+across closer indentations 0 to 6 on one input (FS-2743):
+
+| Closer indent | `mdast-util-from-markdown` | `remark-parse` + `remark-mdx` (this site) |
+| ------------- | -------------------------- | ----------------------------------------- |
+| 0 to 3        | closes                     | closes                                    |
+| 4 and deeper  | does **not** close         | closes                                    |
+
+So a fence boundary has two readings here, and the two rules cover the two ways they part company.
+Like A8, A9 and A10 they are separate ids because the report groups by id, and here the fixes are
+opposite.
+
+- **`A12`, a fence with no closer at any indentation.** It runs to the end of the file, which is
+  what the page renders. Reader-visible either way: a stray trailing fence renders an empty code box
+  with a copy button (that is what `stylus/how-tos/trait-based-composition.mdx` shipped under its
+  closing prose list), and a real opener whose closer went missing swallows the rest of the page into
+  it. Fix by deleting the stray line, or by writing the closer that is missing. Read what the page
+  renders before choosing: the two look identical in the source and the fixes are not
+  interchangeable.
+- **`A13`, a closer indented more than three columns past its opener.** The site's parser ends the
+  fence at that line and `strip-code.mjs` does not, so every gate reading MDX through it (A1 to A11
+  above, `check-links`, `partials:check`, `images:presence`) treats the lines between as fence body
+  and blanks them. One stray indent switched eighteen lines of
+  `launch-arbitrum-chain/integrations/da-api-integration-guide.mdx` off from all of them, two of
+  those lines being `Tab` element tags. Fix by aligning the closer with its opener, the one form both
+  parsers read alike. A fence nested four or more columns deep inside a list item is not flagged: the
+  allowance is measured against its own opener, not against column 0.
+
+  **The message does not promise the page renders correctly, and neither does this entry.** On the
+  shape that prompted the rule it does: the fence was meant to end there, MDX ended it there, and
+  a writer sent to the page finds nothing wrong, which is why the reason has to be written down.
+  But the rule fires on two shapes where it does not. A fence whose own closer is missing, followed
+  later in the file by an unrelated over-indented closer, has MDX ending it at that later line and
+  swallowing the prose in between; and an outer fence documenting an indented inner fence ends at
+  the inner closer, early. Both were measured through this repo's processor (FS-2743). Neither
+  exists in `content/` today and a line-based scanner cannot tell any of the three apart from the
+  source alone, so the message names what the scanner saw and tells the writer to read the rendered
+  page before dedenting rather than asserting a render it cannot know.
+
+**The masking deliberately stays at the CommonMark reading.** Widening it so the scanner matches the
+renderer would remove the disagreement at its root, but it changes what every consumer sees across
+the whole tree and could regress any gate that reads it, so it wants its own ticket. With `A13`
+blocking, no file in `content/` relies on the difference meanwhile.
+
+Neither rule brings a parser of its own. `scanFences` in `strip-code.mjs` is one generator yielding
+each fence with both readings of its closer; `codeRegions` takes the offsets it already used and
+`fenceDefects` takes the two closer positions. A rule about where a fence ends cannot disagree with
+the masking that acts on it, which is the whole point of the FS-2729 convergence.
 
 ## The local pre-commit hook
 

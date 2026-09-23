@@ -63,6 +63,28 @@
  *       it. The `href=`/`to=` attribute form is flagged too, where the `<Var>` tag's own quotes end
  *       the attribute value early and truncate the URL, and so is a placeholder whose name is not an
  *       identifier: that one is left unexpanded by design and reaches the reader as literal braces.
+ *
+ * A12 and A13 are a pair: a fence whose closer this repo's two markdown parsers do not agree on.
+ * Both are invisible to the writer and both were found by the FS-2729 sweep with every gate green.
+ * They are two ids rather than one because the report groups by id and the fixes are opposite, the
+ * same reasoning that keeps A8, A9 and A10 apart.
+ *
+ *   A12 A fence with no closer at any indentation, so it runs to the end of the file. Reader
+ *       visible either way: a stray trailing fence renders an empty code box with a copy button,
+ *       and a real opener whose closer went missing swallows the rest of the page into it. Fix by
+ *       deleting the stray line, or by writing the closer that is missing.
+ *   A13 A closer indented more than three columns past its opener. `remark-mdx` turns off indented
+ *       code blocks and with them CommonMark's three-column cap on a closing fence, so the site's
+ *       parser ends the fence at that line and `strip-code.mjs`, which models the CommonMark
+ *       column, does not. Every gate reading MDX through it (A1 to A11 here, `check-links`,
+ *       `partials:check`, `images:presence`) therefore treats the lines between as fence body and
+ *       stops checking them. One stray indent switched eighteen lines of a page off from all of
+ *       them (FS-2743). Fix by aligning the closer with its opener, the one form both parsers read
+ *       alike. The message deliberately does **not** promise the page renders correctly: on a
+ *       fence that was meant to stay open past that line (an opener whose own closer is missing, or
+ *       an outer fence documenting an indented inner one) MDX has already ended it early and the
+ *       fix is higher up, so the message sends the writer to the rendered page before dedenting.
+ *       The scanner is line-based and cannot tell those apart from the source alone.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -73,7 +95,7 @@ import {
   readVars,
 } from '../../lib/var-links.mjs';
 import { toPosix, walk } from './partials.mjs';
-import { codeRegions, stripCode } from './strip-code.mjs';
+import { codeRegions, fenceDefects, stripCode } from './strip-code.mjs';
 
 export const ADMONITION_TYPES = new Set(['note', 'tip', 'info', 'warning', 'danger']);
 const isMdx = (p) => /\.mdx?$/i.test(p);
@@ -224,6 +246,28 @@ export function lintSource(source) {
   // two probes above, reached by a typo rather than by the old syntax.
   for (const m of text.matchAll(MALFORMED_VAR_PLACEHOLDER)) {
     add('A11', m.index, `${m[0]} is not a usable placeholder; the name must be a variable key`);
+  }
+
+  // A12 + A13: a fence whose closer the CommonMark scanner and the MDX renderer read differently.
+  //
+  // Asks the shared scanner about the fence boundary itself rather than about what is inside it, so
+  // a rule about where a fence ends cannot disagree with the masking every other rule acts on. Read
+  // from `source`, not `text`: a fence is exactly what `stripCode` blanks, so the masked text has
+  // nothing left to look at.
+  for (const defect of fenceDefects(source)) {
+    if (defect.kind === 'unclosed') {
+      add(
+        'A12',
+        defect.start,
+        'fenced code block is never closed, so it runs to the end of the file: a stray trailing fence renders an empty code box, and a real opener swallows the rest of the page',
+      );
+    } else {
+      add(
+        'A13',
+        defect.closerStart,
+        "fence closer indented more than three columns past its opener. The site's MDX parser ends the fence at this line; CommonMark, and every gate that masks code through strip-code.mjs, does not, so all of them read the lines between as fence body and stop checking them. Align this closer with its opener. If the fence was meant to stay open past this line, read the rendered page before dedenting: MDX has ended it here already, so the real fix is a missing or too-short fence delimiter higher up (the opener as well as the closer, when an outer fence documents an inner one)",
+      );
+    }
   }
 
   // A8: a link inside an ATX heading, which Fumadocs renders as an anchor inside its own anchor.

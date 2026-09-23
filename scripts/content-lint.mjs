@@ -29,6 +29,8 @@ const RULE_TITLES = {
   A9: 'hand-written <p> nests inside the paragraph markdown already emits',
   A10: '<tr> is a direct child of <table>',
   A11: '<Var> in a link destination, which never substitutes and never parses as a link',
+  A12: 'fenced code block is never closed and runs to the end of the file',
+  A13: 'fence closer is indented past the column every code-masking gate reads it at',
 };
 
 /**
