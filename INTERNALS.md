@@ -479,7 +479,12 @@ render on demand in a serverless runtime that has neither git nor the repository
 absent on previews and in production until someone sets `VERCEL_DEEP_CLONE=true` in the Vercel
 project's environment variables. Nothing else is needed: a deep clone makes the probe pass on its
 own. The same applies to any CI job that wants the dates, since `actions/checkout` defaults to
-`fetch-depth: 1`. No gate depends on the dates, so `ci.yml` is deliberately left alone.
+`fetch-depth: 1`. No gate depends on the dates, so `ci.yml` never asks for a deep clone. Its `Gates`
+and `Build` checkouts do set `fetch-depth: 2`, for `versioned-docs-check.mjs`
+(see [The gates](#the-gates)), and that is deliberately the largest depth that changes nothing here:
+a depth-2 clone is still shallow, so this probe still answers `false` and the dates stay off. Raising
+it further, or to `0`, would switch them on in CI and re-type the docs page's `lastModified`, so
+treat any change to those two lines as a change to this section as well.
 
 The rendered date is formatted in UTC so that the output does not depend on which machine rendered
 the page. A commit made late in the evening in a western timezone therefore reads as the next day.
@@ -1756,18 +1761,54 @@ file.
 
 The fix keeps the check advisory (always exits 0) and keeps its local behavior (working tree +
 staged vs `HEAD`, what fires before a `git commit`) unchanged, but gives it a comparison that can
-actually see a _committed_ change when `GITHUB_ACTIONS=true` and `GITHUB_BASE_REF` is set, which
-GitHub Actions does only for a `pull_request`-triggered run. It fetches the PR base branch's tip at
-depth 1 into `refs/remotes/origin/<base>` (no shared history with the current checkout is needed for
-a two-tree diff, only for a merge-base one) and diffs that directly against `HEAD`. `HEAD` on a
-`pull_request` run is already a synthetic merge of the PR head into the current base, so this direct
-diff reports exactly what the PR changed, without needing `git merge-base` to work, which it cannot
-at depth 1 anyway. A direct `push` to `main` (post-merge) carries no `GITHUB_BASE_REF` and falls back
-to the same working-tree-vs-`HEAD` comparison as local, which is empty in that job for the same
-reason it always was; that gap is accepted, on the reasoning that a merge to `main` goes through a
-PR first and that PR's own `pull_request` run should already have warned. The script always prints
-which comparison it ran, so a quiet `Gates` step can be told apart from one that had nothing to
-report.
+actually see a _committed_ change on a `pull_request` run. **It reads that comparison out of the
+checkout rather than fetching it.** `actions/checkout` on a `pull_request` event checks out the
+synthetic merge commit GitHub builds for the pull request (`refs/pull/<n>/merge`), whose **first**
+parent is the base branch's tip at event time and whose second is the PR head. So `git diff HEAD^1
+HEAD` is exactly the pull request's own change set, and the only thing missing was the parent:
+`fetch-depth: 2` on the `Gates` and `Build` checkout steps keeps it, where the default depth-1
+checkout grafts `HEAD` parentless. Proved in a scratch clone that reproduces the action's documented
+refspec: at depth 1 both `HEAD^1` and `HEAD^2` fail to resolve, at depth 2 both resolve and
+`git diff --name-only HEAD^1 HEAD` names the archive edit and nothing else.
+
+The rejected alternative was fetching the base branch's tip at depth 1 into
+`refs/remotes/origin/<base>` and diffing that. It works, and it was the first implementation, but
+every `actions/checkout` step in this repo passes `persist-credentials: false`, so that fetch is an
+anonymous request that succeeds only while both repositories stay public, and any failure of it,
+transient or permanent, silently returns this check to reporting nothing, which is the exact
+invisible-green this ticket exists to remove. It also put a network call at the front of `pnpm
+build`, and so inside the blocking `Build` job whose one accepted network dependency is Google
+Fonts, working against the effort to remove that one. Reading `HEAD^1` needs no network, no
+credentials and no `origin` remote at all.
+
+`fetch-depth: 2` costs one extra commit's objects and changes nothing else. In particular the clone
+is **still shallow**, so `hasFullGitHistory()` in `source.config.ts` keeps answering false and
+`lastModified` stays off in CI, which is what stops every page being stamped with one boundary
+commit's date. Measured in the same scratch clone: `git rev-parse --is-shallow-repository` answers
+`true` at depth 2.
+
+Two signals pick the comparison, and neither substitutes for the other. `GITHUB_BASE_REF`, which
+GitHub Actions sets only for a `pull_request`-triggered run, says the run has a base at all. The
+merge-commit probe (`HEAD^2` resolves) says the checkout actually holds that shape, so a checkout
+pinned to the PR head, where `HEAD^1` is merely the previous commit on the branch, is not mistaken
+for one and diffed against the wrong tree. When the run is a pull request and either signal is
+missing, the script falls back to the local comparison **and raises a `::warning::` annotation**, so
+a checkout that loses `fetch-depth: 2` shows up in the run summary instead of in one line inside a
+collapsed step log. Every other CI run (a direct `push` to `main`, and `upstream-refresh.yml`'s
+scheduled `stylus` job) falls back with a plain printed note and no annotation, because that is the
+expected shape there rather than a misconfiguration. For `push` it is a residual gap, accepted on
+the reasoning that a merge to `main` goes through a PR first and that PR's own run already warned.
+For `stylus` it is not a gap at all: `pnpm stylus:generate` runs before the gate list there, so the
+working tree genuinely is dirty and the local comparison is the meaningful one, which is why that
+job needs no `fetch-depth` of its own. The script always prints which comparison it ran, so a quiet
+`Gates` step can be told apart from one that had nothing to report.
+
+`pickComparison` in `scripts/lib/versioned-docs-comparison.mjs` is that decision on its own, pure and
+exported, taking the environment and the two git probe results as plain booleans. It lives outside
+the CLI so `pnpm test` can pin all five shapes (local, pull request with the merge commit, pull
+request with no parent, pull request whose `HEAD` is not a merge, and a CI run that is not a pull
+request) without a git fixture. The check ran green while doing nothing for months, so the decision
+that made it do nothing is the part that needed a test.
 
 `check-links` exists because Fumadocs has no equivalent of Docusaurus's `onBrokenLinks: 'throw'`.
 `pnpm build` chains it ahead of `next build`, so a broken link or fragment also fails the Vercel deploy.
@@ -2175,6 +2216,29 @@ surrounding `'…'`/`"…"` is stripped before the whitespace check runs. The `[
 after the field name is deliberately greedy and absorbs every space between the colon and the value:
 in real YAML that run is separator, not content, so `title:  x` and `title: x` name the same value
 and neither is flagged; only _trailing_ whitespace and a doubled run in the middle are real.
+
+Whitespace at the **end of the line** is separator too, and comes off before the quoted test runs.
+YAML ends a scalar at the last non-space character of the line, so `description: 'Clean'` followed
+by two spaces holds the value `Clean`, and so does the same line without the quotes (measured
+against a real `js-yaml` parse, and against Prettier, which normalizes neither shape and so lets
+both through `format:check`). Judging the untrimmed line instead failed the quoted test, because the
+line no longer ends in a quote, kept the quote characters inside the value, and reported a value
+with no defect at all as carrying both leading-or-trailing whitespace _and_ a doubled internal
+space. It is still reported, because nothing else in the toolchain removes it, but as its own
+problem with its own wording: `trailing whitespace on the line, outside the value`. The
+doubled-space probe reads the trimmed value for the same naming reason, so a run at the end is
+reported once, as trailing whitespace, rather than sending the writer looking for a space in the
+middle of a string that has none.
+
+Two limits are deliberate. A **folded or literal block scalar** (`description: >` or `| `, with the
+text on the following indented lines) is skipped rather than read: the value is not on the key's
+line at all, and reading the indicator character as the value would be worse than reading nothing.
+There are none in `content/` today, across all 524 files carrying frontmatter, and the frontmatter
+contract gives no reason to reach for one; a writer who does gets no whitespace checking on that
+field. And the rule is **path-agnostic**, so it covers `content/_versions/**` as well: a whitespace
+defect frozen into an archive is a blocking `content:lint` finding whose only fix is editing the
+archive, which then trips `versioned-docs-check.mjs` in turn. That warning is expected in that case,
+not a second defect. No such finding exists today.
 
 Three findings existed when the rule landed. Two were hand-owned pages with a trailing space in
 `description` (`launch-arbitrum-chain/deploy/deploying-an-arbitrum-chain.mdx` and

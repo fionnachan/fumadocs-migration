@@ -14,19 +14,26 @@
  *
  *   - Locally: working tree + staged vs HEAD, exactly as before. This is what fires in the
  *     terminal before a `git commit`.
- *   - In a `pull_request`-triggered CI run (`GITHUB_BASE_REF` set): the PR base branch's current
- *     tip vs HEAD. `actions/checkout` in this repo's `ci.yml` takes no `fetch-depth`, so it
- *     defaults to a depth-1 checkout with no ancestor history: there is nothing to diff `HEAD`
- *     against locally, which is exactly why the old `git diff HEAD` always came back empty here.
- *     The base tip is fetched fresh, at depth 1, into `refs/remotes/origin/<base>`, and diffed
- *     directly against `HEAD` (a plain two-tree diff, not a merge-base one: depth 1 gives no
- *     shared history to find a merge-base with, and `HEAD` on a `pull_request` run is already a
- *     synthetic merge of the PR head into the current base, so a direct diff against that base's
- *     current tip reports exactly what the PR changed).
- *   - Anywhere else (a direct `push` to `main`, i.e. post-merge, or the base fetch itself
- *     failing): falls back to the local behavior. `push` runs carry no `GITHUB_BASE_REF`, and by
- *     the time one runs, its PR's own `pull_request` run should already have warned, since merges
- *     go through a PR first. A residual gap, not a fix.
+ *   - In a `pull_request`-triggered CI run (`GITHUB_BASE_REF` set): `HEAD^1` vs `HEAD`.
+ *     `actions/checkout` checks out the synthetic merge commit GitHub builds for the pull request
+ *     (`refs/pull/<n>/merge`), whose first parent is the base branch's tip at event time and whose
+ *     second is the PR head, so that two-tree diff is exactly the PR's own change set. It needs
+ *     `fetch-depth: 2` on the checkout step, which ci.yml sets on both jobs that run this script:
+ *     the default depth-1 checkout grafts `HEAD` parentless, which is why the old `git diff HEAD`
+ *     always came back empty here. Depth 2 is still a shallow clone, so `hasFullGitHistory()` in
+ *     source.config.ts keeps answering false and `lastModified` stays off, as it must.
+ *   - Anywhere else (a direct `push` to `main`, i.e. post-merge, or `upstream-refresh.yml`'s
+ *     `stylus` job): falls back to the local behavior, and prints why. A `push` run carries no
+ *     `GITHUB_BASE_REF`, so there is no base to compare against, and by the time one runs its PR's
+ *     own run should already have warned, since merges go through a PR first. A residual gap, not
+ *     a fix. In the `stylus` job the fallback is not a gap at all: `pnpm stylus:generate` runs
+ *     before the gates there, so the working tree really is dirty and the local comparison is the
+ *     meaningful one, which is also why that job needs no `fetch-depth` of its own.
+ *
+ * No network call and no credentials, which matters twice: every `actions/checkout` step in this
+ * repo passes `persist-credentials: false`, so anything this script fetched would be an anonymous
+ * request working only while both repositories stay public, and `pnpm build` runs this script
+ * first, inside the blocking `Build` job whose one accepted network dependency is Google Fonts.
  *
  * Warning only: always exits 0 so it never blocks `pnpm build`. The registry invariants that *do*
  * have to hold, every key naming a live page, every archive id free of a colliding child page, are
@@ -36,6 +43,7 @@
  */
 import { execFileSync } from 'node:child_process';
 
+import { pickComparison } from './lib/versioned-docs-comparison.mjs';
 import { VERSIONS_FILE, pinnedDocuments } from './lib/versions-registry.mjs';
 
 const repoRoot = process.cwd();
@@ -45,38 +53,29 @@ function git(args) {
     cwd: repoRoot,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'ignore'],
+    timeout: 30_000,
   });
 }
 
-/**
- * Fetches the PR base branch's tip (depth 1, no shared history needed) into
- * `refs/remotes/origin/<base>` and returns that ref name, or `null` on any failure (no network,
- * no `origin` remote, an unknown base), in which case the caller falls back to the local
- * comparison.
- */
-function fetchPrBaseRef(base) {
+/** Whether a revision resolves in this checkout. A shallow graft removes a commit's parents. */
+function revExists(rev) {
   try {
-    git(['fetch', '--depth=1', 'origin', `${base}:refs/remotes/origin/${base}`]);
-    return `refs/remotes/origin/${base}`;
+    git(['rev-parse', '--verify', '--quiet', `${rev}^{commit}`]);
+    return true;
   } catch {
-    return null;
+    return false;
   }
 }
 
-/**
- * Picks the comparison this run should use: the PR base branch's tip in a `pull_request`-triggered
- * CI run, `HEAD` everywhere else (see the header comment for why). Returns `{ args, label }`,
- * where `args` is the `git diff` positional ref arguments and `label` describes the comparison for
- * the printed output.
- */
+/** Probes the environment and the shape of `HEAD`, then defers the decision to the pure picker. */
 function resolveComparison() {
-  const base = process.env.GITHUB_BASE_REF;
-  if (process.env.GITHUB_ACTIONS === 'true' && base) {
-    const ref = fetchPrBaseRef(base);
-    if (ref) return { args: [ref, 'HEAD'], label: `${ref} vs HEAD (PR base fetched fresh)` };
-    return { args: ['HEAD'], label: 'HEAD (working tree), could not fetch PR base, falling back' };
-  }
-  return { args: ['HEAD'], label: 'HEAD (working tree + staged vs HEAD)' };
+  return pickComparison({
+    ci: process.env.GITHUB_ACTIONS === 'true',
+    // GitHub Actions sets GITHUB_BASE_REF only for a `pull_request`-triggered run.
+    pullRequest: Boolean(process.env.GITHUB_BASE_REF),
+    firstParentPresent: revExists('HEAD^1'),
+    secondParentPresent: revExists('HEAD^2'),
+  });
 }
 
 /**
@@ -99,36 +98,62 @@ function modifiedDocs(docs, comparison) {
 const useColor = !process.env.NO_COLOR;
 const paint = (codes, s) => (useColor ? `\x1b[${codes}m${s}\x1b[0m` : s);
 
+/** Greedy word wrap. A word longer than `width` is hard-broken rather than overflowing the box. */
+function wrap(text, width) {
+  const lines = [];
+  let line = '';
+  for (let word of text.split(/\s+/).filter(Boolean)) {
+    while (word.length > width) {
+      if (line) {
+        lines.push(line);
+        line = '';
+      }
+      lines.push(word.slice(0, width));
+      word = word.slice(width);
+    }
+    if (!line) line = word;
+    else if (line.length + 1 + word.length <= width) line += ` ${word}`;
+    else {
+      lines.push(line);
+      line = word;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+// Inner width of the box, between the '│ ' and ' │' that frame every content row.
+const BOX_WIDTH = 72;
+
 function printWarning(modified, comparison) {
   const yellow = (s) => paint('33;1', s);
   const banner = (s) => paint('30;43;1', s); // black text on yellow background
   const line = '─'.repeat(74);
-  const changedLine = `(${VERSIONS_FILE}) and changed, per ${comparison.label}:`;
+  const row = (s) => console.warn(yellow('│ ') + s.padEnd(BOX_WIDTH) + yellow(' │'));
+  const blank = () => console.warn(yellow(`│${' '.repeat(74)}│`));
 
   console.warn('');
-  console.warn(banner('  ⚠  VERSIONED DOCUMENT MODIFIED — please review before building        '));
+  console.warn(banner('  ⚠  VERSIONED DOCUMENT MODIFIED, please review before building         '));
   console.warn(yellow(`┌${line}┐`));
-  console.warn(
-    yellow('│ ') +
-      'The following document(s) are pinned by the versioning registry'.padEnd(72) +
-      yellow(' │'),
-  );
-  console.warn(yellow('│ ') + changedLine.slice(0, 72).padEnd(72) + yellow(' │'));
-  console.warn(yellow(`│${' '.repeat(74)}│`));
+  // Wrapped, not truncated: the comparison label runs past 70 characters on its own, and this
+  // sentence is the one that says which two trees were compared.
+  for (const l of wrap(
+    `The following document(s) are pinned by the versioning registry (${VERSIONS_FILE}) and changed, per ${comparison.label}:`,
+    BOX_WIDTH,
+  )) {
+    row(l);
+  }
+  blank();
   for (const file of modified) {
     console.warn(yellow('│   • ') + file.padEnd(68) + yellow(' │'));
   }
-  console.warn(yellow(`│${' '.repeat(74)}│`));
-  console.warn(
-    yellow('│ ') +
-      'Editing a live page diverges it from its archived version; editing'.padEnd(72) +
-      yellow(' │'),
-  );
-  console.warn(
-    yellow('│ ') +
-      'an archive changes a snapshot meant to be frozen. Confirm intended.'.padEnd(72) +
-      yellow(' │'),
-  );
+  blank();
+  for (const l of wrap(
+    'Editing a live page diverges it from its archived version; editing an archive changes a snapshot meant to be frozen. Confirm intended.',
+    BOX_WIDTH,
+  )) {
+    row(l);
+  }
   console.warn(yellow(`└${line}┘`));
   console.warn('');
 }
@@ -137,6 +162,13 @@ const comparison = resolveComparison();
 const docs = pinnedDocuments(repoRoot);
 const modified = modifiedDocs(docs, comparison);
 console.log(`versioned-docs-check: comparing ${comparison.label}`);
+if (comparison.note) {
+  // `::warning::` puts the line in the run summary instead of only in a collapsed step log, which
+  // is the difference between a misconfigured checkout being noticed and this check quietly going
+  // back to reporting nothing.
+  const prefix = comparison.annotate && process.env.GITHUB_ACTIONS === 'true' ? '::warning::' : '';
+  console.log(`${prefix}versioned-docs-check: ${comparison.note}`);
+}
 if (modified && modified.length > 0) {
   printWarning(modified, comparison);
 }

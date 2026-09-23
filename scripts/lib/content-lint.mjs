@@ -296,16 +296,37 @@ export function lintSource(source) {
   // after the field name absorbs every space between the colon and the value on purpose: in real
   // YAML that run is separator, not content, so `title:  x` and `title: x` name the same value and
   // neither is a defect (only *trailing* whitespace, and any doubled run in the middle, is real).
+  //
+  // Whitespace at the *end of the line* is separator too, and comes off before the quote test for
+  // the same reason: YAML ends a scalar at the last non-space character of the line, so
+  // `description: 'Clean'` followed by two spaces holds the value `Clean`, and so does
+  // `description: Clean` followed by two spaces (measured, against js-yaml and against Prettier,
+  // which normalizes neither). Judging the untrimmed line instead failed the quote test (the line
+  // no longer ends in a quote), kept the quote characters inside the value, and reported a
+  // "doubled internal space" that was neither internal nor in the value. It is still reported, as
+  // its own problem with its own wording, because nothing else in the toolchain removes it. The
+  // doubled-space probe reads the trimmed value for the same naming reason: a run at the end is
+  // already reported as trailing whitespace, and calling it internal sends the writer looking in
+  // the middle of a string for a space that is not there.
+  //
+  // Not covered: a folded or literal block scalar (`description: >` or `| `, with the text on the
+  // following indented lines). The value is not on this line at all, so the rule skips it rather
+  // than reading the indicator as the value. There are none in `content/` today, and the
+  // frontmatter contract gives no reason to reach for one; see INTERNALS.md for the note.
   const fmMatch = source.match(/^---\r?\n[\s\S]*?\n---[ \t]*(?:\r?\n|$)/);
   if (fmMatch) {
-    const fmBlock = source.slice(0, fmMatch[0].length);
+    const fmBlock = fmMatch[0];
     for (const m of fmBlock.matchAll(/^(title|sidebar_label|description):[ \t]*(.*)$/gm)) {
-      const [, field, raw] = m;
+      const [, field] = m;
+      const line = m[2].replace(/\r$/, '');
+      const raw = line.replace(/[ \t]+$/, '');
+      if (/^[|>][0-9+-]*$/.test(raw)) continue;
       const quoted = /^(['"])[\s\S]*\1$/.test(raw);
       const value = quoted ? raw.slice(1, -1) : raw;
       const problems = [];
       if (/^\s|\s$/.test(value)) problems.push('leading or trailing whitespace');
-      if (/ {2,}/.test(value)) problems.push('a doubled internal space');
+      if (/ {2,}/.test(value.trim())) problems.push('a doubled internal space');
+      if (raw !== line) problems.push('trailing whitespace on the line, outside the value');
       if (problems.length) {
         add('A14', m.index, `${field}: ${problems.join(' and ')}`);
       }

@@ -625,8 +625,35 @@ test('A14 does NOT fire on extra separator whitespace after an unquoted key, whi
   assert.deepEqual(rules(fm(['title:  Leading space is just separator'])), []);
 });
 
-test('A14 fires on trailing whitespace after an unquoted value', () => {
-  assert.deepEqual(rules(fm(['title: Trailing space title  '])), ['A14']);
+test('A14 fires on trailing whitespace after an unquoted value, and names it as line noise', () => {
+  // YAML ends a plain scalar at the last non-space character, so the value the page renders is
+  // already clean. Nothing else removes the spaces (Prettier leaves them), so it is still worth a
+  // finding, just not one that claims the value is wrong.
+  const src = fm(['title: Trailing space title  ']);
+  assert.deepEqual(rules(src), ['A14']);
+  const [finding] = lintSource(src).filter((f) => f.rule === 'A14');
+  assert.equal(finding.message, 'title: trailing whitespace on the line, outside the value');
+});
+
+test('A14 does NOT call whitespace after a closing quote a doubled internal space', () => {
+  // Regression: the quoted test ran against the untrimmed line, so a clean quoted value followed
+  // by spaces failed it, kept its own quotes inside `value`, and was reported as both leading or
+  // trailing whitespace and a doubled internal space. The value here has neither.
+  const src = fm(["description: 'Quoted then spaces'   "]);
+  const [finding] = lintSource(src).filter((f) => f.rule === 'A14');
+  assert.equal(finding.message, 'description: trailing whitespace on the line, outside the value');
+});
+
+test('A14 skips a folded or literal block scalar rather than reading the indicator as the value', () => {
+  // Documented limitation: the text lives on the following indented lines, which this rule never
+  // reads. No `title`/`sidebar_label`/`description` in content/ uses this form.
+  assert.deepEqual(rules(fm(['description: >', '  Folded  text with a doubled space'])), []);
+  assert.deepEqual(rules(fm(['description: |-', '  Literal text trailing  '])), []);
+});
+
+test('A14 does NOT fire on a file with no frontmatter at all', () => {
+  // Every partial takes this path: `content/partials/**` carries no frontmatter by contract.
+  assert.deepEqual(rules('A partial with a  doubled space and no frontmatter.\n'), []);
 });
 
 test('A14 fires on a doubled internal space in an unquoted value', () => {
