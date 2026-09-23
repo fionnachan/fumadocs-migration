@@ -479,8 +479,8 @@ Six rules, none of them visible to `types:check` or `build`:
    found. The rule lives in `lib/docs-navigation-rules.mjs` and both
    `buildDocsNavigation` and the gate import it, so a duplicate throws in a dev server as well as in
    CI. A repeated `href` is exempt, because a shortcut claims nothing.
-6. **Section landings** (FS-2749). A `children` entry claiming its own section's landing URL, which
-   rule 5 cannot see because the landing node is derived rather than listed. `sectionLandingClaims`
+6. **Section landings** (FS-2749). A `page` entry claiming any section's landing URL, its own or
+   another's, which rule 5 cannot see because the landing node is derived rather than listed. `sectionLandingClaims`
    sits beside the duplicate rule in `lib/docs-navigation-rules.mjs` and the transformer imports it
    too, and it checks every section's landing against every section's `children`, because a `page`
    entry in one section naming another's landing builds the identical two-node defect. The rule is

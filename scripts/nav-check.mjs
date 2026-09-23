@@ -11,8 +11,8 @@
  *     and can pull it into the linking directory's section (FS-2716).
  *   - manifest duplicates: a `page` URL claimed twice in `lib/docs-navigation.json`, which leaves
  *     one entry naming a page it does not open (FS-2740).
- *   - section landings: a `children` entry claiming its own section's landing URL, which the rule
- *     above cannot see because the landing node is derived, not listed (FS-2749).
+ *   - section landings: a `page` entry claiming any section's landing URL, its own or another's,
+ *     which the rule above cannot see because the landing node is derived, not listed (FS-2749).
  *
  * The finished tree is the authority on a URL sitting on two nodes, and `buildDocsNavigation`
  * checks it there. This gate reads the manifest instead, so it can name the entries rather than
