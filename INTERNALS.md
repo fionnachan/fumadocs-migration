@@ -991,8 +991,9 @@ That registry keys the partial versioning registry by canonical slug (`'run-a-no
 the consequence: FS-2698 added `scripts/versions-routing.test.mjs`, which asserts that every key
 names a live page, so a dead key now fails `pnpm test`, a blocking gate. It used to pass 346/346
 with `lib/versions.ts` untouched, and the page silently lost its version dropdown while its
-archives became unreachable. `scripts/versioned-docs-check.mjs` is still only an advisory about
-uncommitted edits and still always exits 0; it is not what catches this. Retargeting the key is a
+archives became unreachable. `scripts/versioned-docs-check.mjs` is still only an advisory (see
+"Archived page registry drift" below for what it now compares, and where) and still always exits 0;
+it is not what catches this. Retargeting the key is a
 judgement call (`archivePath` mirrors the old slug on every current entry but is not required to),
 so after moving a versioned page, retarget its `VERSIONED` key by hand.
 
@@ -1740,7 +1741,33 @@ required check that never reports blocks every pull request indefinitely, which 
 | `check-links`              | Broken internal doc links and MDX fragments                                   |
 | `contracts:check`          | The generated contract-address partial matches `@arbitrum/sdk`                |
 | `format:check`             | Prettier style drift                                                          |
-| `content:lint`             | MDX structural defects, rules A1 through A13 except A7                        |
+| `content:lint`             | MDX structural defects, rules A1 through A14 except A7                        |
+
+**Archived page registry drift, and what `versioned-docs-check.mjs` actually compares (FS-2747).**
+Before this ticket the script always ran `git diff --name-only HEAD -- <pinned docs>`, working tree
+and staged changes against `HEAD`. That is empty by construction in this job: `actions/checkout`
+here takes no `fetch-depth`, so it defaults to a depth-1 checkout, and a freshly checked-out tree
+has no working-tree changes to diff against its own `HEAD` in the first place. The step had run in
+`Gates` since it was added and never once fired there, on any PR, including the one that edited an
+archive's frontmatter (FS-2745) and shipped the change this warning exists to flag. Reproduced by
+committing a one-line body edit to an archived page on a throwaway local branch: the old script
+printed nothing, while `git diff HEAD^ HEAD --name-only -- content/_versions` plainly listed the
+file.
+
+The fix keeps the check advisory (always exits 0) and keeps its local behavior (working tree +
+staged vs `HEAD`, what fires before a `git commit`) unchanged, but gives it a comparison that can
+actually see a _committed_ change when `GITHUB_ACTIONS=true` and `GITHUB_BASE_REF` is set, which
+GitHub Actions does only for a `pull_request`-triggered run. It fetches the PR base branch's tip at
+depth 1 into `refs/remotes/origin/<base>` (no shared history with the current checkout is needed for
+a two-tree diff, only for a merge-base one) and diffs that directly against `HEAD`. `HEAD` on a
+`pull_request` run is already a synthetic merge of the PR head into the current base, so this direct
+diff reports exactly what the PR changed, without needing `git merge-base` to work, which it cannot
+at depth 1 anyway. A direct `push` to `main` (post-merge) carries no `GITHUB_BASE_REF` and falls back
+to the same working-tree-vs-`HEAD` comparison as local, which is empty in that job for the same
+reason it always was; that gap is accepted, on the reasoning that a merge to `main` goes through a
+PR first and that PR's own `pull_request` run should already have warned. The script always prints
+which comparison it ran, so a quiet `Gates` step can be told apart from one that had nothing to
+report.
 
 `check-links` exists because Fumadocs has no equivalent of Docusaurus's `onBrokenLinks: 'throw'`.
 `pnpm build` chains it ahead of `next build`, so a broken link or fragment also fails the Vercel deploy.
@@ -2021,6 +2048,7 @@ literal tag is exactly the defect it looks for.
 | `A11` | `<Var>` in a link destination, which never substitutes and never parses       |
 | `A12` | A fenced code block with no closer, which runs to the end of the file         |
 | `A13` | A fence closer indented past the column every code-masking gate reads it at   |
+| `A14` | `title`/`sidebar_label`/`description` with leading, trailing or doubled space |
 
 `A5` judges a destination **after** `{var:name}` expansion, the way `check-links` does (FS-2733). A
 destination opening with a placeholder that holds an absolute URL reads as a relative path as
@@ -2119,6 +2147,45 @@ Neither rule brings a parser of its own. `scanFences` in `strip-code.mjs` is one
 each fence with both readings of its closer; `codeRegions` takes the offsets it already used and
 `fenceDefects` takes the two closer positions. A rule about where a fence ends cannot disagree with
 the masking that acts on it, which is the whole point of the FS-2729 convergence.
+
+### A14: whitespace noise in title, sidebar_label or description (FS-2747)
+
+`title`, `sidebar_label` and `description` all reach the reader verbatim: `title`/`description`
+become the page's `<title>` tag and `<meta name="description">`, and the same `description` feeds
+the OG and Twitter card `generateMetadata` builds (`app/docs/[[...slug]]/page.tsx`); `sidebar_label`
+becomes the sidebar tree's label text when no `lib/docs-navigation.json` entry names the page. A
+value carrying a leading or trailing space, or a doubled internal space, ships that whitespace into
+whichever of those it feeds.
+
+A `.trim()` in the frontmatter Zod schema (`source.config.ts`) would fix the leading/trailing case
+silently and say nothing about a doubled internal space, which trimming never touches. `A14` reports
+both instead, on the theory that a generated page's whitespace defect belongs fixed at its
+generator, so it survives the next regeneration, rather than papered over at read time on every
+build.
+
+The rule reads the raw frontmatter block off `source`, not the code-stripped `text` every other rule
+but `A6` reads. `stripCode`'s inline-code masking has no notion of a YAML string's quoting: a
+backtick pair inside a frontmatter value, like
+``description: 'a minimal `entrypoint` function'``, gets blanked the same way a real inline code
+span in prose would, and reading that blanked run back would misreport it as a doubled space of its
+own (measured on `content/docs/stylus/stylus-by-example/basic_examples/bytes_in_bytes_out.mdx`
+during this rule's own development). `stripCode` blanks 1:1 and never moves a newline, so an offset
+found in `source` is still valid when handed to `text`-based line-number lookup. A quoted value's
+surrounding `'…'`/`"…"` is stripped before the whitespace check runs. The `[ \t]*` separator right
+after the field name is deliberately greedy and absorbs every space between the colon and the value:
+in real YAML that run is separator, not content, so `title:  x` and `title: x` name the same value
+and neither is flagged; only _trailing_ whitespace and a doubled run in the middle are real.
+
+Three findings existed when the rule landed. Two were hand-owned pages with a trailing space in
+`description` (`launch-arbitrum-chain/deploy/deploying-an-arbitrum-chain.mdx` and
+`deploying-token-bridge.mdx` in the same directory), fixed by hand. The third was a doubled space in
+`stylus/stylus-by-example/basic_examples/variables.mdx`, a page `pnpm stylus:generate` writes; that
+one is fixed in the generator (`parseMetadata` in `scripts/lib/stylus-examples.mjs` now collapses
+whitespace runs and trims `title`/`description` after reading them), not in the committed `.mdx`,
+because a hand-edit there would be overwritten by the next weekly `stylus` job. The doubled space
+was in upstream's own metadata string verbatim, not introduced by this generator, and normalizing it
+is a whitespace fix rather than the kind of wording change the "Stylus by Example" section above
+says has to be made upstream.
 
 ## The local pre-commit hook
 

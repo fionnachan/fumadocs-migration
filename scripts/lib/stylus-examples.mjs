@@ -220,6 +220,13 @@ export function parseObjectLiteral(text, context) {
  * anything outside it. It is never evaluated: see that function for why the difference matters
  * when the input is an unpinned third-party repository read on a weekly cron.
  *
+ * `title` and `description` are whitespace-normalized (runs of whitespace collapsed to one space,
+ * ends trimmed) before being returned. This is a generator-level fix for FS-2747's A14
+ * `content:lint` rule, not an editorial one: upstream's own metadata strings occasionally carry a
+ * stray doubled space or trailing space (e.g. `basic_examples/variables.mdx`'s description), which
+ * is noise rather than a wording choice, and normalizing it here means it stays fixed across every
+ * future `stylus:generate` run instead of needing a hand-edit upstream would just overwrite.
+ *
  * @param {string} source the full text of an upstream `page.mdx`
  * @param {string} context a path, for the error message
  * @returns {{ title: string, description: string }}
@@ -236,6 +243,7 @@ export function parseMetadata(source, context) {
     if (typeof metadata[field] !== 'string' || metadata[field].trim() === '') {
       throw new Error(`${context}: metadata.${field} is missing or not a string`);
     }
+    metadata[field] = metadata[field].replace(/\s+/g, ' ').trim();
   }
   return metadata;
 }
