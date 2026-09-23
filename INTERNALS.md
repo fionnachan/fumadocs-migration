@@ -1032,8 +1032,37 @@ guessing.
 5. **Basename fallback**, accepted only when exactly one local page carried that slug _and_ the
    basename was unique upstream too.
 6. **`SECTION_LANDINGS`**, the nearest live section, for a page upstream had and this site never
-   ported. Not an equivalence, and last on purpose: the day the page is ported, rule 2 matches first
-   and the entry goes inert on its own.
+   ported. Not an equivalence, and last on purpose, so it never masks a page that does exist.
+
+**Rule 6 was written to expire on its own, and never did.** The self-correction was a re-resolution:
+run the generator again once the page is ported, and rule 2 claims the URL before rule 6 is
+consulted. It needed a run, and the run never happened. Nine of the eleven `SECTION_LANDINGS`
+entries were already wrong in the commit that introduced them, which FS-2748 established from the
+history: all nine pages were ported on 2026-09-11 (`a36b096`, `3ea315c`), each carrying the upstream
+title verbatim and the same basename, and all nine were in the tree at `27f7660`, the commit that
+seeded `redirects.legacy.mjs` on 2026-09-15. The generator's output had been computed against an
+older tree and was not recomputed against the merged one, so a reader asking for "Common error
+messages" was answered with a list of links to the Operate section from the first day the redirect
+existed. FS-2706 then deleted the generator, which turns a missed re-run into a permanent state: no
+committed destination is ever recomputed again. Those nine now sit in `MANUAL_DESTINATIONS`.
+Rules 2 and 3 would reach the same nine destinations unaided, but the entries stay, because being in
+a map is what puts them in front of `pnpm move-doc`, which retargets both maps and prints the note
+that `redirects.legacy.mjs` names those pages too. **Porting a page named in `SECTION_LANDINGS` is
+therefore a two-file edit**: move the entry into `MANUAL_DESTINATIONS` pointed at the page, and
+retarget its twin in `redirects.legacy.mjs`. Two entries are left there, `config-batch-poster` and
+`sequencer-content-map`, and no page here carries either title or either basename.
+
+**`UPSTREAM_TITLES` is what makes forgetting that edit fail the suite.** It records the upstream
+frontmatter title per legacy source, as data rather than in the comment beside the entry, and
+`legacy-redirects.test.mjs` asserts rule 4 over it continuously: when exactly one page here carries
+that title verbatim, the entry's destination has to be that page. The assertion is conditional in
+both directions, which is what makes it safe to leave standing. A title no page carries is skipped,
+so the two surviving landings pass today and start failing the moment either page is ported. A title
+two pages share is skipped as well, for the reason rule 4 declines there: the title no longer
+identifies one page. Only verified titles are recorded, since inventing a plausible one would turn
+the test into a guess. Nothing else could have caught this class, which is the same blind spot the
+guiding rule below describes: `redirects:check` asks only whether a destination exists, and a
+section landing exists.
 
 **The guiding rule: a redirect to a plausible-but-wrong page is worse than a 404.** It silently
 sends readers somewhere wrong, and `redirects:check` cannot catch it, because the destination
@@ -1045,13 +1074,23 @@ anything renders, so such a redirect wins over the route and makes it unreachabl
 `/llms*`, `/og`, `/api`, `/img`, the `public/` asset directories and the icon and PDF files are all
 in that category; `redirects:check` reports one as `SHADOWED`.
 
-**`MANUAL_DESTINATIONS` and `SECTION_LANDINGS` are hand-written, so a test pins them against the
+**`MANUAL_DESTINATIONS` and `SECTION_LANDINGS` are hand-written, so tests pin them against the
 content tree.** An orphaned entry would otherwise rot silently into a redirect to a 404.
-`pnpm test` walks `content/docs` and asserts every non-external value in both maps still resolves.
-Since the generator was deleted this is the only automated check on either map that runs without a
-server, which is why `pnpm move-doc` retargets both in the same run as the move (see
-[Moved pages](#redirects)); the test now guards against a hand edit and against a page leaving the
-tree some other way, not against the mover.
+`pnpm test` walks `content/docs` and asserts every non-external value in both maps still resolves,
+that every destination with a recorded `UPSTREAM_TITLES` title names the page carrying it, and that
+no recorded title outlives its entry. Since the generator was deleted these are the only automated
+checks on either map that run without a server, which is why `pnpm move-doc` retargets both in the
+same run as the move (see [Moved pages](#redirects)); they guard against a hand edit, against a page
+leaving the tree some other way, and against a page arriving in it, not against the mover.
+
+That last case is the one FS-2748 added. The first test only ever asked whether a destination
+resolves, so nine entries pointed at a landing page that resolves perfectly while the page the
+reader asked for sat one level below it. Both halves of the check share one content walk
+(`collectLocalPages`, which `collectValidUrls` and `collectPagesByTitle` are both built on) so a
+title and a URL can never be resolved against different inventories, and titles are read with
+`splitFrontmatter`, the repo's one frontmatter-title reader, rather than a second regex: this tree
+writes `title: 'BoLD FAQ'` and `title: Sequencer configuration reference` in roughly equal measure,
+and a reader that kept the quotes would match neither form against the other.
 
 `pnpm redirects:check` validates every destination against `/llms.txt` — the router's own page
 list — and fails on a dead destination or a source that shadows a live page. It needs the site

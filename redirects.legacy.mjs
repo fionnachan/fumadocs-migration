@@ -1271,7 +1271,7 @@ export const legacyRedirects = [
   },
   {
     source: '/how-arbitrum-works/bold/bold-faq',
-    destination: '/docs/how-arbitrum-works/bold',
+    destination: '/docs/how-arbitrum-works/bold/bold-faq',
     permanent: false,
   },
   {
@@ -1757,12 +1757,12 @@ export const legacyRedirects = [
   },
   {
     source: '/launch-arbitrum-chain/chain-config/costs/parent-chain-data-fee-pricing',
-    destination: '/docs/launch-arbitrum-chain/configuration/costs',
+    destination: '/docs/launch-arbitrum-chain/configuration/costs/parent-chain-data-fee-pricing',
     permanent: false,
   },
   {
     source: '/launch-arbitrum-chain/chain-config/costs/priority-fees',
-    destination: '/docs/launch-arbitrum-chain/configuration/costs',
+    destination: '/docs/launch-arbitrum-chain/configuration/costs/priority-fees',
     permanent: false,
   },
   {
@@ -1846,7 +1846,7 @@ export const legacyRedirects = [
   },
   {
     source: '/launch-arbitrum-chain/chain-config/sequencer/sequencer-config-reference',
-    destination: '/docs/launch-arbitrum-chain/configuration/sequencer',
+    destination: '/docs/launch-arbitrum-chain/configuration/sequencer/sequencer-config-reference',
     permanent: false,
   },
   {
@@ -1902,7 +1902,7 @@ export const legacyRedirects = [
   },
   {
     source: '/launch-arbitrum-chain/chain-config/validation/test-chain-configuration',
-    destination: '/docs/launch-arbitrum-chain/configuration/validation',
+    destination: '/docs/launch-arbitrum-chain/configuration/validation/test-chain-configuration',
     permanent: false,
   },
   {
@@ -2367,7 +2367,7 @@ export const legacyRedirects = [
   },
   {
     source: '/launch-arbitrum-chain/deploy/token-bridge-troubleshooting',
-    destination: '/docs/launch-arbitrum-chain/deploy',
+    destination: '/docs/launch-arbitrum-chain/deploy/token-bridge-troubleshooting',
     permanent: false,
   },
   {
@@ -2623,7 +2623,7 @@ export const legacyRedirects = [
   },
   {
     source: '/launch-arbitrum-chain/operate/error-index',
-    destination: '/docs/launch-arbitrum-chain/operate',
+    destination: '/docs/launch-arbitrum-chain/operate/error-index',
     permanent: false,
   },
   {
@@ -2653,7 +2653,7 @@ export const legacyRedirects = [
   },
   {
     source: '/launch-arbitrum-chain/operate/sequencer-troubleshooting',
-    destination: '/docs/launch-arbitrum-chain/operate',
+    destination: '/docs/launch-arbitrum-chain/operate/sequencer-troubleshooting',
     permanent: false,
   },
   {
@@ -3638,7 +3638,7 @@ export const legacyRedirects = [
   },
   {
     source: '/run-arbitrum-node/arbos-releases/arbos61',
-    destination: '/docs/run-a-node/arbos-releases/overview',
+    destination: '/docs/run-a-node/arbos-releases/arbos61',
     permanent: false,
   },
   {
