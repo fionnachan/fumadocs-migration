@@ -4,9 +4,27 @@
  * Fumadocs treats `pages` as an allowlist: when present, on-disk siblings that are not listed are
  * excluded from the sidebar unless the `"..."` rest operator appears. Entries naming a page that does
  * not exist are silently ignored. Both failure modes are invisible at build time, so we check them here.
+ *
+ * It also checks the editorial navigation manifest, `lib/docs-navigation.json`, for a page URL
+ * claimed twice. That rule lives in `lib/docs-navigation-rules.mjs` so the gate and the transformer
+ * apply the same copy of it.
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
+
+import { duplicateManifestPages } from '../../lib/docs-navigation-rules.mjs';
+
+/**
+ * Read the navigation manifest and report every `page` URL it claims more than once.
+ *
+ * Separate from the `meta.json` checks above because it reads a different file: `meta.json` still
+ * describes the content folders, while the manifest arranges those pages into the editorial
+ * hierarchy the sidebar actually renders.
+ */
+export function checkManifest(manifestPath) {
+  const { sections } = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  return duplicateManifestPages(sections);
+}
 
 /**
  * Fumadocs' own link-entry regex, copied verbatim from

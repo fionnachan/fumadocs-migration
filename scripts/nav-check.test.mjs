@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
-import { checkDir, checkRoots, classifyEntry, resolveRef } from './lib/nav.mjs';
+import { duplicateManifestPages } from '../lib/docs-navigation-rules.mjs';
+import { checkDir, checkManifest, checkRoots, classifyEntry, resolveRef } from './lib/nav.mjs';
 
 test('classifyEntry recognises every meta.json entry form', () => {
   assert.equal(classifyEntry('my-page').kind, 'page');
@@ -180,4 +182,90 @@ test('checkRoots inherits coverage through a cross-directory folder claim', () =
     pages: new Set(['loose/a', 'loose/b']),
   });
   assert.deepEqual(rootless, []);
+});
+
+/**
+ * The manifest rule (FS-2740). Four `page` URLs in `lib/docs-navigation.json` were each claimed by
+ * two entries, so four real pages fell into their section's Additional guides group while a sidebar
+ * entry named them and opened something else. Every claimed URL existed, so nothing failed.
+ */
+
+test('duplicateManifestPages reports a page URL claimed twice, with both entry names', () => {
+  const duplicates = duplicateManifestPages([
+    {
+      id: 'run-a-node',
+      name: 'Run an Arbitrum node',
+      sourceFolders: ['run-a-node'],
+      children: [
+        { name: 'Overview', page: '/docs/run-a-node/arbos-releases/overview' },
+        { name: 'Elara (ArbOS 61)', page: '/docs/run-a-node/arbos-releases/overview' },
+        { name: 'Dia (ArbOS 51)', page: '/docs/run-a-node/arbos-releases/arbos51' },
+      ],
+    },
+  ]);
+  assert.deepEqual(duplicates, [
+    {
+      url: '/docs/run-a-node/arbos-releases/overview',
+      names: ['Overview', 'Elara (ArbOS 61)'],
+    },
+  ]);
+});
+
+test('duplicateManifestPages sees a claim nested in a children group or used as its index', () => {
+  const duplicates = duplicateManifestPages([
+    {
+      id: 'launch-arbitrum-chain',
+      name: 'Run an Arbitrum chain',
+      sourceFolders: ['launch-arbitrum-chain'],
+      children: [
+        {
+          name: 'Chain configuration',
+          page: '/docs/launch-arbitrum-chain/configuration/sequencer',
+          children: [
+            {
+              name: 'Sequencing',
+              children: [
+                {
+                  name: 'Sequencer configuration reference',
+                  page: '/docs/launch-arbitrum-chain/configuration/sequencer',
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  ]);
+  assert.deepEqual(
+    duplicates.map((d) => d.url),
+    ['/docs/launch-arbitrum-chain/configuration/sequencer'],
+  );
+});
+
+test('duplicateManifestPages leaves repeated href shortcuts alone', () => {
+  // A repeated `href` is the documented way to pin one page into several sections: it builds a
+  // display-only separator node that claims nothing, so it cannot steal a sidebar root.
+  const duplicates = duplicateManifestPages([
+    {
+      id: 'build-decentralized-apps',
+      name: 'Build apps with Solidity',
+      sourceFolders: ['build-decentralized-apps'],
+      children: [{ name: 'Bridging', href: '/docs/arbitrum-essentials/bridging/overview' }],
+    },
+    {
+      id: 'stylus',
+      name: 'Build apps with Stylus',
+      sourceFolders: ['stylus'],
+      children: [
+        { name: 'Bridging', href: '/docs/arbitrum-essentials/bridging/overview' },
+        { name: 'Bridging', page: '/docs/arbitrum-essentials/bridging/overview' },
+      ],
+    },
+  ]);
+  assert.deepEqual(duplicates, []);
+});
+
+test('checkManifest passes on the real navigation manifest', () => {
+  const manifest = new URL('../lib/docs-navigation.json', import.meta.url);
+  assert.deepEqual(checkManifest(fileURLToPath(manifest)), []);
 });

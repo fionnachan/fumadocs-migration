@@ -1,6 +1,8 @@
 import type { Folder, Item, Node, Root, Separator } from 'fumadocs-core/page-tree';
 import type { ContentStorage } from 'fumadocs-core/source';
 
+import { duplicateManifestPages } from './docs-navigation-rules.mjs';
+
 interface NavigationEntry {
   name?: string;
   page?: string;
@@ -43,6 +45,15 @@ export function docsNavigationTransformer(sections: NavigationSection[]) {
  * Unlisted local content stays reachable in an Additional guides group within its section.
  */
 export function buildDocsNavigation(tree: Root, sections: NavigationSection[]): Root {
+  // A URL claimed by two `page` entries means one of them names a page it does not open, and that
+  // page falls into Additional guides instead. Both URLs exist, so `page()` below never sees it.
+  // `pnpm nav:check` applies the same rule, but no gate runs during `pnpm dev` (FS-2740).
+  const duplicates = duplicateManifestPages(sections);
+  if (duplicates.length > 0) {
+    const detail = duplicates.map((d) => `${d.url} (${d.names.join(', ')})`).join('; ');
+    throw new Error(`Navigation page claimed more than once: ${detail}`);
+  }
+
   const pages = new Map<string, Item>();
   const folders = new Map<string, Folder>();
   const claimed = new Set<string>();
