@@ -150,7 +150,8 @@ jobs:
     # It stays a job of its own rather than folding into `gates`, so the build keeps running in
     # parallel with those thirteen steps and promoting it costs no PR latency.
     #
-    # This job reaches the network nowhere, since FS-2750. The last dependency was --font-code,
+    # Nothing after `pnpm install` reaches the network, since FS-2750 (the checkout and the
+    # install still do, as they must). The last dependency in the build itself was --font-code,
     # declared with `JetBrains_Mono` from next/font/google, which made the build fetch that face
     # from Google Fonts; the loader retries three times and only falls back to a local face in dev,
     # so an outage failed the build, and this job caches only the pnpm store. That face is now

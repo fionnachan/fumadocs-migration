@@ -1642,17 +1642,28 @@ code, Aeonik Fono is now discovered by the CSS rather than by a preload link, so
 1.66 to 1.68 s on the baseline to about 1.97 s on four of five runs here. LCP still improves by
 roughly a second, so the page is a clear net win, but "no slower" would be wrong.
 
-**Every face is self-hosted, and the build makes no font request** (FS-2750). JetBrains Mono was
-the last one loaded through `next/font/google`, which fetched its CSS from `fonts.googleapis.com`
-and six `woff2` slices from `fonts.gstatic.com` on every `next build`, then self-hosted them into
-`.next/static/media`. The declaration is now `next/font/local` over
+**Every face this repo declares is self-hosted, and the build makes no font request** (FS-2750).
+JetBrains Mono was the last one loaded through `next/font/google`, which fetched its CSS from
+`fonts.googleapis.com` and six `woff2` slices from `fonts.gstatic.com` on every `next build`, then
+self-hosted them into `.next/static/media`. The declaration is now `next/font/local` over
 `public/fonts/jetbrains-mono-latin.woff2`, beside the four Aeonik faces and FK Screamer. **The
 committed file is the one Google served, not a rebuild of it**: a `curl` of
 `https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbV2o-flEEny0FZhsfKu5WU4xD7OwGtT0rU.woff2` and the
 file the previous build wrote into `.next/static/media` share sha256
 `1e06740a02a443fb7f3eeda8fcaa685a0f6c620e3f01e6666e847295469ce3ad`, and the built asset keeps its
 content hash (`…3t6q91iet4nsy.woff2`), so no reader's download moved by a byte. The licence is SIL
-Open Font License 1.1, committed beside it as `public/fonts/jetbrains-mono-OFL.txt`.
+Open Font License 1.1, committed beside it as `public/fonts/jetbrains-mono-OFL.txt`. **Replacing
+that file means copying its range too**: the `unicode-range` in `app/layout.tsx` was transcribed by
+hand from the CSS Google served on the day, and nothing ties the two together, so a swapped slice
+with a stale range fails at neither build nor request time, only in rendering.
+
+**"Every face this repo declares" is the exact scope, because a reader's browser still fetches one
+from Google.** `@inkeep/cxkit-primitives` hardcodes
+`https://fonts.googleapis.com/css2?family=Inter:…` in its theme provider, so the chat chunk
+requests it at runtime on every docs page. It is in the chunk rather than the HTML, which is why
+grepping the served page for `googleapis` comes back clean, and why this is easy to rediscover as a
+regression. Nothing here causes it and nothing here can remove it short of dropping the widget; it
+is recorded so the next network trace does not read as one.
 
 **Only the `latin` slice is committed, and that is the decision worth recording.** Google splits
 this face into six unicode-range slices, and a browser fetches only the ones the rendered text
@@ -1669,12 +1680,17 @@ needs:
 
 `--font-code` is spent by exactly one rule, `pre, pre code` in `app/global.css`, and a scan of every
 fenced block and inline code span under `content/` found **no character** the other five cover. So
-45,840 bytes were built into `.next` on every build and requested by nobody. The `unicode-range`
-is carried over verbatim through `next/font/local`'s `declarations` option, and it is not
-decoration: without it this one file would claim every character and a Cyrillic one would render as
-`.notdef` instead of falling back. **Adding a slice back is not a second `src` entry**: one
-`localFont` call emits one `unicode-range` across all of them, so it takes a second call and a
-second CSS variable chained in `font-family`.
+45,840 bytes were built into `.next` on every build and requested by nobody. The `unicode-range` is
+carried over verbatim through `next/font/local`'s `declarations` option, **for fidelity rather than
+for rendering**: it makes the one emitted `@font-face` mean what the `latin` member of the six it
+replaces meant. It is not what makes an out-of-range character fall back, and believing otherwise is
+the way this option gets deleted as decoration. CSS font matching runs per character, so a face with
+no glyph hands the character to the next family in the list with or without the range; measured
+through `CSS.getPlatformFontsForNode`, Cyrillic, Greek and box drawing render in the fallback face
+either way, and the woff2 downloads either way. All the range changes is which font draws the
+missing-glyph box for a character no family in the chain covers. **Adding a slice back is not a
+second `src` entry**: one `localFont` call emits one `unicode-range` across all of them, so it takes
+a second call and a second CSS variable chained in `font-family`.
 
 **Two things did change, both small and both deliberate.** `weight` is pinned to the variable range
 `100 800` rather than a single value, because `font-synthesis: none` on `body` would otherwise
@@ -1995,10 +2011,15 @@ under `public/fonts/` and loaded with `next/font/local` (see
 [Page weight and what loads late](#page-weight-and-what-loads-late) for which slice and why).
 **Proved rather than assumed**, with `HTTPS_PROXY` and `HTTP_PROXY` pointed at a closed port, which
 the Google loader honours through `get-proxy-agent.js`: on the parent commit `pnpm build` exits 1
-with `Failed to fetch JetBrains Mono from Google Fonts` as its only error, and on this one it exits 0. Nothing else in the job reaches out either: `redirects:check` reports an external destination as
-`SKIPPED` without fetching it, and the HTTP suite talks only to `STATIC_DOCS_TEST_URL`. **Do not
-reintroduce a `next/font/google` declaration**; a new face belongs in `public/fonts/` with its
-licence beside it. The same removal reaches `upstream-refresh.yml`'s `stylus` job, whose gate list
+with `Failed to fetch JetBrains Mono from Google Fonts` as its only error, while on this one it
+exits cleanly. Nothing after `pnpm install` reaches out either: `redirects:check` reports an
+external destination as `SKIPPED` without fetching it, and the HTTP suite talks only to
+`STATIC_DOCS_TEST_URL`. The checkout and the install still do, as they must, which is why the claim
+is about the build step rather than the job. **Do not reintroduce a `next/font/google`
+declaration**; a new face belongs in `public/fonts/` with its licence beside it, and
+`scripts/lib/fonts.test.mjs` fails the `test` gate if one returns.
+
+The same removal reaches `upstream-refresh.yml`'s `stylus` job, whose gate list
 mirrors `Gates` plus the build: a Google Fonts outage on a Monday used to fail it before
 `create-pull-request`, so no PR opened, and the only signal was a red run emailed to whoever last
 edited the cron schedule. That cause is gone; the job can still fail on any of its thirteen gates
@@ -2009,8 +2030,9 @@ the only job here that does not block. Reaching zero is not what would promote t
 green. It fetches about thirty Solidity sources from `raw.githubusercontent` on every run with no
 retry, so a GitHub blip turns it red for reasons unrelated to the change under review. That was
 already a different failure profile from the build's one host, two requests and three retries, which
-is why the two ended up on opposite sides; since FS-2750 the build makes no request at all, so this
-is the only job left with a network dependency. Its sibling `contracts:check` reads a registry that ships
+is why the two ended up on opposite sides; since FS-2750 the build step makes no request at all, so
+this is the only step left that reaches a host of its own, `actions/checkout` and `pnpm install`
+aside. Its sibling `contracts:check` reads a registry that ships
 inside `@arbitrum/sdk` at an exact pin, so it is offline and blocks. Losing the network dependency
 is what would promote `precompiles:check`.
 

@@ -117,13 +117,22 @@ const mono = localFont({
 // `weight` is the variable range Google declared, not a single value: `font-synthesis: none` in
 // global.css means a static 400 face would render a bold code token at 400 rather than bold.
 //
-// `unicode-range` is the latin slice's own, carried over verbatim, and it is not optional: without
-// it this one file would claim every character and a Cyrillic one would render as .notdef instead
-// of falling back. The other five slices (latin-ext, cyrillic, cyrillic-ext, greek, vietnamese) are
-// not committed, because no fenced block or inline code span anywhere in content/ holds a character
-// any of them covers, so no reader ever requested one. A character outside this range now resolves
-// the same way a character outside all six already did, through the generated metric-adjusted
-// fallback face.
+// `unicode-range` is the latin slice's own, carried over verbatim, and the reason to keep it is
+// fidelity, not rendering: it makes this one `@font-face` mean what the `latin` member of the six
+// Google emitted meant, so the before and after CSS are equivalent. It is emphatically NOT what
+// makes a Cyrillic character fall back. CSS font matching runs per character, so a face with no
+// glyph hands that character to the next family in the list whether or not the range is declared;
+// measured through `CSS.getPlatformFontsForNode`, Cyrillic, Greek and box drawing all render in
+// the fallback face either way, and the woff2 is downloaded either way. The only thing the range
+// changes is which font draws the missing-glyph box for a character no family in the chain covers.
+// So do not drop it as decoration, and do not trust it to do the falling back.
+//
+// The other five slices (latin-ext, cyrillic, cyrillic-ext, greek, vietnamese) are not committed,
+// because no fenced block or inline code span anywhere in content/ holds a character any of them
+// covers, so no reader ever requested one. Two characters, two different stories. One outside all
+// six resolves exactly as it did before, through the generated metric-adjusted fallback. One the
+// five did cover is now set in that fallback where it used to be set in JetBrains Mono, and that
+// is the one cost this change accepts: cosmetic, and currently hypothetical.
 //
 // No `fallback` option, deliberately, because the Google declaration had none either: it keeps the
 // emitted variable at `"code", "code Fallback"`, the same shape as before, and `pre, pre code` in
