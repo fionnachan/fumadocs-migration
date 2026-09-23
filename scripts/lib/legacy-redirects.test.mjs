@@ -90,6 +90,15 @@ test('every UPSTREAM_TITLES key is still an entry in one of the two maps', () =>
  * title two pages share is skipped as well, for the same reason rule 4 declines there: the title no
  * longer identifies one page, so it cannot say which one is right.
  *
+ * **A match is evidence, not proof, so the failure names both ways out.** A recorded title can be a
+ * short generic noun: two of them are "Sequencer" and "Batch Poster". A page that takes such a title
+ * for its own reasons is not thereby the port of the upstream page, and retargeting at it would
+ * write exactly the plausible-but-wrong redirect the resolution order exists to avoid. The other way
+ * out is to delete that source's `UPSTREAM_TITLES` entry, with a comment, leaving the destination
+ * alone: no test requires a map entry to have a recorded title, so the map keeps working and only
+ * the unverifiable claim goes. The message says both, because a failure that names one fix gets that
+ * fix.
+ *
  * It checks the destination's page part only, since a destination may carry an `#anchor`, and it
  * compares URLs exactly rather than case-insensitively, because these are destinations this repo
  * writes about its own pages, not the mixed-case legacy corpus `resolveUrl` exists for.
@@ -99,6 +108,10 @@ test('a destination names the page carrying the upstream title, when exactly one
   const wrong = [];
   for (const [name, map] of MAPS) {
     for (const [source, destination] of map) {
+      // An off-site destination has no local page to compare against. Nothing in either map is
+      // external today; the guard is here because the destination test above has it, so an external
+      // entry added later fails on its own merits rather than on this rule.
+      if (isAbsolute(destination)) continue;
       const title = UPSTREAM_TITLES.get(source);
       if (!title) continue;
       const pages = byTitle.get(title) ?? [];
@@ -106,8 +119,10 @@ test('a destination names the page carrying the upstream title, when exactly one
       const [page] = destination.split('#');
       if (page !== pages[0]) {
         wrong.push(
-          `${name}: ${source} -> ${destination}, but "${title}" is now ${pages[0]}. Retarget the ` +
-            `entry and its twin in redirects.legacy.mjs.`,
+          `${name}: ${source} -> ${destination}, but "${title}" is now ${pages[0]}. If that page is ` +
+            `the port of the upstream page, retarget this entry and its twin in ` +
+            `redirects.legacy.mjs. If it merely shares the title, leave the destination alone and ` +
+            `delete the UPSTREAM_TITLES entry for ${source}, with a comment saying why.`,
         );
       }
     }

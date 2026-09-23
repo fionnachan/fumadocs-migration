@@ -403,10 +403,13 @@ export const MANUAL_DESTINATIONS = new Map([
  * has not ported.
  *
  * These are not equivalences and must never be treated as such. Each names a page that exists
- * upstream and nowhere here. Both were added upstream after the port window closed, so the upstream
- * comparison reported them as work still to do before it was retired (FS-2706). Sending the reader
- * to the section they were heading for is better than a 404 at cutover, and it is the same
- * judgement already recorded for `/stylus/overview` in `MANUAL_DESTINATIONS`.
+ * upstream and nowhere here, and the two are here for different reasons: `config-batch-poster` was
+ * added upstream after the port window closed, so the upstream comparison reported it as work still
+ * to do before it was retired (FS-2706), while `sequencer-content-map` is a navigation page with no
+ * equivalent here by design, which that comparison recorded as a standing non-item. Each entry's own
+ * comment says which. Sending the reader to the section they were heading for is better than a 404
+ * at cutover, and it is the same judgement already recorded for `/stylus/overview` in
+ * `MANUAL_DESTINATIONS`.
  *
  * Consulted only after every mechanical rule has declined, and *after* the self-URL rule in
  * particular, so an entry here never masks a page that exists.
@@ -420,8 +423,8 @@ export const MANUAL_DESTINATIONS = new Map([
  * retargeted at the page, and retarget the matching `redirects.legacy.mjs` entry. `UPSTREAM_TITLES`
  * below is what fails the suite if you forget.
  *
- * Each comment records the date the page appeared upstream; the upstream title is data, in
- * `UPSTREAM_TITLES`.
+ * Each entry's comment records what is known about the upstream page, including the date it appeared
+ * there where that is known; the upstream title is data, in `UPSTREAM_TITLES`.
  */
 export const SECTION_LANDINGS = new Map([
   // Upstream 2026-06-05. Batch-poster configuration lives under this landing here.
@@ -452,6 +455,15 @@ export const SECTION_LANDINGS = new Map([
  * Titles are recorded only where upstream was actually consulted. An unlisted source is not a
  * claim that it has no title, it is a claim that nobody verified one, and inventing a plausible
  * title here would turn a test into a guess.
+ *
+ * **A title match is evidence, not proof, and deleting an entry here is a supported answer.** Two of
+ * these titles are short generic nouns, "Batch Poster" and "Sequencer". A page that takes such a
+ * title for reasons of its own is not thereby the port of the upstream page, and retargeting the
+ * destination at it would write the plausible-but-wrong redirect the resolution order exists to
+ * avoid. So when the test fires and the page only shares the title, delete that source's entry from
+ * this map with a comment saying why, and leave the destination where it is. Nothing requires a map
+ * entry to have a recorded title: the map keeps working and only the claim nobody can verify any
+ * more goes away. Retarget only when the page really is the port.
  */
 export const UPSTREAM_TITLES = new Map([
   // Still in SECTION_LANDINGS: no page here carries either title, or either basename.

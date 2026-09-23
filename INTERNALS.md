@@ -1064,6 +1064,16 @@ the test into a guess. Nothing else could have caught this class, which is the s
 guiding rule below describes: `redirects:check` asks only whether a destination exists, and a
 section landing exists.
 
+**A title match is evidence, not proof, so the failure has two correct answers and names both.** Two
+of the recorded titles are short generic nouns, "Batch Poster" and "Sequencer", and a page that takes
+one of those for reasons of its own is not thereby the port of the upstream page. Retargeting at it
+would write precisely the plausible-but-wrong redirect the guiding rule below forbids. The second
+answer is to delete that source's `UPSTREAM_TITLES` entry, with a comment, and leave the destination
+alone: nothing requires a map entry to carry a recorded title, so the map goes on working and only
+the claim nobody can verify any more is dropped. Retarget only when the page really is the port. The
+assertion message spells out both, because a failure that names one fix gets that fix, and
+[CONTRIBUTE](CONTRIBUTE.md) puts the same fork in front of a contributor adding a page.
+
 **The guiding rule: a redirect to a plausible-but-wrong page is worse than a 404.** It silently
 sends readers somewhere wrong, and `redirects:check` cannot catch it, because the destination
 exists. Anything no rule resolved was left unmapped rather than pointed at a plausible page, and the
