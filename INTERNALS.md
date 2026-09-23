@@ -1642,6 +1642,48 @@ code, Aeonik Fono is now discovered by the CSS rather than by a preload link, so
 1.66 to 1.68 s on the baseline to about 1.97 s on four of five runs here. LCP still improves by
 roughly a second, so the page is a clear net win, but "no slower" would be wrong.
 
+**Every face is self-hosted, and the build makes no font request** (FS-2750). JetBrains Mono was
+the last one loaded through `next/font/google`, which fetched its CSS from `fonts.googleapis.com`
+and six `woff2` slices from `fonts.gstatic.com` on every `next build`, then self-hosted them into
+`.next/static/media`. The declaration is now `next/font/local` over
+`public/fonts/jetbrains-mono-latin.woff2`, beside the four Aeonik faces and FK Screamer. **The
+committed file is the one Google served, not a rebuild of it**: a `curl` of
+`https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbV2o-flEEny0FZhsfKu5WU4xD7OwGtT0rU.woff2` and the
+file the previous build wrote into `.next/static/media` share sha256
+`1e06740a02a443fb7f3eeda8fcaa685a0f6c620e3f01e6666e847295469ce3ad`, and the built asset keeps its
+content hash (`…3t6q91iet4nsy.woff2`), so no reader's download moved by a byte. The licence is SIL
+Open Font License 1.1, committed beside it as `public/fonts/jetbrains-mono-OFL.txt`.
+
+**Only the `latin` slice is committed, and that is the decision worth recording.** Google splits
+this face into six unicode-range slices, and a browser fetches only the ones the rendered text
+needs:
+
+| slice        | bytes  | requested |
+| ------------ | ------ | --------- |
+| latin        | 40,480 | yes       |
+| latin-ext    | 15,204 | no        |
+| cyrillic     | 12,064 | no        |
+| greek        | 9,084  | no        |
+| vietnamese   | 7,468  | no        |
+| cyrillic-ext | 2,020  | no        |
+
+`--font-code` is spent by exactly one rule, `pre, pre code` in `app/global.css`, and a scan of every
+fenced block and inline code span under `content/` found **no character** the other five cover. So
+45,840 bytes were built into `.next` on every build and requested by nobody. The `unicode-range`
+is carried over verbatim through `next/font/local`'s `declarations` option, and it is not
+decoration: without it this one file would claim every character and a Cyrillic one would render as
+`.notdef` instead of falling back. **Adding a slice back is not a second `src` entry**: one
+`localFont` call emits one `unicode-range` across all of them, so it takes a second call and a
+second CSS variable chained in `font-family`.
+
+**Two things did change, both small and both deliberate.** `weight` is pinned to the variable range
+`100 800` rather than a single value, because `font-synthesis: none` on `body` would otherwise
+render a bold code token at 400 against a static face. And the generated metric-adjusted fallback
+moved from Google's family-level metadata (`ascent-override: 75.79%`, `descent-override: 22.29%`,
+`size-adjust: 134.59%`) to metrics the local loader computes from the file itself (`77.57%`,
+`22.82%`, `131.49%`). The local numbers describe the file actually being served, so the drift is
+toward accuracy, and it is visible only during the swap and on a character outside the range.
+
 **The italic face is its own `next/font` declaration.** `preload` is per declaration in `next/font`,
 not per `src` entry, so while Aeonik Italic sat beside the two uprights it was preloaded wherever
 they were. At 48 KiB it was the single largest preload on the site and the first request after the
@@ -1942,29 +1984,33 @@ promoting the build costs no pull-request latency: a run already waits on whiche
 and folding the build (53 s cold, 37 s warm, measured 2026-09-22) plus a few seconds of HTTP behind thirteen checks
 that do not need it would only serialise work that is already free.
 
-**One network dependency is left in the build and is accepted.** `app/layout.tsx` declares
-`--font-code` with `JetBrains_Mono` from `next/font/google`, so `next build` fetches that face's
-CSS from `fonts.googleapis.com` and its `woff2` files from `fonts.gstatic.com` and self-hosts them
-into `.next/static/media`. The loader retries three times and falls back to a local face only in
-dev (`node_modules/next/dist/compiled/@next/font/dist/google/loader.js`), so in a production build
-an outage throws. This is not a new exposure: the same `next build` runs on every Vercel deploy,
-so Google Fonts already gates shipping. Self-hosting that face under `public/fonts/`, the way all
-four Aeonik faces already are, would take the last network call out of the build and is worth its
-own change. Nothing else in the job reaches the network: `redirects:check` reports an external
-destination as `SKIPPED` without fetching it, and the HTTP suite talks only to
-`STATIC_DOCS_TEST_URL`. The same dependency now reaches `upstream-refresh.yml`'s `stylus` job,
-whose gate list mirrors `Gates` plus the build: a Google Fonts outage during the Monday run fails
-that job before `create-pull-request`, so no PR opens; the run goes red and GitHub emails the user
-who last edited the workflow's cron schedule, which is the only signal. The job could already fail
-on any of its thirteen gates the same way, so the build adds a cause, not the gap. Accepted for the
-same reason; the next Monday retries.
+**The build reaches the network nowhere, since FS-2750.** The one dependency left was
+`app/layout.tsx` declaring `--font-code` with `JetBrains_Mono` from `next/font/google`, which made
+`next build` fetch that face's CSS from `fonts.googleapis.com` and its `woff2` files from
+`fonts.gstatic.com` and self-host them into `.next/static/media`. The loader retries three times
+and falls back to a local face only in dev
+(`node_modules/next/dist/compiled/@next/font/dist/google/loader.js`), so in a production build an
+outage threw, and CI caches only the pnpm store, so every run refetched. That face is now committed
+under `public/fonts/` and loaded with `next/font/local` (see
+[Page weight and what loads late](#page-weight-and-what-loads-late) for which slice and why).
+**Proved rather than assumed**, with `HTTPS_PROXY` and `HTTP_PROXY` pointed at a closed port, which
+the Google loader honours through `get-proxy-agent.js`: on the parent commit `pnpm build` exits 1
+with `Failed to fetch JetBrains Mono from Google Fonts` as its only error, and on this one it exits 0. Nothing else in the job reaches out either: `redirects:check` reports an external destination as
+`SKIPPED` without fetching it, and the HTTP suite talks only to `STATIC_DOCS_TEST_URL`. **Do not
+reintroduce a `next/font/google` declaration**; a new face belongs in `public/fonts/` with its
+licence beside it. The same removal reaches `upstream-refresh.yml`'s `stylus` job, whose gate list
+mirrors `Gates` plus the build: a Google Fonts outage on a Monday used to fail it before
+`create-pull-request`, so no PR opened, and the only signal was a red run emailed to whoever last
+edited the cron schedule. That cause is gone; the job can still fail on any of its thirteen gates
+the same way.
 
 **`Network checks` (non-blocking)** runs `precompiles:check`, marked `continue-on-error`, and is
 the only job here that does not block. Reaching zero is not what would promote this one: it is already
 green. It fetches about thirty Solidity sources from `raw.githubusercontent` on every run with no
-retry, so a GitHub blip turns it red for reasons unrelated to the change under review. That is a
-different failure profile from the build's one host, two requests and three retries, which is why
-the two ended up on opposite sides. Its sibling `contracts:check` reads a registry that ships
+retry, so a GitHub blip turns it red for reasons unrelated to the change under review. That was
+already a different failure profile from the build's one host, two requests and three retries, which
+is why the two ended up on opposite sides; since FS-2750 the build makes no request at all, so this
+is the only job left with a network dependency. Its sibling `contracts:check` reads a registry that ships
 inside `@arbitrum/sdk` at an exact pin, so it is offline and blocks. Losing the network dependency
 is what would promote `precompiles:check`.
 

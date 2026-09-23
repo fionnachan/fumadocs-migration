@@ -424,7 +424,7 @@ h3:has(> button[data-state]) {
 }
 
 /* Fenced code blocks use a true monospace; inline code keeps brand Aeonik Fono.
-   See the --font-code comment in app/[lang]/layout.tsx. */
+   See the --font-code comment in app/layout.tsx. */
 pre,
 pre code {
   font-family: var(--font-code), ui-monospace, 'SF Mono', Menlo, Monaco, Consolas, monospace;
