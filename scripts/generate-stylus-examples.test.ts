@@ -15,7 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 
-import { outputDir, sections } from './data/stylus-examples.data.mjs';
+import { outputDir, sections } from './data/stylus-examples.data.ts';
 import {
   buildPage,
   buildSectionMeta,
@@ -25,7 +25,7 @@ import {
   renderFrontmatter,
   rewriteRelativeLinks,
   yamlScalar,
-} from './lib/stylus-examples.mjs';
+} from './lib/stylus-examples.ts';
 
 const SOURCE = `export const metadata = {
   title: 'Hello World • Stylus by Example',
@@ -171,7 +171,8 @@ describe('parseObjectLiteral', () => {
     ]) {
       assert.throws(() => parseObjectLiteral(literal, 'fixture'), /fixture:/, literal);
     }
-    assert.equal(globalThis.x, undefined);
+    // Read through Reflect: `x` is not a declared global, which is the point of the check.
+    assert.equal(Reflect.get(globalThis, 'x'), undefined);
   });
 
   it('throws on anything else outside the grammar', () => {
@@ -198,8 +199,11 @@ describe('parseObjectLiteral', () => {
 
   it('keeps a `__proto__` key as an ordinary property instead of writing the prototype', () => {
     const parsed = parseObjectLiteral(`{ "__proto__": { "polluted": true } }`, 'fixture');
-    assert.equal(Object.hasOwn(parsed, '__proto__'), true);
-    assert.equal({}.polluted, undefined);
+    assert.equal(
+      typeof parsed === 'object' && parsed !== null && Object.hasOwn(parsed, '__proto__'),
+      true,
+    );
+    assert.equal(Reflect.get({}, 'polluted'), undefined);
   });
 });
 
@@ -381,7 +385,7 @@ describe('buildSectionMeta', () => {
   });
 });
 
-describe('stylus-examples.data.mjs', () => {
+describe('stylus-examples.data.ts', () => {
   it('names a page that exists for every allowlist entry', () => {
     for (const section of sections) {
       for (const slug of section.pages) {
@@ -404,7 +408,9 @@ describe('stylus-examples.data.mjs', () => {
 
   it('matches the committed meta.json, which is what fixes the sidebar order', () => {
     for (const section of sections) {
-      const meta = JSON.parse(fs.readFileSync(path.join(outputDir, section.dir, 'meta.json')));
+      const meta: unknown = JSON.parse(
+        fs.readFileSync(path.join(outputDir, section.dir, 'meta.json'), 'utf-8'),
+      );
       assert.deepEqual(meta, buildSectionMeta(section));
     }
   });

@@ -16,6 +16,52 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+/** A captured `name = expression` declaration: the raw right-hand side and the file it is in. */
+export interface GoAssignment {
+  expr: string;
+  file: string;
+}
+
+/** A function taking a `*pflag.FlagSet`: its raw parameter list, its body, and its file. */
+export interface GoFlagFunc {
+  params: string[];
+  body: string;
+  file: string;
+}
+
+/** Everything indexed for one directory (one Go package). */
+export interface GoPackage {
+  vars: Map<string, GoAssignment>;
+  consts: Map<string, GoAssignment>;
+  funcs: Map<string, GoFlagFunc>;
+}
+
+/**
+ * Import alias to the directory key it resolves to, or null for a package outside the indexed
+ * tree (the standard library, a third-party module).
+ */
+export type GoImports = Map<string, string | null>;
+
+/**
+ * One module to index. `dir` is the directory key its packages get (`''` for the root module),
+ * `absDir` where it sits on disk.
+ */
+export interface GoRoot {
+  modulePath: string;
+  dir: string;
+  absDir: string;
+}
+
+/** The result of {@link indexGoTree}. */
+export interface GoTree {
+  dirs: Map<string, GoPackage>;
+  fileImports: Map<string, GoImports>;
+}
+
+type OpenDelim = '(' | '{' | '[';
+const CLOSE_DELIM: Record<OpenDelim, string> = { '(': ')', '{': '}', '[': ']' };
+const isOpenDelim = (c: string | undefined): c is OpenDelim => c === '(' || c === '{' || c === '[';
+
 /** Directories with no Go we care about, or none at all once a submodule is unpopulated. */
 const SKIP_DIRS = new Set([
   'arbitrator',
@@ -27,7 +73,7 @@ const SKIP_DIRS = new Set([
 ]);
 
 /** Every non-test `.go` file under `dir`. */
-export function goFiles(dir, out = []) {
+export function goFiles(dir: string, out: string[] = []): string[] {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (entry.name.startsWith('.')) continue;
     const abs = path.join(dir, entry.name);
@@ -48,7 +94,7 @@ export function goFiles(dir, out = []) {
  * would otherwise open a rune literal that never closes, and every brace after it would be
  * counted inside a string. That bug silently drops most of a file.
  */
-export function stripComments(src) {
+export function stripComments(src: string): string {
   let out = '';
   let i = 0;
   while (i < src.length) {
@@ -89,7 +135,7 @@ export function stripComments(src) {
 }
 
 /** Skip over a quoted literal starting at `i`, returning the index just past its closing quote. */
-function skipQuoted(src, i) {
+function skipQuoted(src: string, i: number): number {
   const quote = src[i];
   i++;
   while (i < src.length) {
@@ -104,9 +150,12 @@ function skipQuoted(src, i) {
 }
 
 /** Index of the delimiter matching the one at `start`, or -1. Quote-aware. */
-export function matchDelim(src, start) {
+export function matchDelim(src: string, start: number): number {
   const open = src[start];
-  const close = { '(': ')', '{': '}', '[': ']' }[open];
+  // A start that is not an opening delimiter has no match. The untyped original looked the close
+  // up anyway and got `undefined`, which never equals a character, so it also returned -1.
+  if (!isOpenDelim(open)) return -1;
+  const close = CLOSE_DELIM[open];
   let depth = 0;
   let i = start;
   while (i < src.length) {
@@ -123,8 +172,8 @@ export function matchDelim(src, start) {
 }
 
 /** Split a comma-separated list at nesting depth 0. Quote-aware. */
-export function splitArgs(src) {
-  const parts = [];
+export function splitArgs(src: string): string[] {
+  const parts: string[] = [];
   let depth = 0;
   let start = 0;
   let i = 0;
@@ -152,13 +201,13 @@ export function splitArgs(src) {
  * keyed by field name. Positional (unkeyed) literals return an empty map: Nitro's config
  * defaults are all keyed, and guessing at field order would be worse than failing later.
  */
-export function literalFields(expr) {
+export function literalFields(expr: string): Map<string, string> {
   const braceIdx = expr.indexOf('{');
   if (braceIdx === -1) return new Map();
   const end = matchDelim(expr, braceIdx);
   if (end === -1) return new Map();
 
-  const fields = new Map();
+  const fields = new Map<string, string>();
   for (const entry of splitArgs(expr.slice(braceIdx + 1, end))) {
     const colon = colonAtDepthZero(entry);
     if (colon === -1) continue;
@@ -170,7 +219,7 @@ export function literalFields(expr) {
 }
 
 /** Index of the first `:` outside any nesting or quoting, or -1. */
-function colonAtDepthZero(src) {
+function colonAtDepthZero(src: string): number {
   let depth = 0;
   let i = 0;
   while (i < src.length) {
@@ -198,24 +247,25 @@ function colonAtDepthZero(src) {
  * `roots` maps a Go module path to the directory holding it, so the Nitro tree and its vendored
  * go-ethereum submodule can be indexed together. Nitro's `execution.rpc.*` flags are registered
  * inside go-ethereum's `arbitrum` package, so the submodule is not optional.
- *
- * @param {Array<{ modulePath: string, dir: string }>} roots
- * @returns {{ dirs: Map<string, {vars: Map, consts: Map, funcs: Map}>, fileImports: Map<string, Map<string, string|null>> }}
  */
-export function indexGoTree(roots) {
-  const dirs = new Map();
-  const fileImports = new Map();
+export function indexGoTree(roots: readonly GoRoot[]): GoTree {
+  const dirs = new Map<string, GoPackage>();
+  const fileImports = new Map<string, GoImports>();
 
-  const dirEntry = (dir) => {
-    if (!dirs.has(dir)) dirs.set(dir, { vars: new Map(), consts: new Map(), funcs: new Map() });
-    return dirs.get(dir);
+  const dirEntry = (dir: string): GoPackage => {
+    let entry = dirs.get(dir);
+    if (!entry) {
+      entry = { vars: new Map(), consts: new Map(), funcs: new Map() };
+      dirs.set(dir, entry);
+    }
+    return entry;
   };
 
   // Longest module path first, so a nested module wins over its parent.
   const ordered = [...roots].sort((a, b) => b.modulePath.length - a.modulePath.length);
 
   /** Go import path to a directory key, or null when the package is not in the tree. */
-  const resolveImport = (importPath) => {
+  const resolveImport = (importPath: string): string | null => {
     for (const root of ordered) {
       if (importPath === root.modulePath) return root.dir;
       if (importPath.startsWith(root.modulePath + '/')) {
@@ -245,9 +295,9 @@ export function indexGoTree(roots) {
 }
 
 /** alias -> directory key (null for packages outside the indexed tree). */
-function readImports(src, resolveImport) {
-  const imports = new Map();
-  const add = (alias, importPath) => {
+function readImports(src: string, resolveImport: (importPath: string) => string | null): GoImports {
+  const imports: GoImports = new Map();
+  const add = (alias: string | undefined, importPath: string) => {
     imports.set(alias ?? path.basename(importPath), resolveImport(importPath));
   };
 
@@ -257,10 +307,12 @@ function readImports(src, resolveImport) {
     const end = matchDelim(src, open);
     for (const line of src.slice(open + 1, end).split('\n')) {
       const m = /^\s*(?:(\w+|\.)\s+)?"([^"]+)"/.exec(line);
-      if (m) add(m[1], m[2]);
+      if (m?.[2] !== undefined) add(m[1], m[2]);
     }
   }
-  for (const m of src.matchAll(/^import\s+(?:(\w+)\s+)?"([^"]+)"/gm)) add(m[1], m[2]);
+  for (const m of src.matchAll(/^import\s+(?:(\w+)\s+)?"([^"]+)"/gm)) {
+    if (m[2] !== undefined) add(m[1], m[2]);
+  }
   return imports;
 }
 
@@ -272,15 +324,16 @@ function readImports(src, resolveImport) {
  * blocks. A composite literal may span many lines, so the end of an assignment is the matching
  * brace when one opens on the same line, and the end of the line otherwise.
  */
-function captureAssignments(region, file, into) {
+function captureAssignments(region: string, file: string, into: Map<string, GoAssignment>): void {
   const re = /(?:^|\n)[ \t]*(\w+)(?:[ \t]+[\w.[\]*{}]+)?[ \t]*=[ \t]*/g;
-  let m;
+  let m: RegExpExecArray | null;
   while ((m = re.exec(region))) {
+    const name = m[1];
     const start = m.index + m[0].length;
     const brace = region.indexOf('{', start);
     const newline = region.indexOf('\n', start);
-    let end;
-    let expr;
+    let end: number;
+    let expr: string;
     if (brace !== -1 && (newline === -1 || brace < newline)) {
       end = matchDelim(region, brace);
       if (end === -1) continue;
@@ -289,14 +342,14 @@ function captureAssignments(region, file, into) {
       end = newline === -1 ? region.length : newline;
       expr = region.slice(start, end).trim();
     }
-    if (expr) into.set(m[1], { expr, file });
+    if (expr && name !== undefined) into.set(name, { expr, file });
     // Resume after the value, so a `=` inside a multi-line literal is not read as a new entry.
     re.lastIndex = Math.max(end, re.lastIndex);
   }
 }
 
 /** Package-level `var` declarations, single and grouped. */
-function readVars(src, file, into) {
+function readVars(src: string, file: string, into: Map<string, GoAssignment>): void {
   for (const m of src.matchAll(/^var\s*\(/gm)) {
     const open = src.indexOf('(', m.index);
     const end = matchDelim(src, open);
@@ -310,7 +363,7 @@ function readVars(src, file, into) {
 }
 
 /** End of a single declaration starting at `start`: the matching brace, or the line end. */
-function blockEnd(src, start) {
+function blockEnd(src: string, start: number): number {
   const brace = src.indexOf('{', start);
   const newline = src.indexOf('\n', start);
   if (brace !== -1 && (newline === -1 || brace < newline)) {
@@ -321,7 +374,7 @@ function blockEnd(src, start) {
 }
 
 /** Package-level `const` declarations, single and grouped. */
-function readConsts(src, file, into) {
+function readConsts(src: string, file: string, into: Map<string, GoAssignment>): void {
   for (const m of src.matchAll(/^const\s*\(/gm)) {
     const open = src.indexOf('(', m.index);
     const end = matchDelim(src, open);
@@ -335,12 +388,14 @@ function readConsts(src, file, into) {
 }
 
 /** Functions taking a `*pflag.FlagSet` (Nitro aliases the import as either `flag` or `pflag`). */
-function readFlagFuncs(src, file, into) {
+function readFlagFuncs(src: string, file: string, into: Map<string, GoFlagFunc>): void {
   for (const m of src.matchAll(/\bfunc\s+(\w+)\s*\(([^)]*)\)\s*\{/g)) {
-    if (!/\b(?:flag|pflag)\.FlagSet\b/.test(m[2])) continue;
+    const [, name, params] = m;
+    if (name === undefined || params === undefined) continue;
+    if (!/\b(?:flag|pflag)\.FlagSet\b/.test(params)) continue;
     const brace = m.index + m[0].length - 1;
     const end = matchDelim(src, brace);
     if (end === -1) continue;
-    into.set(m[1], { params: splitArgs(m[2]), body: src.slice(brace + 1, end), file });
+    into.set(name, { params: splitArgs(params), body: src.slice(brace + 1, end), file });
   }
 }

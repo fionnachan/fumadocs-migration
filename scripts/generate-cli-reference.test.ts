@@ -17,9 +17,15 @@ import {
   groupByNamespace,
   renderGeneratedRegion,
   splicePage,
-} from './lib/cli-reference-page.mjs';
-import { indexGoTree, literalFields, splitArgs, stripComments } from './lib/go-source.mjs';
-import { extractFlags, formatDuration } from './lib/nitro-cli-flags.mjs';
+} from './lib/cli-reference-page.ts';
+import {
+  type GoTree,
+  indexGoTree,
+  literalFields,
+  splitArgs,
+  stripComments,
+} from './lib/go-source.ts';
+import { extractFlags, formatDuration } from './lib/nitro-cli-flags.ts';
 
 const MODULE = 'example.com/fixture';
 
@@ -116,8 +122,8 @@ func ConfigAddOptions(prefix string, f *flag.FlagSet, defaultConfig PosterConfig
 `,
 };
 
-let workDir;
-let indexed;
+let workDir: string;
+let indexed: GoTree;
 
 before(() => {
   workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-ref-test-'));
@@ -165,7 +171,7 @@ describe('go-source', () => {
 });
 
 describe('formatDuration', () => {
-  const cases = [
+  const cases: Array<[number, string]> = [
     [0, '0s'],
     [500, '500ns'],
     [1_500_000, '1.5ms'],
@@ -297,7 +303,7 @@ describe('extractFlags', () => {
     });
     assert.deepEqual(problems, []);
     const overridden = flags.find((flag) => flag.flag === 'node.batch-poster.max-delay');
-    assert.equal(overridden.default, 'GOMAXPROCS');
+    assert.equal(overridden?.default, 'GOMAXPROCS');
   });
 
   it('reports a registration call it cannot follow instead of dropping the namespace', () => {

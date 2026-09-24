@@ -1,30 +1,38 @@
 /**
- * Editorial inputs for `scripts/generate-cli-reference.mjs`: which flags to publish, where each
+ * Editorial inputs for `scripts/generate-cli-reference.ts`: which flags to publish, where each
  * namespace sends the reader next, and the three flags whose type the Go reader cannot infer.
  *
  * Everything here is a judgement call a writer may want to revisit. The mechanical part (reading
- * flags out of Nitro) lives in `scripts/lib/nitro-cli-flags.mjs` and needs no curation.
+ * flags out of Nitro) lives in `scripts/lib/nitro-cli-flags.ts` and needs no curation.
  *
  * Ported from arbitrum-docs `scripts/generate-cli-reference.ts`, with the hrefs rewritten for
  * this site's `/docs`-prefixed routes.
  */
+import type { GuideLink } from '../lib/cli-reference-page.ts';
+import type { CliFlag, CustomFlagType, EntryPoint } from '../lib/nitro-cli-flags.ts';
+
+/** A rule keeping flags off the published page, with the reason the generator logs for it. */
+export interface ExclusionRule {
+  reason: string;
+  matches: (flag: CliFlag) => boolean;
+}
 
 /** Where the walk over Nitro's flag registrations starts. */
-export const entryPoint = { dir: 'cmd/nitro/config', func: 'NodeConfigAddOptions' };
+export const entryPoint: EntryPoint = { dir: 'cmd/nitro/config', func: 'NodeConfigAddOptions' };
 
-const CONFIGURATION = {
+const CONFIGURATION: GuideLink = {
   label: 'Configuration system',
   href: '/docs/run-a-node/nitro/configuration-system',
 };
-const BINARIES = {
+const BINARIES: GuideLink = {
   label: 'Docker and CLI binaries',
   href: '/docs/run-a-node/nitro/docker-and-cli-binaries',
 };
-const TUNING = {
+const TUNING: GuideLink = {
   label: 'Node tuning and monitoring',
   href: '/docs/run-a-node/nitro/node-tuning-and-monitoring',
 };
-const DA_TOOLS = {
+const DA_TOOLS: GuideLink = {
   label: 'DA tools reference',
   href: '/docs/run-a-node/nitro/da-tools-reference',
 };
@@ -37,10 +45,10 @@ const DA_TOOLS = {
  * derivation would drop it. Keeping it here means every editorial href in the page lives in this
  * file, so a guide that moves is one edit rather than a hunt through the renderer.
  */
-export const introLinks = [CONFIGURATION, BINARIES, TUNING, DA_TOOLS];
+export const introLinks: readonly GuideLink[] = [CONFIGURATION, BINARIES, TUNING, DA_TOOLS];
 
 /** Top-level namespace to the curated guide that explains it. */
-export const namespaceLinks = {
+export const namespaceLinks: Readonly<Record<string, GuideLink>> = {
   'auth': CONFIGURATION,
   'chain': CONFIGURATION,
   'conf': CONFIGURATION,
@@ -60,13 +68,13 @@ export const namespaceLinks = {
 };
 
 /** Namespaces with no entry above land here. */
-export const defaultNamespaceLink = CONFIGURATION;
+export const defaultNamespaceLink: GuideLink = CONFIGURATION;
 
 /**
  * Flags kept out of the published reference. Each rule carries its reason, because "why is this
  * flag missing" is the question a reader asks and the generator is the only place with an answer.
  */
-export const exclusions = [
+export const exclusions: readonly ExclusionRule[] = [
   {
     reason: 'dangerous: anything under a `dangerous` namespace segment',
     matches: (flag) => /(^|\.)dangerous(\.|$)/.test(flag.flag),
@@ -95,7 +103,7 @@ export const exclusions = [
  * Values below are the `Type()` and `String()` results of those Value implementations at the
  * pinned Nitro tag.
  */
-export const customFlagTypes = {
+export const customFlagTypes: Readonly<Record<string, CustomFlagType>> = {
   'node.batch-poster.compression-levels': {
     type: 'CompressionLevelStepList',
     default: '[{"backlog":0,"level":11,"recompression-level":11}]',
@@ -113,7 +121,7 @@ export const customFlagTypes = {
  * which reads as a protocol constant and is not one. Naming the symbol is the honest answer, and
  * the generator fails if one of these flags disappears, so the list cannot rot silently.
  */
-export const defaultOverrides = {
+export const defaultOverrides: Readonly<Record<string, string>> = {
   'blocks-reexecutor.room': 'GOMAXPROCS',
   'execution.tx-indexer.threads': 'GOMAXPROCS',
   'init.prune-threads': 'GOMAXPROCS',

@@ -38,12 +38,13 @@ import {
   exclusions,
   introLinks,
   namespaceLinks,
-} from './data/nitro-cli-reference.data.mjs';
-import { renderGeneratedRegion, splicePage } from './lib/cli-reference-page.mjs';
+} from './data/nitro-cli-reference.data.ts';
+import type { ExclusionRule } from './data/nitro-cli-reference.data.ts';
+import { renderGeneratedRegion, splicePage } from './lib/cli-reference-page.ts';
 import { StaleFileError, isCheckMode, runScript, writeOrCheck } from './lib/generated-partial.mjs';
-import { indexGoTree } from './lib/go-source.mjs';
+import { indexGoTree } from './lib/go-source.ts';
 import { diffSummary } from './lib/line-diff.mjs';
-import { extractFlags } from './lib/nitro-cli-flags.mjs';
+import { type CliFlag, extractFlags } from './lib/nitro-cli-flags.ts';
 
 const OUTPUT_PATH = path.join('content', 'docs', 'run-a-node', 'nitro', 'cli-flags-reference.mdx');
 const VARS_PATH = path.join('content', 'vars.json');
@@ -56,25 +57,34 @@ const GETH_MODULE = 'github.com/ethereum/go-ethereum';
 /** See MDX_FORMAT in generate-precompile-tables.mjs: the generator owns this file's shape. */
 const MDX_FORMAT = { parser: 'mdx', printWidth: 9999, proseWrap: 'preserve', plugins: [] };
 
-function parseArgs(argv) {
-  const args = {
+interface Args {
+  check: boolean;
+  nitroPath: string | null;
+  verbose: boolean;
+}
+
+function parseArgs(argv: string[]): Args {
+  const args: Args = {
     check: isCheckMode(),
     nitroPath: process.env.NITRO_REPO_PATH ?? null,
     verbose: false,
   };
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === '--nitro-path' && argv[i + 1]) args.nitroPath = argv[++i];
-    else if (argv[i] === '--verbose') args.verbose = true;
+    const value = argv[i + 1];
+    if (argv[i] === '--nitro-path' && value) {
+      args.nitroPath = value;
+      i++;
+    } else if (argv[i] === '--verbose') args.verbose = true;
   }
   return args;
 }
 
-function git(args, cwd) {
+function git(args: string[], cwd?: string): string {
   return execFileSync('git', args, { cwd, encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 });
 }
 
 /** Extract `ref`'s tree from `repo` into `dest` without touching the repo's working state. */
-function extractTree(repo, ref, dest) {
+function extractTree(repo: string, ref: string, dest: string): void {
   fs.mkdirSync(dest, { recursive: true });
   const archive = execFileSync('git', ['archive', ref], {
     cwd: repo,
@@ -90,7 +100,15 @@ function extractTree(repo, ref, dest) {
  * into go-ethereum's `arbitrum` package, so without the submodule those flags vanish from the
  * page with no error.
  */
-function materializeNitro({ tag, nitroPath, workDir }) {
+function materializeNitro({
+  tag,
+  nitroPath,
+  workDir,
+}: {
+  tag: string;
+  nitroPath: string | null;
+  workDir: string;
+}): string {
   const treeDir = path.join(workDir, 'nitro');
 
   if (nitroPath) {
@@ -136,13 +154,25 @@ function materializeNitro({ tag, nitroPath, workDir }) {
   return treeDir;
 }
 
-async function main() {
+/** The pinned Nitro tag, read off content/vars.json (whose Zod schema lives in content/vars.ts). */
+function readNitroVersionTag(): string {
+  const vars: unknown = JSON.parse(fs.readFileSync(VARS_PATH, 'utf-8'));
+  const tag =
+    typeof vars === 'object' && vars !== null && 'nitroVersionTag' in vars
+      ? vars.nitroVersionTag
+      : undefined;
+  if (typeof tag !== 'string') {
+    throw new Error(`${VARS_PATH} has no string nitroVersionTag`);
+  }
+  return tag;
+}
+
+async function main(): Promise<void> {
   const { check, nitroPath, verbose } = parseArgs(process.argv.slice(2));
-  const vars = JSON.parse(fs.readFileSync(VARS_PATH, 'utf-8'));
-  const tag = vars.nitroVersionTag;
+  const tag = readNitroVersionTag();
 
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nitro-cli-'));
-  let content;
+  let content: string;
   try {
     const treeDir = materializeNitro({ tag, nitroPath, workDir });
 
@@ -181,11 +211,11 @@ async function main() {
     // page with nothing in the diff to explain it, and a missing flag reads to a node operator as
     // "Nitro does not have this". First-match grouping keeps the per-rule counts summing to the
     // total, which a "matches any rule" grouping would not.
-    const excludedBy = new Map(exclusions.map((rule) => [rule, []]));
-    const published = [];
+    const excludedBy = new Map<ExclusionRule, string[]>(exclusions.map((rule) => [rule, []]));
+    const published: CliFlag[] = [];
     for (const flag of flags) {
       const rule = exclusions.find((candidate) => candidate.matches(flag));
-      if (rule) excludedBy.get(rule).push(flag.flag);
+      if (rule) excludedBy.get(rule)?.push(flag.flag);
       else published.push(flag);
     }
 
@@ -203,7 +233,7 @@ async function main() {
         `${flags.length - published.length} excluded, ${published.length} published.`,
     );
     for (const rule of exclusions) {
-      const names = excludedBy.get(rule);
+      const names = excludedBy.get(rule) ?? [];
       console.log(`  ${String(names.length).padStart(3)} excluded -- ${rule.reason}`);
       if (verbose) for (const name of names) console.log(`        ${name}`);
     }
@@ -220,7 +250,9 @@ async function main() {
     // "The page is stale" does not say whether a flag or a default moved or only whitespace did,
     // which is what a reviewer of the weekly upstream-refresh PR needs to know. `writeOrCheck`
     // hands back the text it formatted, so this prints the diff without formatting it again.
-    if (error instanceof StaleFileError) {
+    // `formatted` is optional on the error's type but always set in check mode, the only mode
+    // that throws it.
+    if (error instanceof StaleFileError && error.formatted !== undefined) {
       const current = fs.existsSync(OUTPUT_PATH) ? fs.readFileSync(OUTPUT_PATH, 'utf-8') : '';
       console.error(diffSummary(current, error.formatted));
     }

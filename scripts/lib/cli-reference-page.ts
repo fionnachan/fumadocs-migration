@@ -10,6 +10,24 @@
  * Ported from arbitrum-docs `scripts/generate-cli-reference.ts`, which rewrote the whole file
  * and so had no way to keep a local edit.
  */
+import type { CliFlag } from './nitro-cli-flags.ts';
+
+/** A link to a curated guide: the text the page shows and the site-relative href. */
+export interface GuideLink {
+  label: string;
+  href: string;
+}
+
+/** Editorial inputs to {@link renderGeneratedRegion}. */
+export interface RenderOptions {
+  /** Guides the admonition lists. */
+  introLinks: readonly GuideLink[];
+  /** Top-level namespace to the guide that explains it. */
+  namespaceLinks: Readonly<Record<string, GuideLink>>;
+  /** The guide for a namespace with no entry in `namespaceLinks`. */
+  defaultNamespaceLink: GuideLink;
+  nitroVersionTag: string;
+}
 
 export const START_MARKER = '{/* GENERATED:START */}';
 export const END_MARKER = '{/* GENERATED:END */}';
@@ -31,14 +49,14 @@ sme: gzeoneth
 `;
 
 /** Split a leading YAML frontmatter block off an MDX file. */
-export function splitFrontmatter(source) {
+export function splitFrontmatter(source: string): { frontmatter: string; body: string } {
   const match = /^---\n([\s\S]*?)\n---\n?/.exec(source);
   if (!match) return { frontmatter: '', body: source };
   return { frontmatter: match[0], body: source.slice(match[0].length) };
 }
 
 /** Escape the characters that would break out of a markdown table cell or an MDX expression. */
-export function escapeCell(text) {
+export function escapeCell(text: string): string {
   return text
     .replace(/\\/g, '\\\\')
     .replace(/\|/g, '\\|')
@@ -58,7 +76,7 @@ export function escapeCell(text) {
  * The fence widens past any backtick run in the value, and a value that starts or ends with a
  * backtick gets the padding space CommonMark strips back off.
  */
-export function codeCell(text) {
+export function codeCell(text: string): string {
   const longest = (text.match(/`+/g) ?? []).reduce((n, run) => Math.max(n, run.length), 0);
   const fence = '`'.repeat(longest + 1);
   const pad = text.startsWith('`') || text.endsWith('`') ? ' ' : '';
@@ -66,18 +84,21 @@ export function codeCell(text) {
 }
 
 /** An empty default renders as a dash: pflag omits zero-value defaults, and so does the page. */
-function formatDefault(value) {
+function formatDefault(value: string): string {
   return value === '' ? '-' : codeCell(value);
 }
 
 /** Group flags by their first dotted segment, namespaces in alphabetical order. */
-export function groupByNamespace(flags) {
-  const groups = new Map();
+export function groupByNamespace(
+  flags: readonly CliFlag[],
+): Array<{ namespace: string; flags: CliFlag[] }> {
+  const groups = new Map<string, CliFlag[]>();
   for (const flag of flags) {
     const dot = flag.flag.indexOf('.');
     const namespace = dot === -1 ? flag.flag : flag.flag.slice(0, dot);
-    if (!groups.has(namespace)) groups.set(namespace, []);
-    groups.get(namespace).push(flag);
+    const group = groups.get(namespace);
+    if (group) group.push(flag);
+    else groups.set(namespace, [flag]);
   }
   return [...groups.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
@@ -86,21 +107,14 @@ export function groupByNamespace(flags) {
 
 /**
  * The generated region: the intro admonition, the usage examples, and one collapsible table per
- * namespace.
- *
- * @param {Array} flags already filtered and sorted
- * @param {object} options
- * @param {Array<{label: string, href: string}>} options.introLinks guides the admonition lists
- * @param {Record<string, {label: string, href: string}>} options.namespaceLinks
- * @param {{label: string, href: string}} options.defaultNamespaceLink
- * @param {string} options.nitroVersionTag
+ * namespace. `flags` arrive already filtered and sorted.
  */
 export function renderGeneratedRegion(
-  flags,
-  { introLinks, namespaceLinks, defaultNamespaceLink, nitroVersionTag },
-) {
+  flags: readonly CliFlag[],
+  { introLinks, namespaceLinks, defaultNamespaceLink, nitroVersionTag }: RenderOptions,
+): string {
   const groups = groupByNamespace(flags);
-  const lines = [];
+  const lines: string[] = [];
   const intro = introLinks.map((link) => `- [${link.label}](${link.href})`).join('\n');
 
   lines.push(`<VanillaAdmonition type="info" title="Auto-generated reference">
@@ -160,7 +174,7 @@ nitro --conf.file=/path/to/config.json
  * deletes whatever prose a writer had put around the tables -- the one thing this whole splice
  * exists to protect.
  */
-export function splicePage(existing, generated) {
+export function splicePage(existing: string, generated: string): string {
   const { frontmatter, body } = splitFrontmatter(existing);
   const region = `${START_MARKER}\n\n${generated.trim()}\n\n${END_MARKER}`;
 
