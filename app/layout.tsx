@@ -2,7 +2,6 @@ import { Banner } from 'fumadocs-ui/components/banner';
 import { RootProvider } from 'fumadocs-ui/provider/next';
 import 'katex/dist/katex.css';
 import type { Metadata } from 'next';
-import { JetBrains_Mono } from 'next/font/google';
 import localFont from 'next/font/local';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
@@ -108,13 +107,50 @@ const mono = localFont({
 // --font-mono for inline code, where brand texture matters and drift is
 // invisible. Fenced blocks use a true monospace via --font-code so CLI output,
 // ASCII diagrams and aligned comments stay in column.
-const code = JetBrains_Mono({
+//
+// Local rather than `next/font/google` since FS-2750. The Google loader fetched this face's CSS
+// and six woff2 files on every `next build`, retried three times and fell back to a local face
+// only in dev, so an outage failed a production build and the now-blocking CI `Build` job with it.
+// The committed file is byte for byte the one Google served for that declaration (its `latin`
+// slice, sha256 1e06740a…, recorded in INTERNALS.md), so no reader's download changed.
+//
+// `weight` is the variable range Google declared, not a single value: `font-synthesis: none` in
+// global.css means a static 400 face would render a bold code token at 400 rather than bold.
+//
+// `unicode-range` is the latin slice's own, carried over verbatim, and the reason to keep it is
+// fidelity, not rendering: it makes this one `@font-face` mean what the `latin` member of the six
+// Google emitted meant, so the before and after CSS are equivalent. It is emphatically NOT what
+// makes a Cyrillic character fall back. CSS font matching runs per character, so a face with no
+// glyph hands that character to the next family in the list whether or not the range is declared;
+// measured through `CSS.getPlatformFontsForNode`, Cyrillic, Greek and box drawing all render in
+// the fallback face either way, and the woff2 is downloaded either way. The only thing the range
+// changes is which font draws the missing-glyph box for a character no family in the chain covers.
+// So do not drop it as decoration, and do not trust it to do the falling back.
+//
+// The other five slices (latin-ext, cyrillic, cyrillic-ext, greek, vietnamese) are not committed,
+// because no fenced block or inline code span anywhere in content/ holds a character any of them
+// covers, so no reader ever requested one. Two characters, two different stories. One outside all
+// six resolves exactly as it did before, through the generated metric-adjusted fallback. One the
+// five did cover is now set in that fallback where it used to be set in JetBrains Mono, and that
+// is the one cost this change accepts: cosmetic, and currently hypothetical.
+//
+// No `fallback` option, deliberately, because the Google declaration had none either: it keeps the
+// emitted variable at `"code", "code Fallback"`, the same shape as before, and `pre, pre code` in
+// global.css supplies the monospace stack after it.
+const code = localFont({
   variable: '--font-code',
-  subsets: ['latin'],
   display: 'swap',
   // Fenced code blocks only. Same reasoning as `mono` above: 40 KiB of preload priority bought
   // nothing, because no page's LCP element is set in this face.
   preload: false,
+  declarations: [
+    {
+      prop: 'unicode-range',
+      value:
+        'U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD',
+    },
+  ],
+  src: [{ path: '../public/fonts/jetbrains-mono-latin.woff2', weight: '100 800', style: 'normal' }],
 });
 
 // FK Screamer is the marketing site's display face (arbitrum-website app/fonts.ts), used there for

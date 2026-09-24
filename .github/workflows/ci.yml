@@ -150,12 +150,14 @@ jobs:
     # It stays a job of its own rather than folding into `gates`, so the build keeps running in
     # parallel with those thirteen steps and promoting it costs no PR latency.
     #
-    # One network dependency is left and is accepted: `app/layout.tsx` declares --font-code with
-    # `JetBrains_Mono` from next/font/google, so the build fetches that face from Google Fonts and
-    # self-hosts it. The loader retries three times and only falls back to a local face in dev, so
-    # an outage fails the build. The same `next build` already runs on every Vercel deploy, so this
-    # adds no dependency production does not already have. Self-hosting that face under
-    # public/fonts/, as all four Aeonik faces are, would remove it.
+    # Nothing after `pnpm install` reaches the network, since FS-2750 (the checkout and the
+    # install still do, as they must). The last dependency in the build itself was --font-code,
+    # declared with `JetBrains_Mono` from next/font/google, which made the build fetch that face
+    # from Google Fonts; the loader retries three times and only falls back to a local face in dev,
+    # so an outage failed the build, and this job caches only the pnpm store. That face is now
+    # committed under public/fonts/ and loaded with next/font/local, as all four Aeonik faces are.
+    # Do not add a next/font/google declaration back; a new face belongs in public/fonts/ with its
+    # licence beside it.
     #
     # "Required" is a branch-protection setting, not something this file can express: the check
     # name `Build` has to be in the required list on `main` for a red run to hold a merge.
