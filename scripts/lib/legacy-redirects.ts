@@ -2,18 +2,18 @@
  * The hand-maintained overlay that decides where legacy docs.arbitrum.io URLs point.
  *
  * Legacy URLs were served at the site root (`/stylus/using-cli`); this site serves docs under
- * `/docs`. `redirects.legacy.mjs` carries the resulting 853 entries (across 4,425 lines) and is
+ * `/docs`. `redirects.legacy.ts` carries the resulting 853 entries (across 4,425 lines) and is
  * committed, permanent and now **hand-maintained**: the generator that derived it read a sibling
  * `arbitrum-docs` checkout (its `vercel.json` for redirect sources and its `docs/` tree for
  * canonical page URLs), and that repo is archived. Adding a legacy redirect now means appending
- * one `{ source, destination, permanent }` object to `redirects.legacy.mjs` by hand, then proving
+ * one `{ source, destination, permanent }` object to `redirects.legacy.ts` by hand, then proving
  * the destination with `pnpm redirects:check`, which resolves it against the router's own URL
  * inventory rather than against a guess at what is routable.
  *
  * What survives here are the two judgement maps and the page inventory that keeps them honest.
- * `MANUAL_DESTINATIONS` and `SECTION_LANDINGS` are read by `scripts/lib/legacy-destinations.mjs`,
+ * `MANUAL_DESTINATIONS` and `SECTION_LANDINGS` are read by `scripts/lib/legacy-destinations.ts`,
  * which retargets them whenever `pnpm move-doc` moves a page one of them names, and by the tripwire
- * in `legacy-redirects.test.mjs`, which fails the suite the moment either names a page that is no
+ * in `legacy-redirects.test.ts`, which fails the suite the moment either names a page that is no
  * longer there.
  *
  * ## How the committed map was resolved
@@ -47,7 +47,7 @@
  * rule 2 matches first, so the landing entry stops being consulted. That only ever worked on a
  * re-resolution, and there has never been one. Nine `SECTION_LANDINGS` entries were already wrong
  * in the commit that introduced them: all nine pages were ported on 2026-09-11 and all nine were in
- * the tree at `27f7660`, the commit that seeded `redirects.legacy.mjs` on 2026-09-15, where rule 2
+ * the tree at `27f7660`, the commit that seeded `redirects.legacy.ts` on 2026-09-15, where rule 2
  * would have claimed them had the generator been re-run against that tree rather than the older one
  * its output was computed from. FS-2706 then deleted the generator, so no run will ever happen and
  * a committed landing destination is now permanent by construction.
@@ -70,11 +70,11 @@ import { splitFrontmatter } from './partials.mjs';
  * rename would produce confidently-wrong destinations.
  *
  * Kept as the record of which sections moved, and load-bearing for one test:
- * `legacy-destinations.test.mjs` pins the `move-doc` retargeter against this declaration, proving
+ * `legacy-destinations.test.ts` pins the `move-doc` retargeter against this declaration, proving
  * it edits only inside the two `new Map([...])` literals and cannot wander into a neighbouring
  * array of URL-shaped strings.
  */
-export const SECTION_RENAMES = [
+export const SECTION_RENAMES: ReadonlyArray<readonly [from: string, to: string]> = [
   ['/run-arbitrum-node', '/run-a-node'],
   ['/node-running', '/run-a-node'],
   ['/for-devs', '/build-decentralized-apps'],
@@ -366,7 +366,7 @@ export const MANUAL_DESTINATIONS = new Map([
   // They belong here rather than in `SECTION_LANDINGS`, which is defined as pages this site has not
   // ported. Rules 2 and 3 would reach the same destinations unaided, but keeping the entries is
   // what makes `move-doc` retarget them, and what makes it print the note that
-  // `redirects.legacy.mjs` names these pages too.
+  // `redirects.legacy.ts` names these pages too.
   ['/how-arbitrum-works/bold/bold-faq', '/docs/how-arbitrum-works/bold/bold-faq'],
   [
     '/launch-arbitrum-chain/chain-config/sequencer/sequencer-config-reference',
@@ -416,11 +416,11 @@ export const MANUAL_DESTINATIONS = new Map([
  *
  * **An entry here does not expire on its own.** It was meant to: re-resolving the legacy URL once
  * the page landed would have let rule 2 match first. But that needed a run of the generator, and
- * the generator was deleted in FS-2706, leaving `redirects.legacy.mjs` a committed file that
+ * the generator was deleted in FS-2706, leaving `redirects.legacy.ts` a committed file that
  * nothing recomputes. Nine entries were wrong the day they were committed for want of that one
  * re-run (FS-2748), each sending a reader who asked for a page here to a list of links. Porting a
  * page named here is therefore a two-file edit: move its entry into `MANUAL_DESTINATIONS`
- * retargeted at the page, and retarget the matching `redirects.legacy.mjs` entry. `UPSTREAM_TITLES`
+ * retargeted at the page, and retarget the matching `redirects.legacy.ts` entry. `UPSTREAM_TITLES`
  * below is what fails the suite if you forget.
  *
  * Each entry's comment records what is known about the upstream page, including the date it appeared
@@ -442,7 +442,7 @@ export const SECTION_LANDINGS = new Map([
  * The upstream frontmatter title behind a legacy source, for every entry in the two maps above
  * whose title was verified against upstream while that repo was still readable.
  *
- * Data, not prose, so `legacy-redirects.test.mjs` can enforce rule 4 continuously: if exactly one
+ * Data, not prose, so `legacy-redirects.test.ts` can enforce rule 4 continuously: if exactly one
  * page here carries the title verbatim, the entry's destination has to be that page. That is the
  * rule that decides these entries in the first place, and until FS-2748 nothing checked it after
  * the fact. `redirects:check` never could, because the destination it was checking, a section
@@ -534,8 +534,8 @@ export const UPSTREAM_TITLES = new Map([
  * case-sensitively would report a destination that exists as "not in tree". The map value is the
  * real casing, which is what must be emitted — a redirect to the wrong case still 404s.
  */
-export function collectValidUrls(contentDir) {
-  const urls = new Map();
+export function collectValidUrls(contentDir: string): Map<string, string> {
+  const urls = new Map<string, string>();
   for (const { url } of collectLocalPages(contentDir)) {
     const key = url.toLowerCase();
     const clash = urls.get(key);
@@ -562,8 +562,8 @@ export function collectValidUrls(contentDir) {
  * `title: 'BoLD FAQ'` and `title: Sequencer configuration reference` in roughly equal measure, and
  * a reader that kept the quotes would match neither form against the other.
  */
-export function collectPagesByTitle(contentDir) {
-  const byTitle = new Map();
+export function collectPagesByTitle(contentDir: string): Map<string, string[]> {
+  const byTitle = new Map<string, string[]>();
   for (const { url, file } of collectLocalPages(contentDir)) {
     const { fm } = splitFrontmatter(readFileSync(file, 'utf8'));
     if (!fm?.title) continue;
@@ -574,6 +574,12 @@ export function collectPagesByTitle(contentDir) {
   return byTitle;
 }
 
+/** One routable page: its site URL and the `.mdx` file behind it. */
+export interface LocalPage {
+  url: string;
+  file: string;
+}
+
 /**
  * Every routable page on this site as `{ url, file }`.
  *
@@ -581,9 +587,9 @@ export function collectPagesByTitle(contentDir) {
  * file behind each URL to read its frontmatter. One walk serves both, so the URL a title resolves
  * to and the URL the tripwire resolves against can never come from different inventories.
  */
-export function collectLocalPages(contentDir) {
-  const pages = [];
-  const walk = (dir, prefix) => {
+export function collectLocalPages(contentDir: string): LocalPage[] {
+  const pages: LocalPage[] = [];
+  const walk = (dir: string, prefix: string): void => {
     for (const entry of readdirSync(dir)) {
       const full = join(dir, entry);
       if (statSync(full).isDirectory()) {
@@ -602,7 +608,8 @@ export function collectLocalPages(contentDir) {
 }
 
 /** Resolve a URL to its real casing on this site, or undefined when no page serves it. */
-export const resolveUrl = (valid, url) => valid.get(url.toLowerCase());
+export const resolveUrl = (valid: ReadonlyMap<string, string>, url: string): string | undefined =>
+  valid.get(url.toLowerCase());
 
 /** A destination that leaves this site, which no page inventory can be expected to resolve. */
-export const isAbsolute = (value) => /^https?:\/\//.test(value);
+export const isAbsolute = (value: string): boolean => /^https?:\/\//.test(value);

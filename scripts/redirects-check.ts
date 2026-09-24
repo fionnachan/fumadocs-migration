@@ -8,7 +8,7 @@
  * CI runs this in the `Build` job against `next start` on localhost. Pointing it at a Vercel
  * preview instead would need a protection-bypass secret in CI; see INTERNALS.md#redirects.
  *
- * `redirects.config.mjs` is built by tooling that infers routable URLs by walking the content
+ * `redirects.config.ts` is built by tooling that infers routable URLs by walking the content
  * tree — `.mdx` only, `index` means the directory, `_`-prefixed files are partials, everything
  * under `/docs`. Those are guesses at what Fumadocs' `loader()` does, and a guess that drifts
  * produces a redirect to a 404: worse than no redirect, because the failure hides behind a hop.
@@ -23,29 +23,30 @@
  *
  * External (http/https) destinations are reported as SKIPPED and not verified.
  */
-import { redirects } from '../redirects.config.mjs';
-import { parseArgs } from './lib/redirects-check.mjs';
+import { type Redirect, redirects } from '../redirects.config.ts';
+import { parseArgs } from './lib/redirects-check.ts';
 
 const DEFAULT_BASE_URL = 'http://localhost:3000';
 
-const isExternal = (value) => /^https?:\/\//.test(value);
+const isExternal = (value: string): boolean => /^https?:\/\//.test(value);
 
 /** Strip `#anchor` / `?query` so a redirect to a valid page with a fragment still matches. */
-const bareUrl = (value) => value.split('#')[0].split('?')[0].replace(/\/+$/, '') || '/';
+const bareUrl = (value: string): string =>
+  value.split('#')[0].split('?')[0].replace(/\/+$/, '') || '/';
 
 /**
  * Every routable doc URL, taken from the site's own source-derived index rather than re-derived
  * from the filesystem. `/llms.txt` renders markdown links, so the URLs are the `](...)` targets.
  */
-async function fetchRoutableUrls(baseUrl) {
+async function fetchRoutableUrls(baseUrl: string): Promise<Set<string>> {
   const url = `${baseUrl}/llms.txt`;
-  let response;
+  let response: Response;
   try {
     response = await fetch(url);
   } catch (cause) {
     throw new Error(
       `redirects-check: cannot reach ${url}. Start the site with \`pnpm dev\`, or pass ` +
-        `--base-url <origin>. (${cause.message})`,
+        `--base-url <origin>. (${cause instanceof Error ? cause.message : String(cause)})`,
     );
   }
   if (!response.ok) {
@@ -61,12 +62,12 @@ async function fetchRoutableUrls(baseUrl) {
   return urls;
 }
 
-async function main() {
+async function main(): Promise<void> {
   const { baseUrl } = parseArgs(process.argv.slice(2), { defaultBaseUrl: DEFAULT_BASE_URL });
   const routable = await fetchRoutableUrls(baseUrl);
 
-  const dead = [];
-  const shadowed = [];
+  const dead: Pick<Redirect, 'source' | 'destination'>[] = [];
+  const shadowed: Pick<Redirect, 'source' | 'destination'>[] = [];
   let skipped = 0;
 
   for (const { source, destination } of redirects) {

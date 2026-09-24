@@ -2,10 +2,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-// Imported as `.ts` rather than restated as a literal, the way `scripts/lib/shared.test.mjs` does
-// and for the reason it gives: Node 22 strips types natively and `lib/shared.ts` imports only the
-// plain-JS `./site-url.mjs`, so this asserts against the exact constant the page renders instead
-// of a copy that can drift from it.
+// Imported as `.ts` rather than restated as a literal, the way `scripts/lib/shared.test.ts` does
+// and for the reason it gives: Node 22 strips types natively and `lib/shared.ts` imports only
+// `./site-url.ts`, which Node strips the same way, so this asserts against the exact constant the
+// page renders instead of a copy that can drift from it.
 import { appName, gitConfig } from '../lib/shared.ts';
 
 const baseUrl = process.env.STATIC_DOCS_TEST_URL;
@@ -14,25 +14,27 @@ const archivePath = `${livePath}/v1`;
 const liveMirror = `/llms.mdx${livePath}/content.md`;
 const archiveMirror = `/llms.mdx${archivePath}/content.md`;
 const archivedText = 'This archived guide targets the ArbOS 20 release series.';
-const documentOnly = (html) => html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
-const get = (path, options) => fetch(new URL(path, baseUrl), options);
+const documentOnly = (html: string): string =>
+  html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
+const get = (path: string, options?: RequestInit): Promise<Response> =>
+  fetch(new URL(path, baseUrl), options);
 
 // Shared by the metadata tests below (FS-2713's home page test and FS-2724's docs page test), so
 // the two cannot check the tags in two different ways.
-const head = async (path) => {
+const head = async (path: string): Promise<string> => {
   const response = await get(path);
   assert.equal(response.status, 200, path);
   return await response.text();
 };
-const tag = (html, pattern) => html.match(pattern)?.[1];
-const title = (html) => tag(html, /<title>([^<]*)<\/title>/);
-const meta = (html, name) =>
+const tag = (html: string, pattern: RegExp): string | undefined => html.match(pattern)?.[1];
+const title = (html: string): string | undefined => tag(html, /<title>([^<]*)<\/title>/);
+const meta = (html: string, name: string): string | undefined =>
   tag(html, new RegExp(`<meta (?:name|property)="${name}" content="([^"]*)"`));
 // The instant behind the page body's "Last updated on …" line, which `generateMetadata` reads from
 // the same `lastModified` value as `article:modified_time`. Scripts are stripped first: the flight
 // payload repeats this markup, so matching the raw document would find a date on a page that
 // rendered no line at all.
-const bodyLastModified = (html) =>
+const bodyLastModified = (html: string): string | undefined =>
   tag(documentOnly(html), /Last updated on[\s\S]{0,40}?<time[^>]*datetime="([^"]*)"/i);
 /**
  * `article:modified_time` is present if and only if the body rendered its "Last updated on" line,
@@ -45,7 +47,7 @@ const bodyLastModified = (html) =>
  * place the tag is guaranteed absent. A bare `if (tag) assert(...)` would therefore never execute
  * in CI and would pass silently on a regression that dropped the tag altogether.
  */
-const assertModifiedTimeMatchesBody = (html, label) => {
+const assertModifiedTimeMatchesBody = (html: string, label: string): void => {
   const modified = meta(html, 'article:modified_time');
   const rendered = bodyLastModified(html);
   assert.equal(
@@ -107,7 +109,9 @@ test('built static docs routing', { skip: !baseUrl }, async (t) => {
       const [path, query] = source.split('?');
       const response = await get(`${path}?${query}&ref=test`, { redirect: 'manual' });
       assert.equal(response.status, 308, source);
-      const target = new URL(response.headers.get('location'), baseUrl);
+      const location = response.headers.get('location');
+      assert.ok(location, `${source}: 308 with no Location header`);
+      const target = new URL(location, baseUrl);
       assert.equal(target.pathname, destination, source);
       assert.equal(target.search, '?ref=test', source);
       await response.text();
@@ -141,7 +145,7 @@ test('built static docs routing', { skip: !baseUrl }, async (t) => {
     assert.ok(!liveText.includes(archivedText));
 
     // The suffix, the mirror, and content negotiation: the same three shapes a live page has.
-    const requests = [
+    const requests: [path: string, headers: Record<string, string> | undefined][] = [
       [`${archivePath}.md`, undefined],
       [archiveMirror, undefined],
       [archivePath, { accept: 'text/markdown' }],
@@ -242,7 +246,7 @@ test('markdown mirrors carry no MDX comments', { skip: !baseUrl }, async (t) => 
   // cannot: a page whose comments all arrive through an included partial, an archive (the
   // `docsVersions` collection sets `includeProcessedMarkdown` separately, and its comments arrive
   // inside a `<Tab>`), and the site-wide concatenation.
-  const noComments = (body, path) => {
+  const noComments = (body: string, path: string): void => {
     assert.ok(body.length > 0, path);
     assert.equal(body.includes('{/*'), false, `${path} still serves an MDX comment`);
   };
@@ -289,7 +293,11 @@ test('well-known MCP discovery card', { skip: !baseUrl }, async (t) => {
       const response = await get(cardPath, { headers: { accept } });
       assert.equal(response.status, 200, accept);
       assert.match(response.headers.get('content-type') ?? '', /application\/json/, accept);
-      const card = JSON.parse(await response.text());
+      // Annotated, not validated: a card missing `transport` throws on the property read below,
+      // exactly as it did before the file was TypeScript.
+      const card: { transport: { type: string; endpoint: string } } = JSON.parse(
+        await response.text(),
+      );
       assert.equal(card.transport.type, 'streamable-http');
       assert.equal(card.transport.endpoint, 'https://mcp.inkeep.com/offchainlabs/mcp');
     }

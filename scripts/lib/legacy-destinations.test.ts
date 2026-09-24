@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { test } from 'node:test';
+import { type TestContext, test } from 'node:test';
 import { pathToFileURL } from 'node:url';
 
 import {
@@ -14,7 +14,7 @@ import {
   pageOf,
   rewriteDestinationMap,
   updateLegacyDestinations,
-} from './legacy-destinations.mjs';
+} from './legacy-destinations.ts';
 
 const REAL_LEGACY_REDIRECTS = path.join(import.meta.dirname, '..', '..', LEGACY_REDIRECTS_PATH);
 
@@ -27,7 +27,7 @@ const REAL_LEGACY_REDIRECTS = path.join(import.meta.dirname, '..', '..', LEGACY_
  * below can assert the written file is byte-for-byte the original with one substitution — collateral
  * reformatting would show up as a failure rather than hide in an approximate assertion.
  */
-function fixtureSource({ quote = "'" } = {}) {
+function fixtureSource({ quote = "'" }: { quote?: string } = {}): string {
   const q = quote;
   return (
     `export const SECTION_RENAMES = [[${q}/run-arbitrum-node${q}, ${q}/run-a-node${q}]];\n` +
@@ -236,7 +236,7 @@ test('pageOf drops the anchor', () => {
 
 // --- the rewrite stays inside the two maps, against the real file ----------------------------------
 
-test('never touches SECTION_RENAMES or any other string in the real legacy-redirects.mjs', () => {
+test('never touches SECTION_RENAMES or any other string in the real legacy-redirects.ts', () => {
   // SECTION_RENAMES has the same `['from', 'to']` entry shape. Its values are bare section prefixes
   // (`/run-a-node`, `/get-started`), so they can never equal a `/docs/...` page URL — but the range
   // check, not that coincidence, is what has to hold, so move pages whose URLs spell those prefixes.
@@ -255,10 +255,14 @@ test('the textual rewrite matches the parsed maps for every real destination', a
   // regex must find exactly as many values as the parsed map holds. A reformat of the real file
   // that made the rewrite miss would fail here, not silently in a later move.
   const real = readFileSync(REAL_LEGACY_REDIRECTS, 'utf8');
-  const mod = await import(pathToFileURL(REAL_LEGACY_REDIRECTS).href);
+  const mod: Record<string, ReadonlyMap<string, string>> = await import(
+    pathToFileURL(REAL_LEGACY_REDIRECTS).href
+  );
   for (const name of ['MANUAL_DESTINATIONS', 'SECTION_LANDINGS']) {
-    const counts = new Map();
-    for (const destination of mod[name].values()) {
+    const counts = new Map<string, number>();
+    const map = mod[name];
+    assert.ok(map, `${name} should be exported`);
+    for (const destination of map.values()) {
       const page = pageOf(destination);
       if (!page.startsWith('/docs/')) continue; // absolute destinations are not pages here
       counts.set(page, (counts.get(page) ?? 0) + 1);
@@ -274,18 +278,23 @@ test('the textual rewrite matches the parsed maps for every real destination', a
 // --- updateLegacyDestinations (file I/O) -----------------------------------------------------------
 
 /**
- * A `redirects.config.mjs` holding `entries` inside the `AUTO-GENERATED` markers, in either shape
+ * A `redirects.config.ts` holding `entries` inside the `AUTO-GENERATED` markers, in either shape
  * the real file contains: `wrapped` is what Prettier produces once an entry outgrows the print
  * width (every committed entry today), and the flat form is what `appendRedirect` writes. One entry
  * is placed *outside* the block, below the end marker, standing in for the legacy spread and any
  * hand-written redirect: those are not `move-doc`'s to retarget and must never be named.
  */
-function redirectsConfigSource(entries, { wrapped = true, outside = [] } = {}) {
-  const flat = ([source, destination]) =>
+type Entry = readonly [source: string, destination: string];
+
+function redirectsConfigSource(
+  entries: readonly Entry[],
+  { wrapped = true, outside = [] }: { wrapped?: boolean; outside?: readonly Entry[] } = {},
+): string {
+  const flat = ([source, destination]: Entry): string =>
     `  { source: '${source}', destination: '${destination}', permanent: true },`;
-  const wrap = ([source, destination]) =>
+  const wrap = ([source, destination]: Entry): string =>
     `  {\n    source: '${source}',\n    destination: '${destination}',\n    permanent: true,\n  },`;
-  const render = (list) => list.map(wrapped ? wrap : flat).join('\n');
+  const render = (list: readonly Entry[]): string => list.map(wrapped ? wrap : flat).join('\n');
   return (
     `export const redirects = [\n` +
     `  ${REDIRECTS_START}\n` +
@@ -296,8 +305,11 @@ function redirectsConfigSource(entries, { wrapped = true, outside = [] } = {}) {
   );
 }
 
-/** A throwaway repo holding just `scripts/lib/legacy-redirects.mjs` and a Prettier config. */
-function fixtureRepo(t, { quote = "'", redirects = null } = {}) {
+/** A throwaway repo holding just `scripts/lib/legacy-redirects.ts` and a Prettier config. */
+function fixtureRepo(
+  t: TestContext,
+  { quote = "'", redirects = null }: { quote?: string; redirects?: string | null } = {},
+): { root: string; abs: string; redirectsAbs: string } {
   const root = mkdtempSync(path.join(tmpdir(), 'legacy-destinations-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const abs = path.join(root, LEGACY_REDIRECTS_PATH);
@@ -320,17 +332,17 @@ test('updateLegacyDestinations writes the file and reports one note per map that
   const notes = await updateLegacyDestinations(root, '/docs/get-started', '/docs/welcome', false);
 
   assert.equal(notes.length, 2, JSON.stringify(notes));
-  assert.match(notes[0], /legacy-redirects\.mjs: retargeted 1 MANUAL_DESTINATIONS destination/);
-  assert.match(notes[1], /NOTE: redirects\.legacy\.mjs/);
+  assert.match(notes[0], /legacy-redirects\.ts: retargeted 1 MANUAL_DESTINATIONS destination/);
+  assert.match(notes[1], /NOTE: redirects\.legacy\.ts/);
   assert.match(notes[1], /hand-maintained/);
   // The note has to name the gate it puts red, not just the extra hop: `redirects:check` follows
   // one hop, so the orphaned legacy sources report DEAD until someone retargets them.
   assert.match(notes[1], /pnpm redirects:check/);
   assert.match(notes[1], /DEAD/);
   // ...and it must not also claim an earlier move's redirect chained onto this page. This fixture
-  // has no `redirects.config.mjs` at all, so there is no such entry, and asserting one anyway sent
+  // has no `redirects.config.ts` at all, so there is no such entry, and asserting one anyway sent
   // the mover hunting for a line that is not there on 64 of the 68 pages the two maps name.
-  assert.doesNotMatch(notes[1], /redirects\.config\.mjs/);
+  assert.doesNotMatch(notes[1], /redirects\.config\.ts/);
   assert.doesNotMatch(notes[1], /AUTO-GENERATED/);
 
   // Byte-for-byte the original with exactly one substitution: SECTION_RENAMES, the absolute
@@ -426,7 +438,7 @@ test('findChainedAutoRedirects names only the AUTO-GENERATED entries pointing at
 });
 
 test('findChainedAutoRedirects reads the flat shape move-doc writes as well as the wrapped one', (t) => {
-  const entries = [['/docs/old/node', '/docs/run-a-node']];
+  const entries: Entry[] = [['/docs/old/node', '/docs/run-a-node']];
   const wrapped = fixtureRepo(t, { redirects: redirectsConfigSource(entries) });
   const flat = fixtureRepo(t, { redirects: redirectsConfigSource(entries, { wrapped: false }) });
 
@@ -458,10 +470,10 @@ test('updateLegacyDestinations adds a second note naming the chained AUTO-GENERA
 
   assert.equal(notes.length, 3, JSON.stringify(notes));
   assert.match(notes[0], /retargeted 1 MANUAL_DESTINATIONS destination/);
-  assert.match(notes[1], /NOTE: redirects\.legacy\.mjs/);
+  assert.match(notes[1], /NOTE: redirects\.legacy\.ts/);
   // Naming the sources is the point: "there is a chained entry" without saying which one leaves
   // the mover grepping a file whose other entries look identical.
-  assert.match(notes[2], /AUTO-GENERATED block in redirects\.config\.mjs has 2 redirect\(s\)/);
+  assert.match(notes[2], /AUTO-GENERATED block in redirects\.config\.ts has 2 redirect\(s\)/);
   assert.match(notes[2], /'\/docs\/old\/get-started', '\/docs\/older\/get-started'/);
   assert.doesNotMatch(notes[2], /somewhere-else/);
   assert.match(notes[2], /DEAD/);
@@ -480,9 +492,9 @@ test('the chained note is not gated on either legacy map having changed', async 
   const notes = await updateLegacyDestinations(root, '/docs/unrelated', '/docs/unrelated-2', false);
 
   assert.equal(notes.length, 1, JSON.stringify(notes));
-  assert.match(notes[0], /AUTO-GENERATED block in redirects\.config\.mjs has 1 redirect\(s\)/);
+  assert.match(notes[0], /AUTO-GENERATED block in redirects\.config\.ts has 1 redirect\(s\)/);
   assert.match(notes[0], /'\/docs\/old\/unrelated'/);
-  assert.doesNotMatch(notes[0], /redirects\.legacy\.mjs still sends/);
+  assert.doesNotMatch(notes[0], /redirects\.legacy\.ts still sends/);
   assert.equal(readFileSync(abs, 'utf8'), before, 'a map no-op must still not reformat the file');
 });
 
@@ -509,7 +521,8 @@ test('updateLegacyDestinations throws when a double-quoted reformat makes the re
 
   await assert.rejects(
     () => updateLegacyDestinations(root, '/docs/get-started', '/docs/welcome', false),
-    (err) => {
+    (err: unknown) => {
+      assert.ok(err instanceof Error);
       assert.match(
         err.message,
         /MANUAL_DESTINATIONS rewrite of '\/docs\/get-started' -> '\/docs\/welcome' changed 0 value\(s\) but the parsed map names it 1 time\(s\)/,
@@ -531,7 +544,8 @@ test('the cross-check fires for SECTION_LANDINGS too, not just MANUAL_DESTINATIO
 
   await assert.rejects(
     () => updateLegacyDestinations(root, '/docs/how-arbitrum-works/bold', '/docs/bold', false),
-    (err) => {
+    (err: unknown) => {
+      assert.ok(err instanceof Error);
       assert.match(err.message, /SECTION_LANDINGS rewrite/);
       assert.match(err.message, /names it 2 time\(s\)/);
       return true;
