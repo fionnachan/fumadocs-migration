@@ -12,7 +12,81 @@
  * Anything the resolver cannot evaluate is reported, never guessed: a reference page with a
  * quietly wrong default is worse than one that fails to build.
  */
-import { literalFields, matchDelim, splitArgs } from './go-source.mjs';
+import {
+  type GoAssignment,
+  type GoImports,
+  type GoPackage,
+  literalFields,
+  matchDelim,
+  splitArgs,
+} from './go-source.ts';
+
+/** One row of the reference page: what `nitro --help` would print for a flag. */
+export interface CliFlag {
+  flag: string;
+  type: string;
+  /** The formatted default, '' for a zero value. */
+  default: string;
+  description: string;
+}
+
+/** A flag registered with `f.Var`, whose pflag type and default are declared by hand. */
+export interface CustomFlagType {
+  type: string;
+  default: string;
+}
+
+/** Where the walk over the flag registrations starts: a package directory and a function. */
+export interface EntryPoint {
+  dir: string;
+  func: string;
+}
+
+/**
+ * An evaluated Go expression. `zero` is a struct field the composite literal omits (Go's zero
+ * value for its type); `nil` is a literal `nil` or an empty expression. A `number` may be a
+ * BigInt for the constants and complements that do not survive a double.
+ */
+export type GoValue =
+  | { kind: 'nil'; value: null }
+  | { kind: 'zero'; value: null }
+  | { kind: 'string'; value: string }
+  | { kind: 'bool'; value: boolean }
+  | { kind: 'number'; value: number | bigint }
+  | { kind: 'duration'; value: number }
+  | { kind: 'slice'; value: GoValue[] };
+
+/**
+ * An expression a parameter or local variable stands for, the directory it was written in, and
+ * the scope it must itself be evaluated in.
+ */
+interface Binding {
+  expr: string;
+  dir: string;
+  bindings: Scope;
+}
+
+type Scope = Map<string, Binding>;
+
+/** A `qualifier.name(args…)` call found in a function body. */
+interface GoCall {
+  qualifier: string | undefined;
+  name: string;
+  args: string[];
+}
+
+/** What a struct field lookup found: its expression and package, or Go's zero value. */
+type FieldResult = { expr: string; dir: string } | 'zero' | null;
+
+/** Narrow an evaluated list to one in which every item evaluated. */
+function allEvaluated(items: Array<GoValue | null>): GoValue[] | null {
+  const values: GoValue[] = [];
+  for (const item of items) {
+    if (item === null) return null;
+    values.push(item);
+  }
+  return values;
+}
 
 /**
  * pflag registration method to the type name `--help` prints.
@@ -22,7 +96,7 @@ import { literalFields, matchDelim, splitArgs } from './go-source.mjs';
  * that mapping, keeping `bool` spelled out because a blank cell in the Type column reads as a
  * bug rather than as "boolean".
  */
-export const FLAG_TYPES = {
+export const FLAG_TYPES: Readonly<Record<string, string>> = {
   String: 'string',
   Bool: 'bool',
   Int: 'int',
@@ -50,7 +124,7 @@ export const FLAG_TYPES = {
  * Go standard-library constants that appear in Nitro's defaults and usage strings. They are not
  * in the indexed tree (the standard library is not vendored), and there are few enough to name.
  */
-const STDLIB_CONSTANTS = {
+const STDLIB_CONSTANTS: Readonly<Record<string, number | bigint>> = {
   'math.MaxInt': 9223372036854775807n,
   'math.MaxInt8': 127,
   'math.MaxInt16': 32767,
@@ -65,7 +139,7 @@ const STDLIB_CONSTANTS = {
   'math.MaxFloat64': 1.7976931348623157e308,
 };
 
-const DURATION_UNITS = {
+const DURATION_UNITS: Readonly<Record<string, bigint>> = {
   Nanosecond: 1n,
   Microsecond: 1000n,
   Millisecond: 1000000n,
@@ -92,30 +166,33 @@ const TRANSPARENT_CASTS = new Set([
   'time.Duration',
 ]);
 
-/**
- * Walk the flag registration tree.
- *
- * @param {object} input
- * @param {Map} input.dirs indexed packages from `indexGoTree`
- * @param {Map} input.fileImports per-file import maps from `indexGoTree`
- * @param {{ dir: string, func: string }} input.entryPoint where the walk starts
- * @param {Record<string, {type: string, default: string}>} [input.customTypes] `f.Var` overrides
- * @param {Record<string, string>} [input.defaultOverrides] defaults that are not static values
- * @returns {{ flags: Array, problems: string[] }}
- */
+export interface ExtractFlagsInput {
+  /** Indexed packages from `indexGoTree`. */
+  dirs: Map<string, GoPackage>;
+  /** Per-file import maps from `indexGoTree`. */
+  fileImports: Map<string, GoImports>;
+  /** Where the walk starts. */
+  entryPoint: EntryPoint;
+  /** `f.Var` overrides, keyed by the full flag name. */
+  customTypes?: Readonly<Record<string, CustomFlagType>>;
+  /** Defaults that are not static values, keyed by the full flag name. */
+  defaultOverrides?: Readonly<Record<string, string>>;
+}
+
+/** Walk the flag registration tree. */
 export function extractFlags({
   dirs,
   fileImports,
   entryPoint,
   customTypes = {},
   defaultOverrides = {},
-}) {
-  const flags = [];
-  const problems = [];
+}: ExtractFlagsInput): { flags: CliFlag[]; problems: string[] } {
+  const flags: CliFlag[] = [];
+  const problems: string[] = [];
   const resolver = new ValueResolver(dirs, fileImports, problems);
-  const visited = new Set();
+  const visited = new Set<string>();
 
-  function walk(dir, funcName, prefix, depth, bindings) {
+  function walk(dir: string, funcName: string, prefix: string, depth: number, bindings: Scope) {
     // Keyed on where the registration happens and what it is called, but not on `bindings`: a
     // registration function reached twice with the same prefix and *different* defaults would
     // yield only the first set. Nitro does not do that at the pinned tag (the one function that
@@ -134,14 +211,15 @@ export function extractFlags({
       problems.push(`flag function ${dir}.${funcName} not found (prefix "${prefix}")`);
       return;
     }
-    const imports = fileImports.get(fn.file) ?? new Map();
+    const imports: GoImports = fileImports.get(fn.file) ?? new Map();
     const body = fn.body;
     const scope = withLocals(body, dir, bindings);
 
     for (const call of calls(body)) {
       const { qualifier, name, args } = call;
 
-      if (qualifier === 'f' && FLAG_TYPES[name]) {
+      const flagType = FLAG_TYPES[name];
+      if (qualifier === 'f' && flagType) {
         const flag = flagName(args[0], prefix);
         if (flag === null) {
           problems.push(`unreadable flag name ${args[0]} in ${dir}.${funcName}`);
@@ -149,10 +227,10 @@ export function extractFlags({
         }
         flags.push({
           flag,
-          type: FLAG_TYPES[name],
+          type: flagType,
           default:
             defaultOverrides[flag] ??
-            resolver.format(args[1], dir, FLAG_TYPES[name], `${flag} default`, scope),
+            resolver.format(args[1], dir, flagType, `${flag} default`, scope),
           description: resolver.describe(args[2], dir, prefix, scope, `${flag} description`),
         });
         continue;
@@ -171,7 +249,7 @@ export function extractFlags({
         if (!override) {
           problems.push(
             `f.Var flag "${flag}" has no entry in customFlagTypes ` +
-              `(scripts/data/nitro-cli-reference.data.mjs); add its pflag type and default`,
+              `(scripts/data/nitro-cli-reference.data.ts); add its pflag type and default`,
           );
           continue;
         }
@@ -189,7 +267,7 @@ export function extractFlags({
       // Anything handed the FlagSet registers flags, so a call this walk cannot follow is a whole
       // namespace missing from the page. Both ways of failing to follow one are reported rather
       // than skipped: silently dropping them is what the hardcoded go-ethereum check in
-      // generate-cli-reference.mjs guards against for one known case, and there is no reason the
+      // generate-cli-reference.ts guards against for one known case, and there is no reason the
       // general case should be quieter. Measured against Nitro v3.11.3, neither fires.
       if (!args.includes('f')) continue;
       const targetDir = qualifier ? imports.get(qualifier) : dir;
@@ -223,14 +301,15 @@ export function extractFlags({
   // rule keeps off the published page; checking against the published list would report that
   // live entry as unused on every run.
   const seen = new Set(flags.map((flag) => flag.flag));
-  for (const [table, entries] of [
+  const curated: Array<[string, Readonly<Record<string, unknown>>]> = [
     ['customFlagTypes', customTypes],
     ['defaultOverrides', defaultOverrides],
-  ]) {
+  ];
+  for (const [table, entries] of curated) {
     for (const flag of Object.keys(entries)) {
       if (seen.has(flag)) continue;
       problems.push(
-        `${table} entry "${flag}" (scripts/data/nitro-cli-reference.data.mjs) matched no flag; ` +
+        `${table} entry "${flag}" (scripts/data/nitro-cli-reference.data.ts) matched no flag; ` +
           `Nitro no longer registers it, so drop the entry or correct its name`,
       );
     }
@@ -241,14 +320,16 @@ export function extractFlags({
 }
 
 /** Every `qualifier.name(args…)` call in a function body, in source order. */
-function* calls(body) {
+function* calls(body: string): Generator<GoCall> {
   const re = /(?:(\w+)\.)?(\w+)\s*\(/g;
-  let m;
+  let m: RegExpExecArray | null;
   while ((m = re.exec(body))) {
     const open = m.index + m[0].length - 1;
     const close = matchDelim(body, open);
     if (close === -1) continue;
-    yield { qualifier: m[1], name: m[2], args: splitArgs(body.slice(open + 1, close)) };
+    const name = m[2];
+    if (name === undefined) continue;
+    yield { qualifier: m[1], name, args: splitArgs(body.slice(open + 1, close)) };
   }
 }
 
@@ -264,8 +345,15 @@ function* calls(body) {
  * the caller's package. An argument that is itself a bound parameter keeps the original binding
  * rather than becoming a name that means nothing one level down.
  */
-function bindArgs(dirs, targetDir, targetFunc, args, callerDir, callerScope) {
-  const bindings = new Map();
+function bindArgs(
+  dirs: Map<string, GoPackage>,
+  targetDir: string,
+  targetFunc: string,
+  args: string[],
+  callerDir: string,
+  callerScope: Scope,
+): Scope {
+  const bindings: Scope = new Map();
   const params = dirs.get(targetDir)?.funcs.get(targetFunc)?.params ?? [];
   for (let i = 0; i < params.length && i < args.length; i++) {
     const paramName = params[i].trim().split(/\s+/)[0];
@@ -286,18 +374,19 @@ function bindArgs(dirs, targetDir, targetFunc, args, callerDir, callerScope) {
  * flags off `arbDebug`. Treating a local exactly like a bound parameter costs one pass over the
  * body and removes the whole class of "unknown identifier" failures those aliases cause.
  */
-function withLocals(body, dir, bindings) {
-  const scope = new Map(bindings);
+function withLocals(body: string, dir: string, bindings: Scope): Scope {
+  const scope: Scope = new Map(bindings);
   for (const m of body.matchAll(/(?:^|\n)[ \t]*(\w+)[ \t]*:?=[ \t]*([^\n]+)/g)) {
-    const name = m[1];
+    const [, name, value] = m;
+    if (name === undefined || value === undefined) continue;
     if (name === 'prefix' || name === 'f' || scope.has(name)) continue;
-    scope.set(name, { expr: m[2].trim(), dir, bindings });
+    scope.set(name, { expr: value.trim(), dir, bindings });
   }
   return scope;
 }
 
 /** Resolve a flag-name expression (`prefix`, `prefix+".x"`, or a literal) against the prefix. */
-function flagName(expr, prefix) {
+function flagName(expr: string | undefined, prefix: string): string | null {
   if (expr === undefined) return null;
   const t = expr.trim();
   if (t === 'prefix') return prefix;
@@ -312,7 +401,7 @@ function flagName(expr, prefix) {
  * to wrap terminal output; inside a markdown table cell they would break the row, so every run
  * of whitespace becomes a single space.
  */
-function text(expr, prefix) {
+function text(expr: string | undefined, prefix: string): string | null {
   if (expr === undefined) return null;
   let out = '';
   for (const part of splitPlus(expr)) {
@@ -329,8 +418,8 @@ function text(expr, prefix) {
 }
 
 /** Split on `+` at nesting depth 0, quote-aware. */
-function splitPlus(src) {
-  const parts = [];
+function splitPlus(src: string): string[] {
+  const parts: string[] = [];
   let depth = 0;
   let start = 0;
   let i = 0;
@@ -352,7 +441,7 @@ function splitPlus(src) {
   return parts;
 }
 
-function skipString(src, i) {
+function skipString(src: string, i: number): number {
   const quote = src[i];
   i++;
   while (i < src.length) {
@@ -367,12 +456,15 @@ function skipString(src, i) {
 }
 
 /** A Go string literal's value, or null when the expression is not one. */
-function stringLiteral(expr) {
+function stringLiteral(expr: string): string | null {
   const t = expr.trim();
   if (t.startsWith('`') && t.endsWith('`') && t.length >= 2) return t.slice(1, -1);
   if (!(t.startsWith('"') && t.endsWith('"') && t.length >= 2)) return null;
   try {
-    return JSON.parse(t);
+    // Any JSON text that opens and closes with `"` is a JSON string, so this is always a string
+    // when the parse succeeds; the check only tells the type system so.
+    const parsed: unknown = JSON.parse(t);
+    return typeof parsed === 'string' ? parsed : null;
   } catch {
     return t.slice(1, -1).replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"');
   }
@@ -386,7 +478,16 @@ function stringLiteral(expr) {
  * expression, evaluate it, and format it the way pflag would.
  */
 class ValueResolver {
-  constructor(dirs, fileImports, problems) {
+  private readonly dirs: Map<string, GoPackage>;
+  private readonly fileImports: Map<string, GoImports>;
+  private readonly problems: string[];
+  private readonly importCache = new Map<string, GoImports>();
+
+  constructor(
+    dirs: Map<string, GoPackage>,
+    fileImports: Map<string, GoImports>,
+    problems: string[],
+  ) {
     this.dirs = dirs;
     this.fileImports = fileImports;
     this.problems = problems;
@@ -399,7 +500,13 @@ class ValueResolver {
    * default as a dash, so collapsing zeros here keeps a wall of `false` and `0` out of the
    * table without losing information.
    */
-  format(expr, dir, type, label, bindings = new Map()) {
+  format(
+    expr: string | undefined,
+    dir: string,
+    type: string,
+    label: string,
+    bindings: Scope = new Map(),
+  ): string {
     if (expr === undefined) return '';
     const value = this.evaluate(expr, dir, new Set(), bindings);
     if (value === null) {
@@ -409,10 +516,13 @@ class ValueResolver {
     return formatValue(value, type);
   }
 
-  /**
-   * @returns {{kind: string, value: any} | null}
-   */
-  evaluate(expr, dir, seen, bindings = new Map()) {
+  /** Evaluate an expression, or null when it is a shape this reader cannot evaluate. */
+  evaluate(
+    expr: string,
+    dir: string,
+    seen: Set<string>,
+    bindings: Scope = new Map(),
+  ): GoValue | null {
     const t = expr.trim();
     if (t === '' || t === 'nil') return { kind: 'nil', value: null };
 
@@ -437,8 +547,10 @@ class ValueResolver {
       const base = this.evaluate(parts[0], dir, seen, bindings);
       if (base === null) return null;
       const head = base.kind === 'slice' ? base.value : [];
-      const tail = parts.slice(1).map((item) => this.evaluate(item, dir, seen, bindings));
-      if (tail.some((item) => item === null)) return null;
+      const tail = allEvaluated(
+        parts.slice(1).map((item) => this.evaluate(item, dir, seen, bindings)),
+      );
+      if (tail === null) return null;
       return { kind: 'slice', value: [...head, ...tail] };
     }
 
@@ -453,16 +565,20 @@ class ValueResolver {
       const open = t.indexOf('{');
       const end = matchDelim(t, open);
       if (end === -1) return null;
-      const items = splitArgs(t.slice(open + 1, end)).map((item) =>
-        this.evaluate(item, dir, seen, bindings),
+      const items = allEvaluated(
+        splitArgs(t.slice(open + 1, end)).map((item) => this.evaluate(item, dir, seen, bindings)),
       );
-      if (items.some((item) => item === null)) return null;
+      if (items === null) return null;
       return { kind: 'slice', value: items };
     }
 
     // A conversion such as `uint64(x)` or `time.Duration(0)` is transparent here.
     const cast = /^([\w.]+)\s*\(/.exec(t);
-    if (cast && TRANSPARENT_CASTS.has(cast[1]) && matchDelim(t, t.indexOf('(')) === t.length - 1) {
+    if (
+      cast?.[1] &&
+      TRANSPARENT_CASTS.has(cast[1]) &&
+      matchDelim(t, t.indexOf('(')) === t.length - 1
+    ) {
       return this.evaluate(t.slice(t.indexOf('(') + 1, -1), dir, seen, bindings);
     }
 
@@ -486,7 +602,7 @@ class ValueResolver {
   }
 
   /** `a * b`, `a + b`, `a - b`, `a / b` over numbers and durations. */
-  arithmetic(expr, dir, seen, bindings) {
+  arithmetic(expr: string, dir: string, seen: Set<string>, bindings: Scope): GoValue | null {
     // Lowest-precedence operators first, so `a + b * c` splits at the `+`. Byte-size defaults in
     // Nitro are written as shifts (`512 << 10`), which bind tighter than the arithmetic ones.
     for (const op of ['+', '-', '*', '/', '<<', '>>']) {
@@ -498,7 +614,7 @@ class ValueResolver {
       const a = numeric(left);
       const b = numeric(right);
       if (a === null || b === null) return null;
-      const kind = left.kind === 'duration' || right.kind === 'duration' ? 'duration' : 'number';
+      const isDuration = left.kind === 'duration' || right.kind === 'duration';
       const value =
         op === '+'
           ? a + b
@@ -513,18 +629,29 @@ class ValueResolver {
                 : op === '<<'
                   ? a * 2 ** b
                   : Math.floor(a / 2 ** b);
-      return { kind, value: kind === 'duration' ? Math.round(value) : value };
+      return isDuration
+        ? { kind: 'duration', value: Math.round(value) }
+        : { kind: 'number', value };
     }
     return null;
   }
 
   /** `Ident`, `Ident.Field.Field`, or `pkg.Ident.Field`. */
-  selector(expr, dir, seen, bindings = new Map()) {
+  selector(
+    expr: string,
+    dir: string,
+    seen: Set<string>,
+    bindings: Scope = new Map(),
+  ): GoValue | null {
     const parts = expr.split('.').map((p) => p.trim());
     if (parts.some((p) => !/^\w+$/.test(p))) return null;
+    // `split` always yields at least one element, so this never fires; it names the head for the
+    // type system.
+    const head = parts[0];
+    if (head === undefined) return null;
 
     // A parameter the caller supplied: continue in the caller's package.
-    const bound = bindings.get(parts[0]);
+    const bound = bindings.get(head);
     if (bound) {
       const substituted = [bound.expr, ...parts.slice(1)].join('.');
       const guard = `bound:${bound.dir}.${substituted}`;
@@ -533,8 +660,9 @@ class ValueResolver {
       return this.evaluate(substituted, bound.dir, seen, bound.bindings ?? new Map());
     }
 
-    if (parts.length >= 2 && parts[0] === 'time' && DURATION_UNITS[parts[1]] !== undefined) {
-      return { kind: 'duration', value: Number(DURATION_UNITS[parts[1]]) };
+    const unit = parts.length >= 2 && head === 'time' ? DURATION_UNITS[parts[1] ?? ''] : undefined;
+    if (unit !== undefined) {
+      return { kind: 'duration', value: Number(unit) };
     }
 
     const stdlib = STDLIB_CONSTANTS[expr.trim()];
@@ -544,8 +672,8 @@ class ValueResolver {
     const imports = this.importsFor(dir);
     let searchDir = dir;
     let rest = parts;
-    if (parts.length >= 2 && imports.has(parts[0])) {
-      const target = imports.get(parts[0]);
+    if (parts.length >= 2 && imports.has(head)) {
+      const target = imports.get(head);
       if (!target) return null;
       searchDir = target;
       rest = parts.slice(1);
@@ -579,7 +707,7 @@ class ValueResolver {
    * treating that closure's braces as a struct literal made every one of its fields look like a
    * deliberate zero, which is how a page of confidently wrong defaults gets published.
    */
-  fieldOf(expression, dir, field, seen) {
+  fieldOf(expression: string, dir: string, field: string, seen: Set<string>): FieldResult {
     const t = expression.trim();
 
     // func() T { cfg := Base; cfg.Field = v; return cfg }()
@@ -595,17 +723,18 @@ class ValueResolver {
       const assigned = [
         ...body.matchAll(new RegExp(`(?:^|\\n)\\s*${returned}\\.(\\w+)\\s*=\\s*([^\\n]+)`, 'g')),
       ].filter((m) => m[1] === field);
-      if (assigned.length > 0) return { expr: assigned.at(-1)[2].trim(), dir };
+      const last = assigned.at(-1);
+      if (last?.[2] !== undefined) return { expr: last[2].trim(), dir };
 
       const base = new RegExp(`(?:^|\\n)\\s*${returned}\\s*:?=\\s*([^\\n]+)`).exec(body);
-      if (!base) return null;
+      if (base?.[1] === undefined) return null;
       return this.fieldOf(base[1].trim(), dir, field, seen);
     }
 
     // A composite literal: an absent field is Go's zero value.
     if (/^[\w.[\]*]*\{/.test(t)) {
-      const fields = literalFields(t);
-      return fields.has(field) ? { expr: fields.get(field), dir } : 'zero';
+      const value = literalFields(t).get(field);
+      return value !== undefined ? { expr: value, dir } : 'zero';
     }
 
     // An identifier or selector: resolve it, then ask the same question of what it names.
@@ -622,9 +751,15 @@ class ValueResolver {
    * A flag's usage string. Reports rather than blanks when it cannot be read: an empty
    * Description cell is indistinguishable from a flag Nitro genuinely left undocumented.
    */
-  describe(expr, dir, prefix, bindings, label) {
+  describe(
+    expr: string | undefined,
+    dir: string,
+    prefix: string,
+    bindings: Scope,
+    label: string,
+  ): string {
     if (expr === undefined) return '';
-    const parts = [];
+    const parts: string[] = [];
     for (const part of splitPlus(expr)) {
       const t = part.trim();
       if (t === 'prefix') {
@@ -653,26 +788,26 @@ class ValueResolver {
   }
 
   /** `fmt.Sprintf(format, …)`, supporting the verbs Nitro's usage strings actually use. */
-  sprintf(expr, dir, prefix, bindings) {
+  sprintf(expr: string, dir: string, prefix: string, bindings: Scope): string | null {
     const t = expr.trim();
     if (!/^fmt\.Sprintf\s*\(/.test(t)) return null;
     const open = t.indexOf('(');
     if (matchDelim(t, open) !== t.length - 1) return null;
 
     const args = splitArgs(t.slice(open + 1, -1));
-    const format = stringLiteral(args[0]);
+    const format = stringLiteral(args[0] ?? '');
     if (format === null) return null;
 
-    const values = args.slice(1).map((arg) => this.evaluate(arg, dir, new Set(), bindings));
-    if (
-      values.some(
-        (v) => v === null || (v.kind !== 'string' && v.kind !== 'number' && v.kind !== 'bool'),
-      )
-    ) {
-      return null;
+    const values: Array<GoValue & { kind: 'string' | 'number' | 'bool' }> = [];
+    for (const arg of args.slice(1)) {
+      const v = this.evaluate(arg, dir, new Set(), bindings);
+      if (v === null || (v.kind !== 'string' && v.kind !== 'number' && v.kind !== 'bool')) {
+        return null;
+      }
+      values.push(v);
     }
     let i = 0;
-    return format.replace(/%(%|[sdvqtf])/g, (match, verb) => {
+    return format.replace(/%(%|[sdvqtf])/g, (match, verb: string) => {
       if (verb === '%') return '%';
       const value = values[i++];
       if (value === undefined) return match;
@@ -684,40 +819,45 @@ class ValueResolver {
    * When a struct field's value is itself a bare identifier pointing at another defaults var
    * (`Dangerous: DefaultDangerousConfig`), follow it so later field lookups keep working.
    */
-  resolveIndirect(expr, dir, seen) {
+  resolveIndirect(
+    expr: string,
+    dir: string,
+    seen: Set<string>,
+  ): { expr: string; dir: string } | null {
     const t = expr.trim();
     if (!/^[\w.]+$/.test(t) || t.includes('(')) return null;
     const parts = t.split('.');
     const imports = this.importsFor(dir);
     let searchDir = dir;
     let rest = parts;
-    if (parts.length >= 2 && imports.has(parts[0])) {
-      const target = imports.get(parts[0]);
+    const head = parts[0] ?? '';
+    if (parts.length >= 2 && imports.has(head)) {
+      const target = imports.get(head);
       if (!target) return null;
       searchDir = target;
       rest = parts.slice(1);
     }
-    if (rest.length !== 1) return null;
-    const found = this.lookup(searchDir, rest[0]);
+    const name = rest[0];
+    if (rest.length !== 1 || name === undefined) return null;
+    const found = this.lookup(searchDir, name);
     if (!found || !found.entry.expr.includes('{')) return null;
-    if (seen.has(`indirect:${found.dir}.${rest[0]}`)) return null;
-    seen.add(`indirect:${found.dir}.${rest[0]}`);
+    if (seen.has(`indirect:${found.dir}.${name}`)) return null;
+    seen.add(`indirect:${found.dir}.${name}`);
     return { expr: found.entry.expr, dir: found.dir };
   }
 
-  lookup(dir, name) {
-    const entry = this.dirs.get(dir);
-    if (!entry) return null;
-    if (entry.vars.has(name)) return { dir, entry: entry.vars.get(name) };
-    if (entry.consts.has(name)) return { dir, entry: entry.consts.get(name) };
-    return null;
+  lookup(dir: string, name: string | undefined): { dir: string; entry: GoAssignment } | null {
+    const pkg = this.dirs.get(dir);
+    if (!pkg || name === undefined) return null;
+    const entry = pkg.vars.get(name) ?? pkg.consts.get(name);
+    return entry ? { dir, entry } : null;
   }
 
   /** Union of the import maps of every file in a directory; aliases are consistent in practice. */
-  importsFor(dir) {
-    if (!this._importCache) this._importCache = new Map();
-    if (this._importCache.has(dir)) return this._importCache.get(dir);
-    const merged = new Map();
+  importsFor(dir: string): GoImports {
+    const cached = this.importCache.get(dir);
+    if (cached) return cached;
+    const merged: GoImports = new Map();
     const entry = this.dirs.get(dir);
     const files = new Set(
       [...(entry?.vars.values() ?? []), ...(entry?.consts.values() ?? [])].map((v) => v.file),
@@ -728,13 +868,13 @@ class ValueResolver {
         if (!merged.has(alias)) merged.set(alias, target);
       }
     }
-    this._importCache.set(dir, merged);
+    this.importCache.set(dir, merged);
     return merged;
   }
 }
 
 /** Index of the last occurrence of a binary operator at depth 0, so evaluation is left-assoc. */
-function splitOperator(src, op) {
+function splitOperator(src: string, op: string): number {
   let depth = 0;
   let i = 0;
   let last = -1;
@@ -757,7 +897,7 @@ function splitOperator(src, op) {
   return last;
 }
 
-function numeric(value) {
+function numeric(value: GoValue): number | null {
   if (value.kind === 'number' || value.kind === 'duration') {
     return typeof value.value === 'bigint' ? Number(value.value) : value.value;
   }
@@ -766,7 +906,7 @@ function numeric(value) {
 }
 
 /** Format an evaluated value the way pflag's `Value.String()` would, '' for a zero value. */
-export function formatValue(value, type) {
+export function formatValue(value: GoValue, type: string): string {
   if (value.kind === 'nil' || value.kind === 'zero') return '';
 
   if (type === 'duration') {
@@ -791,7 +931,7 @@ export function formatValue(value, type) {
 }
 
 /** Go prints floats with `strconv.FormatFloat(f, 'g', -1, 64)`; integers print plainly. */
-function formatNumber(n) {
+function formatNumber(n: number | bigint): string {
   if (typeof n === 'bigint') return String(n);
   if (Number.isInteger(n) && Math.abs(n) < 1e21) return String(n);
   const exponent = Math.floor(Math.log10(Math.abs(n)));
@@ -805,7 +945,7 @@ function formatNumber(n) {
  * Go's `time.Duration.String()`: sub-second durations use ns/µs/ms, anything longer is
  * `1h2m3s` with every larger unit present once one is (`30m0s`, not `30m`).
  */
-export function formatDuration(ns) {
+export function formatDuration(ns: number): string {
   if (ns === 0) return '0s';
   const sign = ns < 0 ? '-' : '';
   let n = Math.abs(ns);
@@ -827,10 +967,10 @@ export function formatDuration(ns) {
 }
 
 /** Drop a trailing `.0…` the way Go's duration formatter does. */
-function trim(value) {
+function trim(value: number): string {
   return String(Number(value.toFixed(9)));
 }
 
-function oneLine(expr) {
+function oneLine(expr: string): string {
   return expr.replace(/\s+/g, ' ').trim().slice(0, 120);
 }

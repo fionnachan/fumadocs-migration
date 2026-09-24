@@ -3,11 +3,32 @@
  *
  * Everything here is a pure string transform over the source text, so the suite can pin each
  * rule to a named case instead of diffing nineteen rendered pages. The runner
- * (`scripts/generate-stylus-examples.mjs`) owns the clone, the writes and `--check`.
+ * (`scripts/generate-stylus-examples.ts`) owns the clone, the writes and `--check`.
  *
  * Ported from the content-transformation half of arbitrum-docs `scripts/sync-stylus-content.js`.
  */
 import { extractRefs } from './doc-links.mjs';
+
+/** What {@link parseObjectLiteral} can return: JSON's value space, nothing more. */
+export type JsonValue = string | number | boolean | null | JsonValue[] | JsonObject;
+export interface JsonObject {
+  [key: string]: JsonValue;
+}
+
+/** The two fields a page's frontmatter takes from upstream's `metadata` export. */
+export interface StylusMetadata {
+  title: string;
+  description: string;
+}
+
+/** A published section: its directory under the output root and its pages, in sidebar order. */
+export interface SectionPages {
+  dir: string;
+  pages: readonly string[];
+}
+
+const isJsonObject = (value: JsonValue): value is JsonObject =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /**
  * The `export const metadata = { … };` block every upstream page opens with. Non-greedy up to the
@@ -26,14 +47,14 @@ const RELATIVE_LINK_PATTERN = /^\.\/([\w-]+)$/;
 const RUST_FENCE = '```rust';
 
 /** The only bare words the literal grammar accepts. Anything else identifier-shaped is a call. */
-const KEYWORDS = new Map([
+const KEYWORDS = new Map<string, JsonValue>([
   ['true', true],
   ['false', false],
   ['null', null],
 ]);
 
 /** The escape sequences a string value may use. A Map, so no prototype key resolves by accident. */
-const STRING_ESCAPES = new Map([
+const STRING_ESCAPES = new Map<string, string>([
   ["'", "'"],
   ['"', '"'],
   ['\\', '\\'],
@@ -65,24 +86,24 @@ const NUMBER = /-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/y;
  * `pnpm stylus:generate`. Cloning a repository copies bytes; evaluating one of them runs them, at
  * whatever privilege the run has. Reading them as data is the whole point here.
  *
- * @param {string} text the literal, starting at `{` or `[`
- * @param {string} context a path, for the error message
- * @returns {unknown}
+ * @param text the literal, starting at `{` or `[`
+ * @param context a path, for the error message
  */
-export function parseObjectLiteral(text, context) {
+export function parseObjectLiteral(text: string, context: string): JsonValue {
   let cursor = 0;
 
-  const fail = (message) => {
+  // A declaration rather than an arrow, so a call to it narrows like a `throw` would.
+  function fail(message: string): never {
     const line = text.slice(0, cursor).split('\n').length;
     const near = JSON.stringify(text.slice(cursor, cursor + 24));
     throw new Error(`${context}: ${message} (line ${line} of the literal, near ${near})`);
-  };
+  }
 
   const skipSpace = () => {
     while (cursor < text.length && /\s/.test(text[cursor])) cursor++;
   };
 
-  const parseString = () => {
+  const parseString = (): string => {
     const quote = text[cursor++];
     let out = '';
     while (cursor < text.length) {
@@ -110,14 +131,15 @@ export function parseObjectLiteral(text, context) {
         cursor += 1 + width;
         continue;
       }
-      if (!STRING_ESCAPES.has(escape)) fail(`an unsupported escape sequence \`\\${escape}\``);
-      out += STRING_ESCAPES.get(escape);
+      const unescaped = STRING_ESCAPES.get(escape);
+      if (unescaped === undefined) fail(`an unsupported escape sequence \`\\${escape}\``);
+      out += unescaped;
       cursor++;
     }
     return fail('an unterminated string');
   };
 
-  const parsePropertyName = () => {
+  const parsePropertyName = (): string => {
     if (text[cursor] === "'" || text[cursor] === '"') return parseString();
     IDENTIFIER.lastIndex = cursor;
     const match = IDENTIFIER.exec(text);
@@ -126,11 +148,11 @@ export function parseObjectLiteral(text, context) {
     return match[0];
   };
 
-  const parseObject = () => {
+  const parseObject = (): JsonObject => {
     cursor++; // past `{`
     // Null-prototype, so a `__proto__` or `constructor` key is an ordinary own property rather
     // than a write to the prototype chain. The spread at the end hands back a plain object.
-    const result = Object.create(null);
+    const result: JsonObject = Object.create(null);
     skipSpace();
     if (text[cursor] === '}') {
       cursor++;
@@ -158,9 +180,9 @@ export function parseObjectLiteral(text, context) {
     }
   };
 
-  const parseArray = () => {
+  const parseArray = (): JsonValue[] => {
     cursor++; // past `[`
-    const result = [];
+    const result: JsonValue[] = [];
     skipSpace();
     if (text[cursor] === ']') {
       cursor++;
@@ -182,7 +204,7 @@ export function parseObjectLiteral(text, context) {
     }
   };
 
-  function parseValue() {
+  function parseValue(): JsonValue {
     skipSpace();
     if (cursor >= text.length) fail('the literal ends where a value was expected');
     const char = text[cursor];
@@ -198,9 +220,10 @@ export function parseObjectLiteral(text, context) {
     }
     IDENTIFIER.lastIndex = cursor;
     const word = IDENTIFIER.exec(text);
-    if (word && KEYWORDS.has(word[0])) {
+    const keyword = word ? KEYWORDS.get(word[0]) : undefined;
+    if (keyword !== undefined) {
       cursor = IDENTIFIER.lastIndex;
-      return KEYWORDS.get(word[0]);
+      return keyword;
     }
     return fail('expected a string, number, `true`, `false`, `null`, array or object');
   }
@@ -227,25 +250,33 @@ export function parseObjectLiteral(text, context) {
  * is noise rather than a wording choice, and normalizing it here means it stays fixed across every
  * future `stylus:generate` run instead of needing a hand-edit upstream would just overwrite.
  *
- * @param {string} source the full text of an upstream `page.mdx`
- * @param {string} context a path, for the error message
- * @returns {{ title: string, description: string }}
+ * The object comes back whole, any other key upstream wrote included, with the two fields
+ * normalized in place.
+ *
+ * @param source the full text of an upstream `page.mdx`
+ * @param context a path, for the error message
  */
-export function parseMetadata(source, context) {
+export function parseMetadata(source: string, context: string): JsonObject & StylusMetadata {
   const match = source.match(METADATA_PATTERN);
-  if (!match) {
+  if (!match?.[1]) {
     throw new Error(`${context}: no \`export const metadata\` block; cannot build frontmatter`);
   }
 
-  const metadata = parseObjectLiteral(match[1], `${context}: could not read the metadata object`);
+  const parsed = parseObjectLiteral(match[1], `${context}: could not read the metadata object`);
+  // The pattern captures from a `{`, so the literal is always an object; an empty one stands in
+  // for the impossible case and fails on `title` below, as indexing a non-object did before.
+  const metadata: JsonObject = isJsonObject(parsed) ? parsed : {};
 
-  for (const field of ['title', 'description']) {
-    if (typeof metadata[field] !== 'string' || metadata[field].trim() === '') {
+  const normalized = (field: keyof StylusMetadata): string => {
+    const value = metadata[field];
+    if (typeof value !== 'string' || value.trim() === '') {
       throw new Error(`${context}: metadata.${field} is missing or not a string`);
     }
-    metadata[field] = metadata[field].replace(/\s+/g, ' ').trim();
-  }
-  return metadata;
+    return value.replace(/\s+/g, ' ').trim();
+  };
+  const title = normalized('title');
+  const description = normalized('description');
+  return Object.assign(metadata, { title, description });
 }
 
 /**
@@ -255,7 +286,7 @@ export function parseMetadata(source, context) {
  * double-quoted, which is what the committed pages look like), so this only has to be valid
  * YAML, not canonical YAML.
  */
-export function yamlScalar(value) {
+export function yamlScalar(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
@@ -265,11 +296,11 @@ export function yamlScalar(value) {
  * `title` and `description` come from the source; the rest are constants, and are emitted
  * unquoted because that is the scalar style the committed pages use and Prettier preserves a
  * plain scalar rather than quoting it.
- *
- * @param {{ title: string, description: string }} metadata
- * @param {Record<string, string>} defaults
  */
-export function renderFrontmatter(metadata, defaults) {
+export function renderFrontmatter(
+  metadata: StylusMetadata,
+  defaults: Readonly<Record<string, string>>,
+): string {
   return [
     '---',
     `title: ${yamlScalar(metadata.title)}`,
@@ -290,15 +321,24 @@ export function renderFrontmatter(metadata, defaults) {
  * right answer for one written from an `applications` page. A slug that resolves nowhere throws:
  * a link to an example this site does not publish would otherwise ship as a 404 that only
  * `check-links` would catch, and only after the page had been committed.
- *
- * @param {string} content
- * @param {{ sections: Array<{ dir: string, pages: string[] }>, baseUrl: string, context: string }} options
  */
-export function rewriteRelativeLinks(content, { sections, baseUrl, context }) {
+export function rewriteRelativeLinks(
+  content: string,
+  {
+    sections,
+    baseUrl,
+    context,
+  }: { sections: readonly SectionPages[]; baseUrl: string; context: string },
+): string {
   // The shared scanner excludes frontmatter and code. Work backwards through its original
   // offsets so replacing one destination cannot shift any of the remaining destinations.
+  // `extractRefs` types `range` as nullable because a JSX expression attribute has none; a
+  // markdown ref always has one, so the `range` test drops nothing and only narrows the type.
   const links = extractRefs(content)
-    .filter((ref) => ref.surface === 'markdown' && RELATIVE_LINK_PATTERN.test(ref.rawUrl))
+    .filter(
+      (ref): ref is typeof ref & { range: [number, number] } =>
+        ref.surface === 'markdown' && ref.range !== null && RELATIVE_LINK_PATTERN.test(ref.rawUrl),
+    )
     .sort((a, b) => b.range[0] - a.range[0]);
   for (const {
     rawUrl,
@@ -310,12 +350,14 @@ export function rewriteRelativeLinks(content, { sections, baseUrl, context }) {
       throw new Error(
         `${context}: the link \`${rawUrl}\` points at \`${slug}\`, which ` +
           (owners.length === 0
-            ? 'this site does not publish. Add it to scripts/data/stylus-examples.data.mjs, or ' +
+            ? 'this site does not publish. Add it to scripts/data/stylus-examples.data.ts, or ' +
               'get the link changed upstream.'
             : `appears in ${owners.length} sections, so the destination is ambiguous.`),
       );
     }
-    content = content.slice(0, start) + `${baseUrl}/${owners[0].dir}/${slug}` + content.slice(end);
+    const [owner] = owners;
+    if (!owner) continue; // unreachable: exactly one owner was checked above
+    content = content.slice(0, start) + `${baseUrl}/${owner.dir}/${slug}` + content.slice(end);
   }
   return content;
 }
@@ -330,10 +372,11 @@ export function rewriteRelativeLinks(content, { sections, baseUrl, context }) {
  *
  * A page with no Rust snippet keeps its content and reports itself, because the banner is a
  * safety notice and silently dropping one should not look like success.
- *
- * @returns {{ content: string, inserted: boolean }}
  */
-export function insertNotForProductionBanner(content, include) {
+export function insertNotForProductionBanner(
+  content: string,
+  include: string,
+): { content: string; inserted: boolean } {
   const fence = content.indexOf(RUST_FENCE);
   if (fence === -1) return { content, inserted: false };
 
@@ -342,19 +385,21 @@ export function insertNotForProductionBanner(content, include) {
   return { content: before.join('\n') + content.slice(fence), inserted: true };
 }
 
-/**
- * Build one page from one upstream `page.mdx`.
- *
- * @param {object} options
- * @param {string} options.source the upstream file's text
- * @param {string} options.context the upstream path, for error messages
- * @param {string} options.marker the do-not-edit comment
- * @param {Record<string, string>} options.frontmatterDefaults
- * @param {Array<{ dir: string, pages: string[] }>} options.sections
- * @param {string} options.baseUrl
- * @param {string} options.include the not-for-production `<include>` directive
- * @returns {{ content: string, metadata: object, banner: boolean }}
- */
+export interface BuildPageOptions {
+  /** The upstream file's text. */
+  source: string;
+  /** The upstream path, for error messages. */
+  context: string;
+  /** The do-not-edit comment. */
+  marker: string;
+  frontmatterDefaults: Readonly<Record<string, string>>;
+  sections: readonly SectionPages[];
+  baseUrl: string;
+  /** The not-for-production `<include>` directive. */
+  include: string;
+}
+
+/** Build one page from one upstream `page.mdx`. */
 export function buildPage({
   source,
   context,
@@ -363,7 +408,7 @@ export function buildPage({
   sections,
   baseUrl,
   include,
-}) {
+}: BuildPageOptions): { content: string; metadata: StylusMetadata; banner: boolean } {
   const metadata = parseMetadata(source, context);
   const frontmatter = renderFrontmatter(metadata, frontmatterDefaults);
 
@@ -382,9 +427,10 @@ export function buildPage({
  * The `meta.json` for one section: the sidebar title, the published pages in the order the data
  * file lists them, and the `'...'` catch-all the committed files carry so an unlisted sibling
  * still appears rather than disappearing from the sidebar.
- *
- * @param {{ title: string, pages: string[] }} section
  */
-export function buildSectionMeta({ title, pages }) {
+export function buildSectionMeta({ title, pages }: { title: string; pages: readonly string[] }): {
+  title: string;
+  pages: string[];
+} {
   return { title, pages: [...pages, '...'] };
 }
