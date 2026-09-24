@@ -21,6 +21,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # Depth 2, not the default 1, for `versioned-docs-check.mjs` below (FS-2747). On a
+          # `pull_request` run this checks out the synthetic merge commit, whose first parent is
+          # the base branch's tip, so depth 2 keeps that parent and the script can diff the two
+          # without a network call. Depth 1 grafts HEAD parentless, which is what made the check
+          # silently report nothing here. Still a shallow clone, so `hasFullGitHistory()` in
+          # source.config.ts keeps answering false and `lastModified` stays off, which is what
+          # stops CI stamping every page with one boundary commit's date.
+          fetch-depth: 2
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
@@ -157,6 +165,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # `pnpm build` runs `versioned-docs-check.mjs` first, so this job needs the same depth
+          # the `Gates` checkout takes, and for the same reason. See the comment there.
+          fetch-depth: 2
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 

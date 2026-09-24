@@ -606,3 +606,98 @@ test('A13 leaves the rest of the rule set reading the lines a bad closer used to
 test('A12 and A13 do not fire on a fence documented inside a longer fence', () => {
   assert.deepEqual(rules('````md\n```js\nx\n```\n````\n'), []);
 });
+
+// --- A14: title/sidebar_label/description whitespace (FS-2747) ---------------------------------
+
+const fm = (lines) => `---\n${lines.join('\n')}\n---\n\nbody\n`;
+
+test('A14 fires on a trailing space in a quoted description', () => {
+  const src = fm(["title: 'Clean title'", "description: 'Has a trailing space '"]);
+  assert.deepEqual(rules(src), ['A14']);
+  const [finding] = lintSource(src).filter((f) => f.rule === 'A14');
+  assert.equal(finding.message, 'description: leading or trailing whitespace');
+});
+
+test('A14 does NOT fire on extra separator whitespace after an unquoted key, which is not part of the value', () => {
+  // `[ \t]*` after the field name eats every space between the colon and the value, matching real
+  // YAML: an unquoted scalar's leading whitespace is separator, not content, so `title:  x` and
+  // `title: x` name the same value and neither is a defect.
+  assert.deepEqual(rules(fm(['title:  Leading space is just separator'])), []);
+});
+
+test('A14 fires on trailing whitespace after an unquoted value, and names it as line noise', () => {
+  // YAML ends a plain scalar at the last non-space character, so the value the page renders is
+  // already clean. Nothing else removes the spaces (Prettier leaves them), so it is still worth a
+  // finding, just not one that claims the value is wrong.
+  const src = fm(['title: Trailing space title  ']);
+  assert.deepEqual(rules(src), ['A14']);
+  const [finding] = lintSource(src).filter((f) => f.rule === 'A14');
+  assert.equal(finding.message, 'title: trailing whitespace on the line, outside the value');
+});
+
+test('A14 does NOT call whitespace after a closing quote a doubled internal space', () => {
+  // Regression: the quoted test ran against the untrimmed line, so a clean quoted value followed
+  // by spaces failed it, kept its own quotes inside `value`, and was reported as both leading or
+  // trailing whitespace and a doubled internal space. The value here has neither.
+  const src = fm(["description: 'Quoted then spaces'   "]);
+  const [finding] = lintSource(src).filter((f) => f.rule === 'A14');
+  assert.equal(finding.message, 'description: trailing whitespace on the line, outside the value');
+});
+
+test('A14 skips a folded or literal block scalar rather than reading the indicator as the value', () => {
+  // Documented limitation: the text lives on the following indented lines, which this rule never
+  // reads. No `title`/`sidebar_label`/`description` in content/ uses this form.
+  assert.deepEqual(rules(fm(['description: >', '  Folded  text with a doubled space'])), []);
+  assert.deepEqual(rules(fm(['description: |-', '  Literal text trailing  '])), []);
+});
+
+test('A14 does NOT fire on a file with no frontmatter at all', () => {
+  // Every partial takes this path: `content/partials/**` carries no frontmatter by contract.
+  assert.deepEqual(rules('A partial with a  doubled space and no frontmatter.\n'), []);
+});
+
+test('A14 fires on a doubled internal space in an unquoted value', () => {
+  assert.deepEqual(rules(fm(['title: Two  spaces, unquoted'])), ['A14']);
+});
+
+test('A14 fires on a doubled internal space in sidebar_label', () => {
+  const src = fm(["sidebar_label: 'Two  spaces here'"]);
+  const [finding] = lintSource(src).filter((f) => f.rule === 'A14');
+  assert.equal(finding.message, 'sidebar_label: a doubled internal space');
+});
+
+test('A14 reports both problems when a value has leading/trailing AND doubled whitespace', () => {
+  const src = fm(["description: ' has  both issues '"]);
+  const [finding] = lintSource(src).filter((f) => f.rule === 'A14');
+  assert.equal(
+    finding.message,
+    'description: leading or trailing whitespace and a doubled internal space',
+  );
+});
+
+test('A14 does NOT fire on clean title/sidebar_label/description values', () => {
+  const src = fm([
+    "title: 'A clean title'",
+    "sidebar_label: 'A clean label'",
+    "description: 'A clean, single-spaced description.'",
+  ]);
+  assert.deepEqual(rules(src), []);
+});
+
+test('A14 does NOT mistake a backtick-quoted code span inside a description for a doubled space', () => {
+  // Regression: stripCode's inline-code masking has no notion of YAML quoting, so it blanks a
+  // backtick pair inside a frontmatter string the same way it would inside prose. Reading A14 off
+  // `text` (the stripCode output) instead of `source` turned that masked run of spaces into a
+  // false "doubled internal space" finding. A14 must read the raw frontmatter from `source`.
+  const src = fm(["description: 'Uses the `entrypoint` macro correctly.'"]);
+  assert.deepEqual(rules(src), []);
+});
+
+test('A14 checks a double-quoted value too, and does not flag the quotes themselves', () => {
+  assert.deepEqual(rules(fm(['title: "A clean title"'])), []);
+  assert.deepEqual(rules(fm(['title: "A trailing space title "'])), ['A14']);
+});
+
+test('A14 does NOT fire on frontmatter fields it does not cover', () => {
+  assert.deepEqual(rules(fm(["author: 'trailing space author '"])), []);
+});

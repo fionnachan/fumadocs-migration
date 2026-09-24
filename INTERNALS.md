@@ -479,7 +479,12 @@ render on demand in a serverless runtime that has neither git nor the repository
 absent on previews and in production until someone sets `VERCEL_DEEP_CLONE=true` in the Vercel
 project's environment variables. Nothing else is needed: a deep clone makes the probe pass on its
 own. The same applies to any CI job that wants the dates, since `actions/checkout` defaults to
-`fetch-depth: 1`. No gate depends on the dates, so `ci.yml` is deliberately left alone.
+`fetch-depth: 1`. No gate depends on the dates, so `ci.yml` never asks for a deep clone. Its `Gates`
+and `Build` checkouts do set `fetch-depth: 2`, for `versioned-docs-check.mjs`
+(see [The gates](#the-gates)), and that is deliberately the largest depth that changes nothing here:
+a depth-2 clone is still shallow, so this probe still answers `false` and the dates stay off. Raising
+it further, or to `0`, would switch them on in CI and re-type the docs page's `lastModified`, so
+treat any change to those two lines as a change to this section as well.
 
 The rendered date is formatted in UTC so that the output does not depend on which machine rendered
 the page. A commit made late in the evening in a western timezone therefore reads as the next day.
@@ -991,8 +996,9 @@ That registry keys the partial versioning registry by canonical slug (`'run-a-no
 the consequence: FS-2698 added `scripts/versions-routing.test.mjs`, which asserts that every key
 names a live page, so a dead key now fails `pnpm test`, a blocking gate. It used to pass 346/346
 with `lib/versions.ts` untouched, and the page silently lost its version dropdown while its
-archives became unreachable. `scripts/versioned-docs-check.mjs` is still only an advisory about
-uncommitted edits and still always exits 0; it is not what catches this. Retargeting the key is a
+archives became unreachable. `scripts/versioned-docs-check.mjs` is still only an advisory (see
+"Archived page registry drift" below for what it now compares, and where) and still always exits 0;
+it is not what catches this. Retargeting the key is a
 judgement call (`archivePath` mirrors the old slug on every current entry but is not required to),
 so after moving a versioned page, retarget its `VERSIONED` key by hand.
 
@@ -1789,7 +1795,69 @@ required check that never reports blocks every pull request indefinitely, which 
 | `check-links`              | Broken internal doc links and MDX fragments                                   |
 | `contracts:check`          | The generated contract-address partial matches `@arbitrum/sdk`                |
 | `format:check`             | Prettier style drift                                                          |
-| `content:lint`             | MDX structural defects, rules A1 through A13 except A7                        |
+| `content:lint`             | MDX structural defects, rules A1 through A14 except A7                        |
+
+**Archived page registry drift, and what `versioned-docs-check.mjs` actually compares (FS-2747).**
+Before this ticket the script always ran `git diff --name-only HEAD -- <pinned docs>`, working tree
+and staged changes against `HEAD`. That is empty by construction in this job: `actions/checkout`
+here takes no `fetch-depth`, so it defaults to a depth-1 checkout, and a freshly checked-out tree
+has no working-tree changes to diff against its own `HEAD` in the first place. The step had run in
+`Gates` since it was added and never once fired there, on any PR, including the one that edited an
+archive's frontmatter (FS-2745) and shipped the change this warning exists to flag. Reproduced by
+committing a one-line body edit to an archived page on a throwaway local branch: the old script
+printed nothing, while `git diff HEAD^ HEAD --name-only -- content/_versions` plainly listed the
+file.
+
+The fix keeps the check advisory (always exits 0) and keeps its local behavior (working tree +
+staged vs `HEAD`, what fires before a `git commit`) unchanged, but gives it a comparison that can
+actually see a _committed_ change on a `pull_request` run. **It reads that comparison out of the
+checkout rather than fetching it.** `actions/checkout` on a `pull_request` event checks out the
+synthetic merge commit GitHub builds for the pull request (`refs/pull/<n>/merge`), whose **first**
+parent is the base branch's tip at event time and whose second is the PR head. So `git diff HEAD^1
+HEAD` is exactly the pull request's own change set, and the only thing missing was the parent:
+`fetch-depth: 2` on the `Gates` and `Build` checkout steps keeps it, where the default depth-1
+checkout grafts `HEAD` parentless. Proved in a scratch clone that reproduces the action's documented
+refspec: at depth 1 both `HEAD^1` and `HEAD^2` fail to resolve, at depth 2 both resolve and
+`git diff --name-only HEAD^1 HEAD` names the archive edit and nothing else.
+
+The rejected alternative was fetching the base branch's tip at depth 1 into
+`refs/remotes/origin/<base>` and diffing that. It works, and it was the first implementation, but
+every `actions/checkout` step in this repo passes `persist-credentials: false`, so that fetch is an
+anonymous request that succeeds only while both repositories stay public, and any failure of it,
+transient or permanent, silently returns this check to reporting nothing, which is the exact
+invisible-green this ticket exists to remove. It also put a network call at the front of `pnpm
+build`, and so inside the blocking `Build` job whose one accepted network dependency is Google
+Fonts, working against the effort to remove that one. Reading `HEAD^1` needs no network, no
+credentials and no `origin` remote at all.
+
+`fetch-depth: 2` costs one extra commit's objects and changes nothing else. In particular the clone
+is **still shallow**, so `hasFullGitHistory()` in `source.config.ts` keeps answering false and
+`lastModified` stays off in CI, which is what stops every page being stamped with one boundary
+commit's date. Measured in the same scratch clone: `git rev-parse --is-shallow-repository` answers
+`true` at depth 2.
+
+Two signals pick the comparison, and neither substitutes for the other. `GITHUB_BASE_REF`, which
+GitHub Actions sets only for a `pull_request`-triggered run, says the run has a base at all. The
+merge-commit probe (`HEAD^2` resolves) says the checkout actually holds that shape, so a checkout
+pinned to the PR head, where `HEAD^1` is merely the previous commit on the branch, is not mistaken
+for one and diffed against the wrong tree. When the run is a pull request and either signal is
+missing, the script falls back to the local comparison **and raises a `::warning::` annotation**, so
+a checkout that loses `fetch-depth: 2` shows up in the run summary instead of in one line inside a
+collapsed step log. Every other CI run (a direct `push` to `main`, and `upstream-refresh.yml`'s
+scheduled `stylus` job) falls back with a plain printed note and no annotation, because that is the
+expected shape there rather than a misconfiguration. For `push` it is a residual gap, accepted on
+the reasoning that a merge to `main` goes through a PR first and that PR's own run already warned.
+For `stylus` it is not a gap at all: `pnpm stylus:generate` runs before the gate list there, so the
+working tree genuinely is dirty and the local comparison is the meaningful one, which is why that
+job needs no `fetch-depth` of its own. The script always prints which comparison it ran, so a quiet
+`Gates` step can be told apart from one that had nothing to report.
+
+`pickComparison` in `scripts/lib/versioned-docs-comparison.mjs` is that decision on its own, pure and
+exported, taking the environment and the two git probe results as plain booleans. It lives outside
+the CLI so `pnpm test` can pin all five shapes (local, pull request with the merge commit, pull
+request with no parent, pull request whose `HEAD` is not a merge, and a CI run that is not a pull
+request) without a git fixture. The check ran green while doing nothing for months, so the decision
+that made it do nothing is the part that needed a test.
 
 `check-links` exists because Fumadocs has no equivalent of Docusaurus's `onBrokenLinks: 'throw'`.
 `pnpm build` chains it ahead of `next build`, so a broken link or fragment also fails the Vercel deploy.
@@ -2070,6 +2138,7 @@ literal tag is exactly the defect it looks for.
 | `A11` | `<Var>` in a link destination, which never substitutes and never parses       |
 | `A12` | A fenced code block with no closer, which runs to the end of the file         |
 | `A13` | A fence closer indented past the column every code-masking gate reads it at   |
+| `A14` | `title`/`sidebar_label`/`description` with leading, trailing or doubled space |
 
 `A5` judges a destination **after** `{var:name}` expansion, the way `check-links` does (FS-2733). A
 destination opening with a placeholder that holds an absolute URL reads as a relative path as
@@ -2168,6 +2237,68 @@ Neither rule brings a parser of its own. `scanFences` in `strip-code.mjs` is one
 each fence with both readings of its closer; `codeRegions` takes the offsets it already used and
 `fenceDefects` takes the two closer positions. A rule about where a fence ends cannot disagree with
 the masking that acts on it, which is the whole point of the FS-2729 convergence.
+
+### A14: whitespace noise in title, sidebar_label or description (FS-2747)
+
+`title`, `sidebar_label` and `description` all reach the reader verbatim: `title`/`description`
+become the page's `<title>` tag and `<meta name="description">`, and the same `description` feeds
+the OG and Twitter card `generateMetadata` builds (`app/docs/[[...slug]]/page.tsx`); `sidebar_label`
+becomes the sidebar tree's label text when no `lib/docs-navigation.json` entry names the page. A
+value carrying a leading or trailing space, or a doubled internal space, ships that whitespace into
+whichever of those it feeds.
+
+A `.trim()` in the frontmatter Zod schema (`source.config.ts`) would fix the leading/trailing case
+silently and say nothing about a doubled internal space, which trimming never touches. `A14` reports
+both instead, on the theory that a generated page's whitespace defect belongs fixed at its
+generator, so it survives the next regeneration, rather than papered over at read time on every
+build.
+
+The rule reads the raw frontmatter block off `source`, not the code-stripped `text` every other rule
+but `A6` reads. `stripCode`'s inline-code masking has no notion of a YAML string's quoting: a
+backtick pair inside a frontmatter value, like
+``description: 'a minimal `entrypoint` function'``, gets blanked the same way a real inline code
+span in prose would, and reading that blanked run back would misreport it as a doubled space of its
+own (measured on `content/docs/stylus/stylus-by-example/basic_examples/bytes_in_bytes_out.mdx`
+during this rule's own development). `stripCode` blanks 1:1 and never moves a newline, so an offset
+found in `source` is still valid when handed to `text`-based line-number lookup. A quoted value's
+surrounding `'…'`/`"…"` is stripped before the whitespace check runs. The `[ \t]*` separator right
+after the field name is deliberately greedy and absorbs every space between the colon and the value:
+in real YAML that run is separator, not content, so `title:  x` and `title: x` name the same value
+and neither is flagged; only _trailing_ whitespace and a doubled run in the middle are real.
+
+Whitespace at the **end of the line** is separator too, and comes off before the quoted test runs.
+YAML ends a scalar at the last non-space character of the line, so `description: 'Clean'` followed
+by two spaces holds the value `Clean`, and so does the same line without the quotes (measured
+against a real `js-yaml` parse, and against Prettier, which normalizes neither shape and so lets
+both through `format:check`). Judging the untrimmed line instead failed the quoted test, because the
+line no longer ends in a quote, kept the quote characters inside the value, and reported a value
+with no defect at all as carrying both leading-or-trailing whitespace _and_ a doubled internal
+space. It is still reported, because nothing else in the toolchain removes it, but as its own
+problem with its own wording: `trailing whitespace on the line, outside the value`. The
+doubled-space probe reads the trimmed value for the same naming reason, so a run at the end is
+reported once, as trailing whitespace, rather than sending the writer looking for a space in the
+middle of a string that has none.
+
+Two limits are deliberate. A **folded or literal block scalar** (`description: >` or `| `, with the
+text on the following indented lines) is skipped rather than read: the value is not on the key's
+line at all, and reading the indicator character as the value would be worse than reading nothing.
+There are none in `content/` today, across all 524 files carrying frontmatter, and the frontmatter
+contract gives no reason to reach for one; a writer who does gets no whitespace checking on that
+field. And the rule is **path-agnostic**, so it covers `content/_versions/**` as well: a whitespace
+defect frozen into an archive is a blocking `content:lint` finding whose only fix is editing the
+archive, which then trips `versioned-docs-check.mjs` in turn. That warning is expected in that case,
+not a second defect. No such finding exists today.
+
+Three findings existed when the rule landed. Two were hand-owned pages with a trailing space in
+`description` (`launch-arbitrum-chain/deploy/deploying-an-arbitrum-chain.mdx` and
+`deploying-token-bridge.mdx` in the same directory), fixed by hand. The third was a doubled space in
+`stylus/stylus-by-example/basic_examples/variables.mdx`, a page `pnpm stylus:generate` writes; that
+one is fixed in the generator (`parseMetadata` in `scripts/lib/stylus-examples.mjs` now collapses
+whitespace runs and trims `title`/`description` after reading them), not in the committed `.mdx`,
+because a hand-edit there would be overwritten by the next weekly `stylus` job. The doubled space
+was in upstream's own metadata string verbatim, not introduced by this generator, and normalizing it
+is a whitespace fix rather than the kind of wording change the "Stylus by Example" section above
+says has to be made upstream.
 
 ## The local pre-commit hook
 

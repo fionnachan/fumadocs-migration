@@ -85,6 +85,20 @@
  *       an outer fence documenting an indented inner one) MDX has already ended it early and the
  *       fix is higher up, so the message sends the writer to the rendered page before dedenting.
  *       The scanner is line-based and cannot tell those apart from the source alone.
+ *
+ *   A14 A `title`, `sidebar_label` or `description` frontmatter value with leading or trailing
+ *       whitespace, or a doubled internal space. `description` reaches the reader verbatim in a
+ *       `<meta name="description">` tag and the OG/Twitter card `generateMetadata` builds from it
+ *       (`app/docs/[[...slug]]/page.tsx`), so a doubled space there is a doubled space in a search
+ *       result or a social card, and `title`/`sidebar_label` reach the `<title>` tag and the
+ *       sidebar tree the same way. A Zod `.trim()` in the frontmatter schema (`source.config.ts`)
+ *       would repair the leading/trailing case silently; this rule reports it instead, on the
+ *       theory that a generated page's whitespace defect belongs fixed at its generator (so
+ *       regeneration doesn't reintroduce it) rather than papered over at read time, and a doubled
+ *       internal space, which `.trim()` never touches, needs reporting either way. Checked against
+ *       the raw frontmatter block, not the code-stripped `text` most rules read, because a value
+ *       quoted with `'` or `"` needs to be unwrapped before whitespace inside it means anything,
+ *       and nothing else in this file needs the frontmatter block for that.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -267,6 +281,55 @@ export function lintSource(source) {
         defect.closerStart,
         "fence closer indented more than three columns past its opener. The site's MDX parser ends the fence at this line; CommonMark, and every gate that masks code through strip-code.mjs, does not, so all of them read the lines between as fence body and stop checking them. Align this closer with its opener. If the fence was meant to stay open past this line, read the rendered page before dedenting: MDX has ended it here already, so the real fix is a missing or too-short fence delimiter higher up (the opener as well as the closer, when an outer fence documents an inner one)",
       );
+    }
+  }
+
+  // A14: a title/sidebar_label/description frontmatter value with leading/trailing whitespace or a
+  // doubled internal space. Read from `source`, not `text`: `stripCode`'s inline-code masking
+  // scans the whole file for backtick pairs with no notion of a YAML string's quoting, so a
+  // frontmatter value like `` description: 'a minimal `entrypoint` function' `` comes back from
+  // `stripCode` with `` `entrypoint` `` blanked to spaces, which this rule would misread as a
+  // doubled space of its own. Line numbers still line up: `stripCode` blanks 1:1, never changing
+  // length or newline positions, so an offset found in `source` is valid against `text` too. A
+  // quoted value ('…' or "…") has its quotes stripped before the whitespace check runs, so the
+  // quote characters themselves are never mistaken for the reported whitespace. The `[ \t]*` right
+  // after the field name absorbs every space between the colon and the value on purpose: in real
+  // YAML that run is separator, not content, so `title:  x` and `title: x` name the same value and
+  // neither is a defect (only *trailing* whitespace, and any doubled run in the middle, is real).
+  //
+  // Whitespace at the *end of the line* is separator too, and comes off before the quote test for
+  // the same reason: YAML ends a scalar at the last non-space character of the line, so
+  // `description: 'Clean'` followed by two spaces holds the value `Clean`, and so does
+  // `description: Clean` followed by two spaces (measured, against js-yaml and against Prettier,
+  // which normalizes neither). Judging the untrimmed line instead failed the quote test (the line
+  // no longer ends in a quote), kept the quote characters inside the value, and reported a
+  // "doubled internal space" that was neither internal nor in the value. It is still reported, as
+  // its own problem with its own wording, because nothing else in the toolchain removes it. The
+  // doubled-space probe reads the trimmed value for the same naming reason: a run at the end is
+  // already reported as trailing whitespace, and calling it internal sends the writer looking in
+  // the middle of a string for a space that is not there.
+  //
+  // Not covered: a folded or literal block scalar (`description: >` or `| `, with the text on the
+  // following indented lines). The value is not on this line at all, so the rule skips it rather
+  // than reading the indicator as the value. There are none in `content/` today, and the
+  // frontmatter contract gives no reason to reach for one; see INTERNALS.md for the note.
+  const fmMatch = source.match(/^---\r?\n[\s\S]*?\n---[ \t]*(?:\r?\n|$)/);
+  if (fmMatch) {
+    const fmBlock = fmMatch[0];
+    for (const m of fmBlock.matchAll(/^(title|sidebar_label|description):[ \t]*(.*)$/gm)) {
+      const [, field] = m;
+      const line = m[2].replace(/\r$/, '');
+      const raw = line.replace(/[ \t]+$/, '');
+      if (/^[|>][0-9+-]*$/.test(raw)) continue;
+      const quoted = /^(['"])[\s\S]*\1$/.test(raw);
+      const value = quoted ? raw.slice(1, -1) : raw;
+      const problems = [];
+      if (/^\s|\s$/.test(value)) problems.push('leading or trailing whitespace');
+      if (/ {2,}/.test(value.trim())) problems.push('a doubled internal space');
+      if (raw !== line) problems.push('trailing whitespace on the line, outside the value');
+      if (problems.length) {
+        add('A14', m.index, `${field}: ${problems.join(' and ')}`);
+      }
     }
   }
 
