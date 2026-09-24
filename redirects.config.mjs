@@ -9,8 +9,9 @@
 //     pick a destination.
 //
 // `pnpm move-doc` also retargets every entry in this file whose destination is the moved page, so
-// no entry ever chains through a second redirect. `pnpm test` asserts every internal destination
-// still names a page under content/docs.
+// no entry ever chains through a second redirect, and deletes any entry whose source is the page's
+// new URL, so no entry shadows it. `pnpm test` asserts every internal destination still names a
+// page under content/docs, that no source is a live page, and that no source is listed twice.
 // Listed in this order so a move-doc entry always wins over a legacy one for the same source.
 
 /** @type {{ source: string, destination: string, permanent: boolean }[]} */

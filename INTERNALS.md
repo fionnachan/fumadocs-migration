@@ -1125,9 +1125,9 @@ anything renders, so such a redirect wins over the route and makes it unreachabl
 `/llms*`, `/og`, `/api`, `/img`, the `public/` asset directories and the icon and PDF files are all
 in that category; `redirects:check` reports one as `SHADOWED`.
 
-**Two offline tests pin the file** (`scripts/lib/redirects-config.test.mjs`, run by `pnpm test`):
-every internal destination names a page under `content/docs`, case-sensitively, and no source is
-listed twice. They guard against a hand edit and against a page leaving the tree some other way;
+**Three offline tests pin the file** (`scripts/lib/redirects-config.test.mjs`, run by `pnpm test`):
+every internal destination names a page under `content/docs`, case-sensitively; no source is a
+live page or redirects to itself; and no source is listed twice. They guard against a hand edit and against a page leaving the tree some other way;
 `move-doc` guards against the move.
 
 `pnpm redirects:check` validates every destination against `/llms.txt` — the router's own page

@@ -77,7 +77,8 @@ export function removeEntriesFrom(source, url) {
  * Bring the repo's `redirects.config.mjs` up to date with a page moved from `oldUrl` to `newUrl`:
  * retarget every entry that pointed at the old URL, delete every entry whose source is the new URL,
  * format, and write, unless `dryRun`. Returns human-readable notes for the CLI, and none when
- * nothing needed changing. A partial (no URL) and a move that keeps its URL are no-ops.
+ * nothing was rewritten (the file is still formatted and written, for the entry `appendRedirect`
+ * just added). A partial (no URL) and a move that keeps its URL are no-ops.
  *
  * @param {string} repoRoot
  * @param {string|null} oldUrl
@@ -95,7 +96,6 @@ export async function retargetRedirects(repoRoot, oldUrl, newUrl, dryRun) {
   // and destination values), so the order changes nothing else.
   const cleaned = removeEntriesFrom(readFileSync(configPath, 'utf8'), newUrl);
   const retargeted = retargetDestinations(cleaned.source, oldUrl, newUrl);
-  if (!retargeted.changed && !cleaned.removed.length) return [];
 
   const notes = [];
   if (retargeted.changed) {
@@ -109,6 +109,8 @@ export async function retargetRedirects(repoRoot, oldUrl, newUrl, dryRun) {
     );
   }
 
+  // Written even when nothing was rewritten: `appendRedirect` in move-doc writes its one-line entry
+  // unformatted, so this is what leaves the file passing `format:check` after an append-only move.
   if (!dryRun) {
     const config = await resolveConfig(configPath);
     writeFileSync(configPath, await format(retargeted.source, { ...config, filepath: configPath }));
