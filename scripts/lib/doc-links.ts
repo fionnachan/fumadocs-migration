@@ -20,12 +20,75 @@ import { maskRegions } from './strip-code.mjs';
 
 const posix = path.posix;
 
+/** Where a link was written: a markdown link or definition, a JSX `href`/`to`, or an `<include>`. */
+export type RefSurface = 'markdown' | 'jsx-attr' | 'include';
+
 /**
- * The variable values the site builds with, read once. `scripts/lib/doc-anchors.mjs` already imports
+ * One link occurrence in a source file. `range` indexes the original source for splicing; it is
+ * `null` for a reference that must never be rewritten (a JSX expression attribute, or a
+ * root-anchored `cwd` include), and `skipped` then says which.
+ */
+export type LinkRef =
+  | { surface: RefSurface; rawUrl: string; range: [number, number]; skipped?: undefined }
+  | { surface: RefSurface; rawUrl: string; range: null; skipped: 'expression' | 'cwd' };
+
+/** How a link is written, so a rewrite reproduces the same form. */
+export type LinkStyle = 'include' | 'fileAbs' | 'fileRel' | 'urlAbs' | 'urlRel';
+
+/** A doc file's identity, derived from its path alone. `url` is `null` for a partial. */
+export interface FileMeta {
+  slug: string;
+  url: string | null;
+  partial: boolean;
+}
+
+/** One indexed `.md`/`.mdx` file under `content/docs`. */
+export interface DocFile {
+  abs: string;
+  rel: string;
+  slug: string;
+  url: string | null;
+  content: string;
+  partial: boolean;
+}
+
+/** The docs index `buildIndex` returns. */
+export interface DocIndex {
+  repoRoot: string;
+  docsRoot: string;
+  files: DocFile[];
+  byAbs: Set<string>;
+  slugByAbs: Map<string, string>;
+  urlByAbs: Map<string, string>;
+  byUrl: Map<string, string>;
+}
+
+/** One byte-range replacement for `applyRewrites`. */
+export interface Rewrite {
+  range: [number, number];
+  newText: string;
+}
+
+/** One broken internal link, as `findBrokenLinks` reports it. */
+export interface BrokenLink {
+  file: string;
+  rel: string;
+  line: number;
+  url: string;
+}
+
+/** A parsed `meta.json` and where it lives. `data` is whatever the JSON held. */
+export interface MetaFile {
+  path: string;
+  data: unknown;
+}
+
+/**
+ * The variable values the site builds with, read once. `scripts/lib/doc-anchors.ts` already imports
  * from `lib/` for the same reason: a checker that does not share the site's transforms checks a
  * different document than the one the reader gets.
  */
-let varValues;
+let varValues: Record<string, unknown> | undefined;
 
 /**
  * Resolve a raw link URL the way the reader's browser will see it, by expanding any `{var:name}`
@@ -34,7 +97,7 @@ let varValues;
  * though the built page carries a working URL. Rewriting consumers must not: the written form is
  * what belongs in the file.
  */
-export function expandRefUrl(rawUrl) {
+export function expandRefUrl(rawUrl: string): string {
   if (typeof rawUrl !== 'string' || !rawUrl.includes('{var:')) return rawUrl;
   varValues ??= readVars();
   return expandVarPlaceholders(rawUrl, varValues);
@@ -43,25 +106,25 @@ export function expandRefUrl(rawUrl) {
 export const CONTENT_DIR = path.join('content', 'docs');
 
 /** Convert an OS path to posix separators. */
-export function toPosix(p) {
+export function toPosix(p: string): string {
   return p.split(path.sep).join('/');
 }
 
 /** Collapse duplicate slashes and drop a trailing slash (except the root `/`). */
-export function normalizeUrl(url) {
+export function normalizeUrl(url: string): string {
   let result = url.replace(/\/{2,}/g, '/');
   if (result.length > 1) result = result.replace(/\/$/, '');
   return result === '' ? '/' : result;
 }
 
 /** Ensure a relative path is explicitly relative (`./x`, not `x`). */
-function dotSlash(rel) {
+function dotSlash(rel: string): string {
   if (rel === '') return './';
   return rel.startsWith('.') ? rel : './' + rel;
 }
 
 /** Split a raw URL into its path part and the trailing `#anchor`/`?query` suffix. */
-export function splitSuffix(rawUrl) {
+export function splitSuffix(rawUrl: string): { pathPart: string; suffix: string } {
   const i = rawUrl.search(/[#?]/);
   return i < 0
     ? { pathPart: rawUrl, suffix: '' }
@@ -69,7 +132,7 @@ export function splitSuffix(rawUrl) {
 }
 
 /** True when a link points outside the docs tree (protocol, scheme-relative, or fragment-only). */
-export function isExternalOrFragment(pathPart) {
+export function isExternalOrFragment(pathPart: string): boolean {
   return (
     pathPart.length === 0 ||
     pathPart.startsWith('#') ||
@@ -88,7 +151,7 @@ export function isExternalOrFragment(pathPart) {
 export { isPartial };
 
 /** Slug segments for a doc: path minus extension, trailing `index` dropped. */
-function computeSlug(pathSegs) {
+function computeSlug(pathSegs: string[]): string {
   const segs = pathSegs.slice();
   if (segs.length === 0) return '';
   segs[segs.length - 1] = segs[segs.length - 1].replace(/\.mdx?$/i, '');
@@ -97,7 +160,7 @@ function computeSlug(pathSegs) {
 }
 
 /** The site URL for a slug. */
-function buildUrl(slug) {
+function buildUrl(slug: string): string {
   return normalizeUrl('/docs' + (slug ? '/' + slug : ''));
 }
 
@@ -105,7 +168,7 @@ function buildUrl(slug) {
  * Derive a doc file's slug, URL, and partial flag from its path — works for a file that does not
  * exist yet (a move target), so callers can compute the destination's identity up front.
  */
-export function computeFileMeta(docsRoot, abs) {
+export function computeFileMeta(docsRoot: string, abs: string): FileMeta {
   const segs = toPosix(path.relative(docsRoot, abs)).split('/').filter(Boolean);
   const slug = computeSlug(segs);
   const partial = isPartial(abs);
@@ -115,20 +178,20 @@ export function computeFileMeta(docsRoot, abs) {
 /**
  * Build the docs index for a repo.
  *
- * @param {string} repoRoot Absolute repo root.
+ * @param repoRoot Absolute repo root.
  * @returns index with `files[]`, `byAbs`, `slugByAbs`, `urlByAbs`, `byUrl`.
  */
-export function buildIndex(repoRoot) {
+export function buildIndex(repoRoot: string): DocIndex {
   const docsRoot = path.join(repoRoot, CONTENT_DIR);
-  const rels = readdirSync(docsRoot, { recursive: true })
+  const rels = readdirSync(docsRoot, { recursive: true, encoding: 'utf8' })
     .map((r) => toPosix(r))
     .filter((r) => /\.mdx?$/i.test(r));
 
-  const files = [];
-  const byAbs = new Set();
-  const slugByAbs = new Map();
-  const urlByAbs = new Map();
-  const byUrl = new Map();
+  const files: DocFile[] = [];
+  const byAbs = new Set<string>();
+  const slugByAbs = new Map<string, string>();
+  const urlByAbs = new Map<string, string>();
+  const byUrl = new Map<string, string>();
 
   for (const relFromDocs of rels) {
     const abs = path.join(docsRoot, relFromDocs);
@@ -176,12 +239,10 @@ export function buildIndex(repoRoot) {
  * Surfaces: markdown inline links, markdown link definitions, JSX `href`/`to` string attributes,
  * and `<include>` directives. JSX expression attrs (`href={…}`) are flagged (range `null`), not
  * rewritten. ESM imports are ignored — they reference code modules, never docs.
- *
- * @returns {Array<{surface:string, rawUrl:string, range:[number,number]|null, skipped?:string}>}
  */
-export function extractRefs(source) {
+export function extractRefs(source: string): LinkRef[] {
   const masked = maskRegions(source);
-  const refs = [];
+  const refs: LinkRef[] = [];
 
   const mdInline = /\]\(\s*(<[^>\n]*>|[^)\s]+)(?:\s+"[^"\n]*"|\s+'[^'\n]*')?\s*\)/g;
   for (let m; (m = mdInline.exec(masked));) {
@@ -239,7 +300,7 @@ export function extractRefs(source) {
 /**
  * Resolve a link's raw URL to the absolute doc file it points at, or `null` if external/unresolvable.
  */
-export function resolveRefToFile(rawUrl, fromAbs, index) {
+export function resolveRefToFile(rawUrl: string, fromAbs: string, index: DocIndex): string | null {
   const { pathPart } = splitSuffix(expandRefUrl(rawUrl));
   if (isExternalOrFragment(pathPart)) return null;
 
@@ -273,7 +334,7 @@ export function resolveRefToFile(rawUrl, fromAbs, index) {
  * route tree, never against the static root, so `audit-reports/x.pdf` written on `/docs/audit-reports`
  * really is a 404 and must keep being reported.
  */
-export function resolvesToPublicAsset(pathPart, repoRoot) {
+export function resolvesToPublicAsset(pathPart: string, repoRoot: string): boolean {
   if (!pathPart.startsWith('/')) return false;
 
   const publicRoot = path.join(repoRoot, 'public');
@@ -287,7 +348,7 @@ export function resolvesToPublicAsset(pathPart, repoRoot) {
 }
 
 /** Classify how a link is written, so a rewrite reproduces the same form. */
-export function detectStyle(pathPart, surface) {
+export function detectStyle(pathPart: string, surface: RefSurface): LinkStyle {
   if (surface === 'include') return 'include';
   const abs = pathPart.startsWith('/');
   if (/\.mdx?$/i.test(pathPart)) return abs ? 'fileAbs' : 'fileRel';
@@ -298,13 +359,22 @@ export function detectStyle(pathPart, surface) {
  * Render a link to `targetAbs` from `containerAbs` in `style`, preserving the written form.
  * Returns `null` when the style cannot be rendered (e.g. a relative URL link with no container URL).
  */
-export function renderRef(style, targetAbs, containerAbs, originalPathPart, index) {
+export function renderRef(
+  style: LinkStyle,
+  targetAbs: string,
+  containerAbs: string,
+  originalPathPart: string,
+  index: DocIndex,
+): string | null {
   switch (style) {
     case 'include':
     case 'fileRel':
       return dotSlash(toPosix(path.relative(path.dirname(containerAbs), targetAbs)));
     case 'fileAbs': {
-      const ext = originalPathPart.match(/\.mdx?$/i)[0];
+      // `detectStyle` returns `fileAbs` only for a path ending in `.md`/`.mdx`, so this always
+      // matches; the throw stands where indexing a null match used to throw a TypeError.
+      const ext = originalPathPart.match(/\.mdx?$/i)?.[0];
+      if (ext === undefined) throw new Error(`renderRef: not a file link: ${originalPathPart}`);
       const { url } = computeFileMeta(index.docsRoot, targetAbs);
       return url === null ? null : url + ext;
     }
@@ -322,7 +392,7 @@ export function renderRef(style, targetAbs, containerAbs, originalPathPart, inde
 }
 
 /** Apply byte-range replacements to a source string, back-to-front so offsets stay valid. */
-export function applyRewrites(source, rewrites) {
+export function applyRewrites(source: string, rewrites: readonly Rewrite[]): string {
   const ordered = [...rewrites].sort((a, b) => b.range[0] - a.range[0]);
   let result = source;
   for (const { range, newText } of ordered) {
@@ -332,7 +402,7 @@ export function applyRewrites(source, rewrites) {
 }
 
 /** 1-based line number of a byte offset. */
-export function lineAt(content, offset) {
+export function lineAt(content: string, offset: number): number {
   let line = 1;
   for (let i = 0; i < offset && i < content.length; i++) if (content[i] === '\n') line++;
   return line;
@@ -343,11 +413,9 @@ export function lineAt(content, offset) {
  * that resolves to no existing file, or that carries a literal `.md`/`.mdx` suffix (always 404s at
  * runtime even though it resolves once the extension is stripped — see the inline comment below).
  * Relative-URL links inside partials are skipped (no fixed URL).
- *
- * @returns {Array<{file:string, rel:string, line:number, url:string}>}
  */
-export function findBrokenLinks(index) {
-  const broken = [];
+export function findBrokenLinks(index: DocIndex): BrokenLink[] {
+  const broken: BrokenLink[] = [];
   for (const file of index.files) {
     for (const ref of extractRefs(file.content)) {
       if (ref.range === null) continue;
@@ -382,7 +450,7 @@ export function findBrokenLinks(index) {
 }
 
 /** Read a directory's `meta.json`, or `null` if absent/unparseable. */
-export function readMeta(dirAbs) {
+export function readMeta(dirAbs: string): MetaFile | null {
   const metaPath = path.join(dirAbs, 'meta.json');
   if (!existsSync(metaPath)) return null;
   try {
@@ -393,11 +461,11 @@ export function readMeta(dirAbs) {
 }
 
 /** True when a `pages` array delegates to the rest-glob `...` (order is not fully explicit). */
-export function pagesHasRest(pages) {
+export function pagesHasRest(pages: unknown): boolean {
   return Array.isArray(pages) && pages.some((p) => p === '...' || p === 'z...a');
 }
 
 /** Serialize meta data with 2-space indent + trailing newline (matches repo style). */
-export function stringifyMeta(data) {
+export function stringifyMeta(data: unknown): string {
   return JSON.stringify(data, null, 2) + '\n';
 }

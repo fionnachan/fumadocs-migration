@@ -11,7 +11,7 @@ import {
   extractRefs,
   resolveRefToFile,
   resolvesToPublicAsset,
-} from './lib/doc-links.mjs';
+} from './lib/doc-links.ts';
 
 test('link extraction preserves source ranges after Unicode frontmatter and prose', () => {
   const source =
@@ -23,6 +23,7 @@ test('link extraction preserves source ranges after Unicode frontmatter and pros
     ['./first', './second'],
   );
   for (const ref of refs) {
+    assert.ok(ref.range, 'a markdown link always carries a range');
     assert.equal(source.slice(...ref.range), ref.rawUrl);
   }
 });
@@ -49,7 +50,7 @@ test('link extraction ignores nested fences and multi-backtick code spans', () =
 });
 
 /** A throwaway repo root with a `public/` tree, so these tests never depend on repo state. */
-function fixture() {
+function fixture(): string {
   const root = mkdtempSync(path.join(tmpdir(), 'doc-links-public-'));
   mkdirSync(path.join(root, 'public', 'audit-reports'), { recursive: true });
   writeFileSync(path.join(root, 'public', 'audit-reports', 'report.pdf'), '%PDF-1.4');
@@ -93,7 +94,7 @@ test('a directory is not a servable asset', () => {
  * A throwaway repo root holding two doc pages, the second of them under a directory named after a
  * real variable value, so a link written with a placeholder has something to resolve to.
  */
-function varFixture(segment) {
+function varFixture(segment: string): { root: string; fromAbs: string } {
   const root = mkdtempSync(path.join(tmpdir(), 'doc-links-vars-'));
   const docsRoot = path.join(root, 'content', 'docs');
   mkdirSync(path.join(docsRoot, segment), { recursive: true });

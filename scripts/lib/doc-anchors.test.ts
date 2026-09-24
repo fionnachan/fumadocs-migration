@@ -3,13 +3,13 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { test } from 'node:test';
+import { type TestContext, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { createAnchorCompiler, findBrokenAnchors } from './doc-anchors.mjs';
-import { buildIndex } from './doc-links.mjs';
+import { createAnchorCompiler, findBrokenAnchors } from './doc-anchors.ts';
+import { buildIndex } from './doc-links.ts';
 
-function fixture(t, files) {
+function fixture(t: TestContext, files: Record<string, string>): string {
   const root = mkdtempSync(path.join(tmpdir(), 'doc-anchors-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   for (const [rel, content] of Object.entries(files)) {
@@ -133,8 +133,8 @@ test('section includes and repeated includes follow the Fumadocs include plugin'
 
 test('check-links blocks missing fragments, keeps JSON mode, and fails on compilation errors', (t) => {
   const root = fixture(t, { 'content/docs/page.mdx': '## Existing\n\n[bad](#missing)' });
-  const cli = fileURLToPath(new URL('../check-links.mjs', import.meta.url));
-  const run = (...args) =>
+  const cli = fileURLToPath(new URL('../check-links.ts', import.meta.url));
+  const run = (...args: string[]) =>
     spawnSync(process.execPath, [cli, ...args], { cwd: root, encoding: 'utf8' });
   const broken = run();
   assert.equal(broken.status, 1);
