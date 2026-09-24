@@ -15,7 +15,7 @@ pnpm install      # runs a postinstall that generates .source/
 pnpm dev          # http://localhost:3000
 ```
 
-Node `22.x` (`>=22 <23`, enforced by `engines`) and pnpm 10. Other Node majors are rejected.
+Node `22.x` (`>=22.18 <23`, enforced by `engines`; every script is a `.ts` file Node runs directly) and pnpm 10. Other Node majors are rejected.
 
 **Browse on `localhost:3000`, not `127.0.0.1`** — on `127.0.0.1` React does not hydrate and every
 component looks broken, which is a common false alarm when checking a content change.
@@ -44,7 +44,7 @@ sidebar, but only if the page has no explicit `name` in `lib/docs-navigation.jso
 `sidebar_label`.
 
 **If you are porting a page a legacy redirect is waiting for, retarget the redirect.** Two legacy
-`docs.arbitrum.io` URLs in `redirects.config.mjs` point at a section landing because the page they
+`docs.arbitrum.io` URLs in `redirects.config.ts` point at a section landing because the page they
 asked for was never ported; each carries a comment saying so. Nothing automated notices when the
 page lands, so if yours is that page, point its entry at your page in the same PR. If yours merely
 shares the title (the upstream titles are short generic nouns such as "Sequencer"), leave the
@@ -186,11 +186,11 @@ pnpm move-doc <from> <to>
 
 This rewrites every internal link that pointed at the old path (in whatever form it was written —
 absolute, relative, `.mdx`-suffixed, `<include>`), moves the file with `git mv`, updates the
-surrounding `meta.json`, and records the redirect in `redirects.config.mjs` for you. **Never
-hand-edit between the `AUTO-GENERATED` markers in `redirects.config.mjs`**, since `move-doc` owns that
+surrounding `meta.json`, and records the redirect in `redirects.config.ts` for you. **Never
+hand-edit between the `AUTO-GENERATED` markers in `redirects.config.ts`**, since `move-doc` owns that
 block. Use `--dry-run` first to preview the changes, and confirm afterward with `pnpm check-links`.
 
-`move-doc` also retargets every other entry in `redirects.config.mjs` that pointed at the old URL,
+`move-doc` also retargets every other entry in `redirects.config.ts` that pointed at the old URL,
 including the legacy `docs.arbitrum.io` entries after the markers, so nothing chains, and removes
 any entry that redirected away from the new URL, so nothing shadows the page. Those legacy
 entries are hand-maintained: add one by editing the file directly, in source order, then prove the
@@ -209,7 +209,7 @@ pnpm check-links       # broken internal doc links and MDX fragments
 ```
 
 These seven are the ones a content change usually trips. `.github/workflows/ci.yml`'s blocking
-`Gates` job runs them alongside `versioned-docs-check.mjs`, `faq:check`, `images:presence`,
+`Gates` job runs them alongside `versioned-docs-check.ts`, `faq:check`, `images:presence`,
 `contracts:check`, `format:check` and `content:lint`.
 
 **A second job blocks too.** `Build` runs `pnpm build`, then serves the result and checks it over

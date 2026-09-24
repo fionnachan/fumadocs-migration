@@ -1,5 +1,5 @@
 import vars from '../content/vars.json' with { type: 'json' };
-import { localSiteUrl, resolveSiteUrl } from './site-url.mjs';
+import { localSiteUrl, resolveSiteUrl } from './site-url.ts';
 
 export const appName = 'Arbitrum docs';
 /**
@@ -37,8 +37,8 @@ export { localSiteUrl };
  * split only offered a way for the halves to disagree.
  *
  * The JSON is imported with an explicit `with { type: 'json' }` attribute, and `content/vars.ts`
- * is deliberately not imported instead. Two reasons, and both are load-bearing. `scripts/lib/shared.test.mjs`
- * and `scripts/static-docs-http.test.mjs` import this module as `.ts` under `node --test`, where
+ * is deliberately not imported instead. Two reasons, and both are load-bearing. `scripts/lib/shared.test.ts`
+ * and `scripts/static-docs-http.test.ts` import this module as `.ts` under `node --test`, where
  * Node strips the types but still rejects a bare JSON import with `ERR_IMPORT_ATTRIBUTE_MISSING`;
  * and `content/vars.ts` pulls in Zod, which this module must keep away from the client bundle,
  * since `components/sidebar-resource-links.tsx` is a client component that imports from here.
@@ -51,7 +51,7 @@ export const gitConfig = {
 /**
  * The cross-section links pinned in the sidebar footer on every docs page
  * (`components/sidebar-resource-links.tsx`). Kept here, not inline in that `.tsx` file, so
- * `scripts/lib/shared.test.mjs` can assert each `url` still resolves to a real page under
+ * `scripts/lib/shared.test.ts` can assert each `url` still resolves to a real page under
  * `content/docs`. `check-links` walks MDX only, and `pnpm move-doc` does not retarget a `.tsx`
  * file, so without that test a deleted or renamed page would leave a silent 404 in every section
  * sidebar. Same ungated shape `announcementLinkHref` has, which earned its own `vars:check` rule.
@@ -66,14 +66,14 @@ export const sidebarResourceLinks = [
  * The absolute origin this site is served from, for `metadataBase`, canonical URLs, and anything
  * else that must be absolute.
  *
- * The rule itself lives in `lib/site-url.mjs`, in plain JavaScript, because `next.config.mjs` has
- * to apply the same rule and cannot import TypeScript. That module's comment explains why the
- * split exists and why the config file is the copy that enforces. This is the app-facing name for
- * it, bound to `process.env`.
+ * The rule itself lives in `lib/site-url.ts`, because `next.config.ts` has to apply the same rule
+ * before any app code is compiled (Next transpiles the config and the `.ts` files it imports on its
+ * own). That module's comment explains why the split exists and why the config file is the copy
+ * that enforces. This is the app-facing name for it, bound to `process.env`.
  *
  * Callers that want the failure at build time must call it at module scope, as `app/layout.tsx`
  * does. A call inside a request handler only fails that request, and by then the build is already
- * deployed, so `next.config.mjs` is the real gate.
+ * deployed, so `next.config.ts` is the real gate.
  *
  * Deliberately imports nothing but the rule, so `app/sitemap.ts` and `app/robots.ts` can adopt it
  * without dragging `lib/source` (and the compiled collection) anywhere near a client bundle.

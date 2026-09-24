@@ -100,7 +100,7 @@ jobs:
               interfaces and Go implementations at the pinned refs
             - `content/partials/_reference-arbitrum-contract-addresses-partial.mdx`:
               regenerated from the `@arbitrum/sdk` network registry plus
-              `scripts/data/contract-addresses.data.mjs`
+              `scripts/data/contract-addresses.data.ts`
             - `content/docs/run-a-node/nitro/cli-flags-reference.mdx`: the region between the
               `GENERATED` markers, read from the Nitro source at the pinned tag
 
@@ -121,7 +121,7 @@ jobs:
   # The two need different reviewers anyway — this one is a content change.
   #
   # No pin: stylus-by-example publishes no releases and this site has always tracked its default
-  # branch, so the generator clones that. See the header of scripts/generate-stylus-examples.mjs
+  # branch, so the generator clones that. See the header of scripts/generate-stylus-examples.ts
   # for why `stylus:check` is deliberately not a CI gate.
   #
   # It runs the blocking gates itself, between the generator and the PR, because a PR opened with
@@ -188,7 +188,7 @@ jobs:
         run: pnpm partials:check
 
       - name: Archived page registry
-        run: node scripts/versioned-docs-check.mjs
+        run: node scripts/versioned-docs-check.ts
 
       - name: Glossary references resolve
         run: pnpm references:check
@@ -241,7 +241,7 @@ jobs:
             exit 1
           fi
           pnpm redirects:check
-          STATIC_DOCS_TEST_URL=http://localhost:3000 node --test scripts/static-docs-http.test.mjs
+          STATIC_DOCS_TEST_URL=http://localhost:3000 node --test scripts/static-docs-http.test.ts
 
       # zizmor: ignore[superfluous-actions]
       # Same reasoning as the `refresh` job: create-pull-request owns the branch/commit/push
@@ -262,7 +262,7 @@ jobs:
             These pages are generated. Review this as a content change to upstream's examples,
             not as an edit to this repo: anything wrong here has to be fixed in
             `offchainlabs/stylus-by-example`, or in
-            `scripts/data/stylus-examples.data.mjs` if the published set is what is wrong.
+            `scripts/data/stylus-examples.data.ts` if the published set is what is wrong.
 
             Reproduce locally with `pnpm stylus:generate`. Check the run log for upstream
             examples this site does not publish — that list is the only notice anyone gets
