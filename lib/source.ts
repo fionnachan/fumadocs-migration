@@ -67,7 +67,7 @@ export interface ResolvedDocsPath {
  *
  * **A real page always wins.** `/docs/a/b` is only reinterpreted as archive `b` of page `a` when no
  * page exists at `a/b`, so an archive id can never shadow a child page;
- * `scripts/versions-routing.test.mjs` separately asserts that no such collision exists.
+ * `scripts/versions-routing.test.ts` separately asserts that no such collision exists.
  *
  * It lives here rather than in either consumer because the docs page and the markdown route both
  * answer the same URL space and have to agree about what a path means. Returns `undefined` for a

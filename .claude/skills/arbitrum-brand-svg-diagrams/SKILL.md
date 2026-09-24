@@ -34,7 +34,7 @@ and the body disagree, this section wins.
 | `static/data/`                                    | `public/data/`                                                                                                         |
 | `docs/**`, `docs/how-arbitrum-works/**`           | `content/docs/**`, `content/docs/how-arbitrum-works/**`                                                                |
 | `yarn build`                                      | `pnpm build`                                                                                                           |
-| `yarn svgo --config svgo.config.mjs <file>`       | `pnpm dlx svgo --config svgo.config.mjs <file>` — `svgo` is not a dependency here, so `pnpm svgo` will not resolve     |
+| `yarn svgo --config svgo.config.ts <file>`        | `pnpm dlx svgo --config svgo.config.ts <file>` — `svgo` is not a dependency here, so `pnpm svgo` will not resolve      |
 | `npx prettier --write docs/path/to/page.mdx`      | nothing. `.prettierignore` excludes `**/*.mdx`, so Prettier does not format MDX in this repo                           |
 | `markdownlint --config .markdownlint.json`        | `pnpm content:lint`. There is no markdownlint here                                                                     |
 | the `@mdx-js/mdx` compile check                   | `pnpm types:check`, then confirm the render at `http://localhost:3000` (not `127.0.0.1`, where React does not hydrate) |
@@ -59,7 +59,7 @@ Four things in the body have **no** local equivalent at all:
 
 What still applies as written: the three helpers under
 `.claude/skills/arbitrum-brand-svg-diagrams/tools/` and the three SVGs under `assets/` are
-in this repo at exactly those paths, and the tools need only `python3`. `svgo.config.mjs`
+in this repo at exactly those paths, and the tools need only `python3`. `svgo.config.ts`
 is here too, at the repo root. The companion hook `.claude/hooks/optimize-svg.sh` is
 present but **inert**: `svgo` is not a dependency and the hook is registered in no settings
 file, so nothing optimizes an SVG automatically. Run svgo by hand.

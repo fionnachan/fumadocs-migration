@@ -13,7 +13,7 @@ import { docsContentRoute, docsRoute, getSiteUrl } from '@/lib/shared';
 // traced proxy closure from 1.7 MB to 28 MB, with a 26.6 MB chunk parsed on every cold start
 // (measured, see INTERNALS, "Static routing under /docs").
 import { VERSION_PARAM, isArchiveId } from '@/lib/versions-constants';
-import { redirects } from '@/redirects.config.mjs';
+import { redirects } from '@/redirects.config';
 
 // `lib/llms-tracking.ts` keeps its own copies of these two constants so it stays import-free and
 // therefore directly testable under plain `node --test` (see the comment at the top of that file).
@@ -106,9 +106,9 @@ function trackRequest(request: NextRequest, event: NextFetchEvent, path: string)
         // The configured origin, not `request.nextUrl.origin`. A production deployment answers on
         // its `*.vercel.app` alias as well as on the custom domain, so the request origin would
         // record two different `$current_url` values for one page and split the series. This is
-        // also the one helper that owns the site-URL rule (`lib/site-url.mjs`), so reading the
+        // also the one helper that owns the site-URL rule (`lib/site-url.ts`), so reading the
         // variable here by hand would put a second consumer outside it. It throws when the
-        // variable is unset in production, which `next.config.mjs` already refuses to build
+        // variable is unset in production, which `next.config.ts` already refuses to build
         // without; the `try` below contains that throw either way.
         siteUrl: getSiteUrl(),
       })

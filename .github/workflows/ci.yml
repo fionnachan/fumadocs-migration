@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # Depth 2, not the default 1, for `versioned-docs-check.mjs` below (FS-2747). On a
+          # Depth 2, not the default 1, for `versioned-docs-check.ts` below (FS-2747). On a
           # `pull_request` run this checks out the synthetic merge commit, whose first parent is
           # the base branch's tip, so depth 2 keeps that parent and the script can diff the two
           # without a network call. Depth 1 grafts HEAD parentless, which is what made the check
@@ -55,7 +55,7 @@ jobs:
         run: pnpm partials:check
 
       - name: Archived page registry
-        run: node scripts/versioned-docs-check.mjs
+        run: node scripts/versioned-docs-check.ts
 
       - name: Glossary references resolve
         run: pnpm references:check
@@ -167,7 +167,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # `pnpm build` runs `versioned-docs-check.mjs` first, so this job needs the same depth
+          # `pnpm build` runs `versioned-docs-check.ts` first, so this job needs the same depth
           # the `Gates` checkout takes, and for the same reason. See the comment there.
           fetch-depth: 2
 
@@ -208,4 +208,4 @@ jobs:
             exit 1
           fi
           pnpm redirects:check
-          STATIC_DOCS_TEST_URL=http://localhost:3000 node --test scripts/static-docs-http.test.mjs
+          STATIC_DOCS_TEST_URL=http://localhost:3000 node --test scripts/static-docs-http.test.ts

@@ -29,6 +29,7 @@ governs it. `CLAUDE.md` is machine-facing and duplicates parts of this file for 
 - [Remote images are never fetched at build](#remote-images-are-never-fetched-at-build)
 - [Page weight and what loads late](#page-weight-and-what-loads-late)
 - [The Node runtime](#the-node-runtime)
+- [Scripts are TypeScript, run by Node](#scripts-are-typescript-run-by-node)
 - [Analytics](#analytics)
 - [The gates](#the-gates) (including [Generated pages](#generated-pages) and
   [Stylus by Example](#stylus-by-example))
@@ -106,7 +107,7 @@ so the differences that actually cause mistakes are worth keeping written down:
 
 | Docusaurus                                          | Here                                                                |
 | --------------------------------------------------- | ------------------------------------------------------------------- |
-| `docusaurus.config.js`, presets, plugins            | `next.config.mjs` + `source.config.ts`; no plugin system            |
+| `docusaurus.config.js`, presets, plugins            | `next.config.ts` + `source.config.ts`; no plugin system             |
 | `sidebars.js` — one global file                     | A `meta.json` per directory                                         |
 | Swizzling to override a theme component             | Edit the component; it is your code                                 |
 | `onBrokenLinks: 'throw'`                            | Nothing built in — hence `check-links`, see [The gates](#the-gates) |
@@ -117,7 +118,7 @@ so the differences that actually cause mistakes are worth keeping written down:
 
 The numeric-prefix rule was the sharpest edge when porting URLs: a path that Docusaurus served at
 `/foo/bar` serves at `/02-foo/bar` here unless the directory is renamed or a redirect is added. It
-is why `redirects.legacy.mjs` exists, and it still decides where a hand-added legacy redirect should
+is why `redirects.legacy.ts` exists, and it still decides where a hand-added legacy redirect should
 point.
 
 `@fumadocs/cli` exists but only **installs UI components**. It does not move, rename, or restructure
@@ -161,26 +162,26 @@ and nothing else reads content. The constraints that follow are deliberate:
 `fumadocs-mdx` builds one processor per collection and appends its own postprocess plugin last
 (`remarkPlugins: [remarkInclude, ...mdxOptions.remarkPlugins, [remarkPostprocess, …]]`), and that
 plugin calls `remarkLLMs` on the tree the page compile is about to turn into JSX. So a remark plugin
-listed in `lib/mdx-options.mjs` runs after includes are spliced in and before the mirror is written,
+listed in `lib/mdx-options.ts` runs after includes are spliced in and before the mirror is written,
 and it cannot tell which output it is feeding: the fork is downstream of every plugin the site owns.
 
 **MDX comments are stripped from that output, deliberately (FS-2732).** `{/* … */}` renders as
 nothing, so it was never in the HTML, but it is an expression node in that shared tree and
 `remarkLLMs` wrote it back out verbatim: 100 comments reached `/llms-full.txt`, three reached
 `/docs/contribute.md`, two reached an archive mirror. `remarkStripMdxComments` in
-`lib/mdx-comments.mjs` now deletes every expression node whose parsed program has no statements and
+`lib/mdx-comments.ts` now deletes every expression node whose parsed program has no statements and
 at least one comment, wherever it sits, including inside a JSX element's children. A comment is not
 content: every one of them is addressed to somebody editing the `.mdx` file, which is the one file
 the mirror's reader does not have. That holds for the do-not-edit banners too, which name a `pnpm`
 script in a checkout that reader never sees, and no generator reads a marker back out of a mirror
 (`cli:generate`, `stylus:generate`, `precompiles:generate` and `nitro:check-release` all read the
 raw file from disk). A comment written inside a fenced block or an inline code span is never an
-expression node, so it is served exactly as written. The plugin sits in `lib/mdx-options.mjs` rather
+expression node, so it is served exactly as written. The plugin sits in `lib/mdx-options.ts` rather
 than in `postprocess`, because the page compile loses only an invisible newline per comment (each
 one rendered as an empty JSX expression plus a `"\n"` text child), because that module is shared
 with `check-links`, and because `postprocess` would have to state it once per collection.
-`scripts/lib/mdx-comments.test.mjs` runs the real processor plus the real `remarkLLMs`;
-`scripts/static-docs-http.test.mjs` asserts a page mirror, an archive mirror and `llms-full.txt` all
+`scripts/lib/mdx-comments.test.ts` runs the real processor plus the real `remarkLLMs`;
+`scripts/static-docs-http.test.ts` asserts a page mirror, an archive mirror and `llms-full.txt` all
 come back with no `{/*` in them.
 
 **`lib/source` is server-only.** Never import it, or a constant that transitively pulls it, from a
@@ -259,7 +260,7 @@ look, which is why one `page` entry per URL is a rule rather than a preference. 
 under two root folders gets the inner one, since that is the last on the chain.
 
 Two places in the repository lean on this rule: the `owner()` helper in
-`scripts/docs-navigation.test.mjs` re-implements it to assert one section owner per page, and the
+`scripts/docs-navigation.test.ts` re-implements it to assert one section owner per page, and the
 `tabs={false}` comment in `app/docs/layout.tsx` states it in words. A third used to, the comment
 above `nav:check`'s root-coverage rule, and went with that rule in FS-2751.
 
@@ -328,7 +329,7 @@ one group.
 A page in a directory that **no** `sourceFolders` list covers is still reachable, but it is
 appended to the top of the tree beside the sections rather than inside one, so it gets no section
 root and no section sidebar. `content/docs/index.mdx` already sits there by design, because the
-docs index is the section list, and `SECTIONLESS_BY_DESIGN` in `scripts/lib/nav.mjs` is that
+docs index is the section list, and `SECTIONLESS_BY_DESIGN` in `scripts/lib/nav.ts` is that
 exemption. A new top-level directory that nobody adds to a `sourceFolders` array lands in the same
 place, and since FS-2751 `pnpm nav:check` reports it. Measured, with a `scratch-zone` directory
 holding one page and a loose `loose-probe.mdx` at the top of `content/docs`: the rendered tree's
@@ -359,7 +360,7 @@ section's tree, as the Docusaurus site behaved.
 The footer pins Chain info, Glossary and Contribute below every section tree, matching the original
 section menus. `SidebarResourceLinks` is passed as a component so the notebook layout's hidden
 footer wrapper does not hide the links on desktop. Its links live in `lib/shared.ts` and
-`scripts/lib/shared.test.mjs` asserts each resolves to a real page.
+`scripts/lib/shared.test.ts` asserts each resolves to a real page.
 
 ### `"root": true` is gone from `content/docs` (FS-2751)
 
@@ -423,7 +424,7 @@ not reason from which failure you can see.
 
 So the rule stands: never write a `[Title](/docs/…)` entry pointing at a page in this repo. It
 applies to all three shapes Fumadocs accepts, `[Title](/docs/…)`, `[Icon][Title](/docs/…)` and
-`external:[Title](/docs/…)`, which `LINK_ENTRY` in `scripts/lib/nav.mjs` matches with the regex
+`external:[Title](/docs/…)`, which `LINK_ENTRY` in `scripts/lib/nav.ts` matches with the regex
 copied from `fumadocs-core`. Reference the page as `"../name"` from the one folder that should hold
 it, or link to it with an `href` entry in the manifest.
 
@@ -452,7 +453,7 @@ Six rules, none of them visible to `types:check` or `build`:
 1. **Ghost entries.** A `pages` entry naming nothing on disk, which Fumadocs ignores in silence.
 2. **Hidden pages.** A file on disk that no `pages` entry and no `"..."` lets through.
 3. **Section coverage** (FS-2751), in four reports from one pass. `checkSections` in
-   `scripts/lib/nav.mjs` models fumadocs-core's `own()` to work out which directory owns each page
+   `scripts/lib/nav.ts` models fumadocs-core's `own()` to work out which directory owns each page
    and each folder, then asks whether that chain of claims reaches a directory some section names in
    `sourceFolders`, which is the set `buildDocsNavigation` sweeps for leftovers. It reports a
    `sourceFolders` entry that will not resolve to a folder node (the transformer throws on this, so
@@ -476,12 +477,12 @@ Six rules, none of them visible to `types:check` or `build`:
    means one entry names a page it does not open while the page it was meant to name falls into
    Additional guides (FS-2740). A URL claimed twice is a URL on two nodes, and
    [How a page gets its sidebar](#how-a-page-gets-its-sidebar) is why only one of them is ever
-   found. The rule lives in `lib/docs-navigation-rules.mjs` and both
+   found. The rule lives in `lib/docs-navigation-rules.ts` and both
    `buildDocsNavigation` and the gate import it, so a duplicate throws in a dev server as well as in
    CI. A repeated `href` is exempt, because a shortcut claims nothing.
 6. **Section landings** (FS-2749). A `page` entry claiming any section's landing URL, its own or
    another's, which rule 5 cannot see because the landing node is derived rather than listed. `sectionLandingClaims`
-   sits beside the duplicate rule in `lib/docs-navigation-rules.mjs` and the transformer imports it
+   sits beside the duplicate rule in `lib/docs-navigation-rules.ts` and the transformer imports it
    too, and it checks every section's landing against every section's `children`, because a `page`
    entry in one section naming another's landing builds the identical two-node defect. The rule is
    exact with no content tree, because the landing node exists whenever `/docs/<section id>` exists.
@@ -520,14 +521,12 @@ landing derives, so `searchPath` reached the `children` copy and the landing nod
 looked at. That entry is now an `href`, which builds a display-only separator claiming nothing, so
 the sidebar keeps the row a reader clicks while the page keeps one node.
 
-The gate cannot run this check: `scripts/nav-check.mjs` is plain Node and importing
-`lib/docs-navigation.ts` prints a `MODULE_TYPELESS_PACKAGE_JSON` warning onto its stderr, for the
-reason the header of `lib/docs-navigation-rules.mjs` gives. It does not need to. `pnpm test` is a
-blocking gate and `scripts/docs-navigation.test.mjs` already builds the real content through the
+The gate does not run this check, and does not need to. `pnpm test` is a
+blocking gate and `scripts/docs-navigation.test.ts` already builds the real content through the
 real transformer, so the check runs there, on the real tree, with no model of `copyFolder` to drift
 against. `pnpm build` and `pnpm dev` fail on it too.
 
-`scripts/docs-navigation.test.mjs` loads the real content through Fumadocs and asserts the finished
+`scripts/docs-navigation.test.ts` loads the real content through Fumadocs and asserts the finished
 hierarchy: section landing pages, complete page coverage, one section owner per page, the learning
 sequences, cross-section destinations, name precedence, and that a missing page or a duplicate
 throws. Check rendered desktop and mobile navigation by hand when you change the layout or the
@@ -586,7 +585,7 @@ absent on previews and in production until someone sets `VERCEL_DEEP_CLONE=true`
 project's environment variables. Nothing else is needed: a deep clone makes the probe pass on its
 own. The same applies to any CI job that wants the dates, since `actions/checkout` defaults to
 `fetch-depth: 1`. No gate depends on the dates, so `ci.yml` never asks for a deep clone. Its `Gates`
-and `Build` checkouts do set `fetch-depth: 2`, for `versioned-docs-check.mjs`
+and `Build` checkouts do set `fetch-depth: 2`, for `versioned-docs-check.ts`
 (see [The gates](#the-gates)), and that is deliberately the largest depth that changes nothing here:
 a depth-2 clone is still shallow, so this probe still answers `false` and the dates stay off. Raising
 it further, or to `0`, would switch them on in CI and re-type the docs page's `lastModified`, so
@@ -614,7 +613,7 @@ catch-all serves**, `/docs` and the section landing pages included. The distinct
 root versus docs, not index versus document: nothing in either collection marks a page as an index,
 so singling out the landing pages would take a hand-kept list of URLs that goes stale the moment a
 section is added, and `og:type` drives no crawler behaviour that would pay for it.
-`scripts/static-docs-http.test.mjs` asserts `/docs` is `article` so that uniformity is recorded as
+`scripts/static-docs-http.test.ts` asserts `/docs` is `article` so that uniformity is recorded as
 a decision rather than read later as an oversight. `article` also unlocks `article:modified_time`,
 set from the same `lastModified` (`page.data.lastModified` for Latest, `archive.entry.lastModified`
 for an archive) the page body already renders as "Last updated on …", and omitted along with that
@@ -641,7 +640,7 @@ Its title and description are `siteTitle` and `siteDescription` in `lib/shared.t
 `appName`, so the page and its social card render from one pair of strings. **They are deliberately
 not the docs landing page's own title and description.** `content/docs/index.mdx` is titled
 "Arbitrum docs", and `/` and `/docs` are two separately indexable portal pages: one title across
-both would make each compete with the other for the same query. `scripts/static-docs-http.test.mjs`
+both would make each compete with the other for the same query. `scripts/static-docs-http.test.ts`
 asserts the two differ, so reusing one is a test failure rather than a silent regression.
 
 **The root's card is `app/(home)/opengraph-image.tsx`, Next's file convention, not a second handler
@@ -683,15 +682,15 @@ and social image URL of every page in the deployed output. Those pages then tell
 canonical copy lives on localhost, which is worse than emitting no canonical at all, and nothing
 about the running site reveals it. Failing the build is the last cheap moment to catch it.
 
-**The rule lives in `lib/site-url.mjs`, in plain JavaScript, and both `lib/shared.ts` and
-`next.config.mjs` import it.** That split is not stylistic. `next.config.mjs` is the earliest thing
-the build evaluates, which makes it the gate that always fires, and it cannot import TypeScript. It
-is no longer the _only_ thing that fires: before FS-2689 dropped
+**The rule lives in `lib/site-url.ts`, and both `lib/shared.ts` and `next.config.ts` import
+it.** That split is not stylistic. `next.config.ts` is the earliest thing the build evaluates, which
+makes it the gate that always fires (Next transpiles the config file and the `.ts` files it imports
+with its own hook, before anything else is compiled). It is no longer the _only_ thing that fires: before FS-2689 dropped
 `--experimental-build-mode=compile`, no page or layout module was evaluated at build time at all, so
-`getSiteUrl()`'s throw in `lib/shared.ts` never ran during a build and `next.config.mjs` was the sole
+`getSiteUrl()`'s throw in `lib/shared.ts` never ran during a build and `next.config.ts` was the sole
 enforcement point. Now that 1061 routes prerender, the docs pages among them (see
 [static routing](#static-routing-under-docs)), the root layout's module scope does run at build and
-would throw too. Keep both anyway: `next.config.mjs` is evaluated before any route is, so it is the
+would throw too. Keep both anyway: `next.config.ts` is evaluated before any route is, so it is the
 one check that does not depend on what a given build happens to render. The rule used to be
 written out by hand in both files, which meant the copy with the tests was the backstop and the
 copy without them was the gate, one edit away from silently diverging. One module imported by both
@@ -705,10 +704,10 @@ module-load one rather than a per-request one for anything reached outside a bui
 canonical absolutely rather than leaning on `metadataBase` resolution, so the one value that a
 wrong canonical depends on is read through the one helper that refuses to invent it. The helper imports
 nothing but the rule module, and must stay that way: it is what lets `app/sitemap.ts` and
-`app/robots.ts` use it without pulling `lib/source` toward a client bundle. `scripts/lib/site-url.test.mjs` covers it, calling the `.mjs` rule directly and
-then checking both wrappers: `getSiteUrl()` in a subprocess with `--experimental-strip-types`,
-because `node --test` cannot import TypeScript, and `next.config.mjs` by importing it under a
-controlled environment, which is the case that pins the build failure itself.
+`app/robots.ts` use it without pulling `lib/source` toward a client bundle. `scripts/lib/site-url.test.ts` covers it, calling the rule directly and
+then checking both wrappers: `getSiteUrl()` in a subprocess that imports `lib/shared.ts` under
+Node's own type stripping, and `next.config.ts` by importing it the same way under a controlled
+environment, which is the case that pins the build failure itself.
 
 **`RequestUpdateLink` is the one deliberate exception, and it should stay one.** It reads
 `NEXT_PUBLIC_SITE_URL` directly (`components/RequestUpdateLink.tsx`) and falls back to the
@@ -737,7 +736,7 @@ is undefined and crashes the build. `partials:check` enforces the distinction.
 **Neither scanner sees code.** `parseIncludes` and `parsePartialImports` strip fenced blocks and
 inline code spans before they match, so a directive quoted as an example is not validated as a real
 include and is not counted in the catalog's "used in" totals. They strip it with
-`scripts/lib/strip-code.mjs`, which since FS-2729 is the single scanner behind every content gate.
+`scripts/lib/strip-code.ts`, which since FS-2729 is the single scanner behind every content gate.
 `content:lint` asks it three different things: masking for A1 to A5 and A7 to A11, the code regions
 themselves for A6, and where each fence closes for A12 and A13. `check-links` and `move-doc` mask
 with it (frontmatter and HTML comments included), and `images:check` masks with it too. It is one
@@ -750,7 +749,7 @@ gate. `fumadocs-mdx` agrees at the other end:
 never expands. That is what lets the contribute guide print the syntax it teaches (FS-2723).
 
 **ESM import** as an MDX component module — `import X from '@/content/partials/…/_x.mdx'` — is
-supported by the tooling (`scripts/lib/partials.mjs` scans the importer roots) but **currently used
+supported by the tooling (`scripts/lib/partials.ts` scans the importer roots) but **currently used
 by no component.** The last consumer, `FloatingHoverModal`, was deleted as dead code.
 
 Partials carry no frontmatter; `<include>` strips it, and the lint flags vestigial frontmatter.
@@ -758,7 +757,7 @@ Partials carry no frontmatter; `<include>` strips it, and the lint flags vestigi
 **Two partials are generated, not written.** `content/partials/precompile-tables/*.mdx` comes from
 `pnpm precompiles:generate`, and `content/partials/_reference-arbitrum-contract-addresses-partial.mdx`
 from `pnpm contracts:generate` (the `@arbitrum/sdk` network registry plus
-`scripts/data/contract-addresses.data.mjs`, every address normalised to its EIP-55 checksum because
+`scripts/data/contract-addresses.data.ts`, every address normalised to its EIP-55 checksum because
 `<AddressExplorerLink>` throws on a bad one). Each carries a do-not-edit marker at the top. Edit the
 generator or its data file, never the `.mdx`. These two are also the only partials Prettier touches,
 via the generators themselves; `.prettierignore` excludes `**/*.mdx` from `pnpm format`.
@@ -825,7 +824,7 @@ upstream `arbitrum-docs`' release ledger for five projects (`nitro`, `stylus-sdk
 `nitro-contracts`, `token-bridge-contracts`), salvaged under FS-2702 so the per-project detail
 survives that repo's archival. Nothing here reads it, its version numbers are frozen as of the
 copy, and `content/vars.json`'s `nitroVersionTag` is the live Nitro pin wherever the two
-disagree. Its own `_note` key says so in the file. What extending `check-nitro-release.mjs` to
+disagree. Its own `_note` key says so in the file. What extending `check-nitro-release.ts` to
 the other four projects would take is written up in that file's commit message; the short
 version is that the Docker-Hub tag resolution at the heart of the script is Nitro-specific and
 does not generalize.
@@ -852,11 +851,11 @@ normally and the braces survive verbatim in the mdast `link` node's `url`:
 [Interface](https://github.com/OffchainLabs/{var:nitroRepositorySlug}/blob/{var:nitroVersionTag}/x.sol)
 ```
 
-`remarkVarLinks` (`lib/var-links.mjs`) expands it. What follows from where it is wired:
+`remarkVarLinks` (`lib/var-links.ts`) expands it. What follows from where it is wired:
 
-- It sits in `lib/mdx-options.mjs`, the transform set the site and the fragment half of
-  `check-links` share, so `scripts/lib/doc-anchors.mjs` validates the `#anchor` of an expanded URL.
-  The path half is a separate code path: `scripts/lib/doc-links.mjs` reads destinations out of the
+- It sits in `lib/mdx-options.ts`, the transform set the site and the fragment half of
+  `check-links` share, so `scripts/lib/doc-anchors.ts` validates the `#anchor` of an expanded URL.
+  The path half is a separate code path: `scripts/lib/doc-links.ts` reads destinations out of the
   raw MDX with regexes, because it also has to rewrite them in place for `pnpm move-doc`, so it
   expands a placeholder itself through `expandRefUrl`, which calls the plugin's own
   `expandVarPlaceholders`. Without that an internal destination written with a placeholder was
@@ -883,7 +882,7 @@ normally and the braces survive verbatim in the mdast `link` node's `url`:
 
 The `var:` prefix is what lets the gate be strict. A bare `{name}` is indistinguishable from a URL
 documenting a path template (`…/{chainId}/…`), so `vars:check` would have to choose between letting
-a mistyped name ship and failing on a real template. With the prefix, `scripts/lib/vars-audit.mjs`
+a mistyped name ship and failing on a real template. With the prefix, `scripts/lib/vars-audit.ts`
 counts a placeholder as a variable reference and an unknown name is unambiguously a mistake.
 
 One thing does not follow the component: **a `vars.json` edit does not reach a placeholder until the
@@ -924,8 +923,8 @@ Three details are load-bearing:
 - `gitConfig` is `{ url, branch }`, not `{ user, repo, branch }`. Both call sites joined the first
   two immediately, so the split only offered a way for the halves to disagree.
 - `lib/shared.ts` imports `content/vars.json` **with an explicit `with { type: 'json' }`
-  attribute**. `scripts/lib/shared.test.mjs`, `scripts/lib/contribute-repo-links.test.mjs` and
-  `scripts/static-docs-http.test.mjs` all import that module as `.ts` under `node --test`, where
+  attribute**. `scripts/lib/shared.test.ts`, `scripts/lib/contribute-repo-links.test.ts` and
+  `scripts/static-docs-http.test.ts` all import that module as `.ts` under `node --test`, where
   Node 22 strips the types but still rejects a bare JSON import with `ERR_IMPORT_ATTRIBUTE_MISSING`.
   `content/vars.ts` keeps its plain import, because nothing runs that file under bare Node.
 - It imports the JSON, never `content/vars.ts`, which would pull Zod into the module a client
@@ -949,14 +948,14 @@ as the ordinary word; the same coincidence rule as the client chunks applies.) H
 CLAUDE.md quotes that closure size as load-bearing, so weigh both consumers, not just the client
 chunks, before importing anything heavier into `lib/shared.ts`.
 
-Two tests hold the agreement. `scripts/lib/contribute-repo-links.test.mjs` expands the partial's
+Two tests hold the agreement. `scripts/lib/contribute-repo-links.test.ts` expands the partial's
 destinations and asserts each one belongs to the repository `gitConfig` names, which also proves the
 code value and the JSON value are the same string with no server running. Its third assertion is
 repository-wide: no `.mdx` file anywhere under `content/` may write a docs-repository URL out in
 full, including the fork step, with no exceptions. That rule is what a check pinned to the contribute guide
 could not give, and it is what caught the reader-facing issue link in
 `content/partials/_know-more-tools-box-partial.mdx`. The HTTP half in
-`scripts/static-docs-http.test.mjs` fetches `/docs/contribute` and applies the same rule to the
+`scripts/static-docs-http.test.ts` fetches `/docs/contribute` and applies the same rule to the
 rendered hrefs, which is what proves the placeholders expanded rather than shipping as braces.
 
 `docsRepositoryBranch` is `z.string().min(1)`. An empty branch renders `…/blob//CONTRIBUTE.md`,
@@ -989,7 +988,7 @@ Three things about it are not obvious:
   message therefore hides it from everyone who dismissed the old one.
 - **`announcementLinkHref` is gated.** `pnpm vars:check` requires an `https` URL or a root-absolute
   internal path that resolves to a page or a `public/` file, with the rule in
-  `scripts/lib/announcement-link.mjs` and its tests beside it. `check-links` walks MDX only and this
+  `scripts/lib/announcement-link.ts` and its tests beside it. `check-links` walks MDX only and this
   value lives in JSON, so without that check the most visible link on the site is the one nothing
   validates. Relative hrefs are rejected rather than resolved: the banner renders on every route, so
   there is no page to resolve them against.
@@ -1018,10 +1017,10 @@ Three things about it are not obvious:
 
 ## Redirects
 
-Every redirect lives in `redirects.config.mjs`, consumed by `next.config.mjs`'s `redirects()`.
+Every redirect lives in `redirects.config.ts`, consumed by `next.config.ts`'s `redirects()`.
 Next compiles them into `.next/routes-manifest.json`, which Vercel reads directly — **there is no
 `vercel.json` here, and adding one would be a second source of truth, not a mirror.** Vercel applies
-`vercel.json` routes before framework routes, so it would silently shadow `redirects.config.mjs`.
+`vercel.json` routes before framework routes, so it would silently shadow `redirects.config.ts`.
 
 The Docusaurus site needed two copies (a client-redirects plugin for in-app navigation plus a synced
 `vercel.json` for the edge). Next needs one.
@@ -1029,24 +1028,24 @@ The Docusaurus site needed two copies (a client-redirects plugin for in-app navi
 `redirects()` runs **before** `proxy.ts`, so a redirected URL gets markdown negotiation on the
 destination, not on the first hop.
 
-The `AUTO-GENERATED` block in `redirects.config.mjs` is written by `pnpm move-doc`; never hand-edit
-between its markers. The rest of the file, and `redirects.legacy.mjs` beside it, are hand-maintained.
+The `AUTO-GENERATED` block in `redirects.config.ts` is written by `pnpm move-doc`; never hand-edit
+between its markers. The rest of the file, and `redirects.legacy.ts` beside it, are hand-maintained.
 
 **Moved pages.** `pnpm move-doc <from> <to>` writes the old→new URL between the `AUTO-GENERATED`
 markers.
 
 **It then retargets the legacy destination overlay, as its last step.**
-`scripts/lib/legacy-redirects.mjs` keeps two hand-written maps naming this site's pages,
+`scripts/lib/legacy-redirects.ts` keeps two hand-written maps naming this site's pages,
 `MANUAL_DESTINATIONS` and `SECTION_LANDINGS`, as **site URLs** (`/docs/…`, sometimes with an
-`#anchor`) rather than content-relative paths. `scripts/lib/legacy-destinations.mjs` retargets both.
+`#anchor`) rather than content-relative paths. `scripts/lib/legacy-destinations.ts` retargets both.
 Before this, moving a page named in either left a legacy `docs.arbitrum.io` URL pointing at a 404
-until the tripwire in `scripts/lib/legacy-redirects.test.mjs` ("every hand-written destination still
+until the tripwire in `scripts/lib/legacy-redirects.test.ts` ("every hand-written destination still
 names a live page") failed in whatever PR ran `pnpm test` next.
 
 Three things about that rewrite are load-bearing, and each exists because the alternative fails
 quietly:
 
-- **It edits only inside the two named `new Map([…])` literals.** `legacy-redirects.mjs` also
+- **It edits only inside the two named `new Map([…])` literals.** `legacy-redirects.ts` also
   declares `SECTION_RENAMES`, an array of URL-shaped strings. A whole-file match for a page's URL
   could rewrite one of those while reporting itself on the CLI as a destination change.
 - **A missed match aborts the step.** The rewrite is textual and single-quote-only, so reformatting
@@ -1067,10 +1066,10 @@ Three further details come from the data:
   and the value wrapped onto its own line) satisfy it. An `#anchor` on a destination is carried
   across; the closing quote sits immediately after the URL, so `/docs/get-started` cannot match
   inside `/docs/get-started/child`.
-- **It does not retarget `redirects.legacy.mjs` itself.** Readers do not need it: `move-doc` has
-  already appended `oldUrl → newUrl` to `redirects.config.mjs`, and Next serves one redirect per
+- **It does not retarget `redirects.legacy.ts` itself.** Readers do not need it: `move-doc` has
+  already appended `oldUrl → newUrl` to `redirects.config.ts`, and Next serves one redirect per
   request, so a legacy URL still reaches the moved page in two hops. `redirects:check` does care.
-  `redirects.legacy.mjs` still names the old URL as its destination, and the check compares a
+  `redirects.legacy.ts` still names the old URL as its destination, and the check compares a
   destination against the routable pages without ever following a second hop, so every legacy source
   that named the moved page reports `DEAD`. That file is hand-maintained, so the fix is to retarget
   those entries or accept the extra hop. The same one-hop reading reaches the `AUTO-GENERATED` block:
@@ -1079,19 +1078,19 @@ Three further details come from the data:
 - **The chained `AUTO-GENERATED` entry gets its own note, and only when there is one.** The block
   holds four entries in total, so a move of any other page has nothing chained to it: asserting the
   chain unconditionally was false for 64 of the 68 pages the two maps name, and sent the mover
-  looking for a line that does not exist. `findChainedAutoRedirects` reads `redirects.config.mjs`
+  looking for a line that does not exist. `findChainedAutoRedirects` reads `redirects.config.ts`
   between the two markers, matches `source` then `destination` (the order `appendRedirect` writes
   and Prettier preserves when it wraps), compares the destination for exact equality so a move of
   `/docs/run-a-node` cannot claim the entry pointing at `/docs/run-a-node/run-batch-poster`, and
   names the source URL(s) to retarget. The entry `move-doc` appended moments earlier cannot match
   itself, because its destination is the _new_ URL. That note is **not** gated on either legacy map
-  having changed, unlike the `redirects.legacy.mjs` note above it: a chained entry is an earlier
+  having changed, unlike the `redirects.legacy.ts` note above it: a chained entry is an earlier
   move's business, not the maps', and a page no legacy map names would otherwise chain in silence.
 
 **This step was written to outlive the legacy redirect generator, and did.** The derivation half of
 that system, everything that read an arbitrum-docs checkout, was deleted in FS-2706 when that repo
 was archived. The two maps were not: `docs.arbitrum.io` URLs have to keep resolving forever. Because
-`legacy-destinations.mjs` imports only those two named exports, rewrites only the two literals that
+`legacy-destinations.ts` imports only those two named exports, rewrites only the two literals that
 declare them, and reads nothing else, the generator's deletion cost it no change at all. Should the
 maps ever move to a different module, the textual rewrite finds nothing and the cross-check throws,
 rather than the step silently skipping.
@@ -1099,16 +1098,16 @@ rather than the step silently skipping.
 **`VERSIONED` in `lib/versions-constants.ts` is still on the mover, but it is no longer silent.**
 That registry keys the partial versioning registry by canonical slug (`'run-a-node/start-here'`) and
 `move-doc` does not touch it, so moving a versioned page still leaves a dead key. What changed is
-the consequence: FS-2698 added `scripts/versions-routing.test.mjs`, which asserts that every key
+the consequence: FS-2698 added `scripts/versions-routing.test.ts`, which asserts that every key
 names a live page, so a dead key now fails `pnpm test`, a blocking gate. It used to pass 346/346
 with `lib/versions.ts` untouched, and the page silently lost its version dropdown while its
-archives became unreachable. `scripts/versioned-docs-check.mjs` is still only an advisory (see
+archives became unreachable. `scripts/versioned-docs-check.ts` is still only an advisory (see
 "Archived page registry drift" below for what it now compares, and where) and still always exits 0;
 it is not what catches this. Retargeting the key is a
 judgement call (`archivePath` mirrors the old slug on every current entry but is not required to),
 so after moving a versioned page, retarget its `VERSIONED` key by hand.
 
-**Legacy `docs.arbitrum.io` URLs.** `redirects.legacy.mjs` holds 853 of them. Legacy URLs were
+**Legacy `docs.arbitrum.io` URLs.** `redirects.legacy.ts` holds 853 of them. Legacy URLs were
 served at the site root (`/stylus/using-cli`) and this site serves docs under `/docs`, so sources
 stay root-level (that is what real inbound links look like) and destinations point at `/docs/…`. The
 file is committed and **hand-maintained**: add an entry by writing it, in source order, and prove the
@@ -1118,7 +1117,7 @@ It was originally generated, from two inputs that no longer exist: the Docusauru
 `vercel.json` redirect sources, and every canonical page URL derived from its `docs/` tree by
 reimplementing Docusaurus routing. That generator, and the `pnpm redirects:legacy` script around it,
 were deleted in FS-2706 along with the rest of the upstream coupling. What survives is
-`scripts/lib/legacy-redirects.mjs`: `MANUAL_DESTINATIONS`, `SECTION_LANDINGS`, `SECTION_RENAMES`, the
+`scripts/lib/legacy-redirects.ts`: `MANUAL_DESTINATIONS`, `SECTION_LANDINGS`, `SECTION_RENAMES`, the
 content-tree inventory the tripwire resolves against, and the record of the resolution order below.
 
 **The resolution order is how every committed entry was decided, and how a new one should be.** Each
@@ -1152,21 +1151,21 @@ consulted. It needed a run, and the run never happened. Nine of the eleven `SECT
 entries were already wrong in the commit that introduced them, which FS-2748 established from the
 history: all nine pages were ported on 2026-09-11 (`a36b096`, `3ea315c`), each carrying the upstream
 title verbatim and the same basename, and all nine were in the tree at `27f7660`, the commit that
-seeded `redirects.legacy.mjs` on 2026-09-15. The generator's output had been computed against an
+seeded `redirects.legacy.ts` on 2026-09-15. The generator's output had been computed against an
 older tree and was not recomputed against the merged one, so a reader asking for "Common error
 messages" was answered with a list of links to the Operate section from the first day the redirect
 existed. FS-2706 then deleted the generator, which turns a missed re-run into a permanent state: no
 committed destination is ever recomputed again. Those nine now sit in `MANUAL_DESTINATIONS`.
 Rules 2 and 3 would reach the same nine destinations unaided, but the entries stay, because being in
 a map is what puts them in front of `pnpm move-doc`, which retargets both maps and prints the note
-that `redirects.legacy.mjs` names those pages too. **Porting a page named in `SECTION_LANDINGS` is
+that `redirects.legacy.ts` names those pages too. **Porting a page named in `SECTION_LANDINGS` is
 therefore a two-file edit**: move the entry into `MANUAL_DESTINATIONS` pointed at the page, and
-retarget its twin in `redirects.legacy.mjs`. Two entries are left there, `config-batch-poster` and
+retarget its twin in `redirects.legacy.ts`. Two entries are left there, `config-batch-poster` and
 `sequencer-content-map`, and no page here carries either title or either basename.
 
 **`UPSTREAM_TITLES` is what makes forgetting that edit fail the suite.** It records the upstream
 frontmatter title per legacy source, as data rather than in the comment beside the entry, and
-`legacy-redirects.test.mjs` asserts rule 4 over it continuously: when exactly one page here carries
+`legacy-redirects.test.ts` asserts rule 4 over it continuously: when exactly one page here carries
 that title verbatim, the entry's destination has to be that page. The assertion is conditional in
 both directions, which is what makes it safe to leave standing. A title no page carries is skipped,
 so the two surviving landings pass today and start failing the moment either page is ported. A title
@@ -1230,7 +1229,7 @@ PID, so the cleanup trap kills the wrapper and leaves the Next server orphaned o
 **It deliberately does not check a Vercel preview, and should not be changed back.** The obvious
 design, a `deployment_status` workflow pointed at the PR's preview URL, was built on `fs-2675` and
 abandoned once this repository went public. `deployment_status` runs from the default branch with
-full secrets access, so checking out the PR's commit and running its copy of `redirects-check.mjs`
+full secrets access, so checking out the PR's commit and running its copy of `redirects-check.ts`
 executes contributor code beside whatever secret the step holds. The secret is the worse half:
 `VERCEL_AUTOMATION_BYPASS_SECRET` bypasses Deployment Protection on **every** deployment in the
 project, production included, and Vercel injects it into every build, so creating it at all hands it
@@ -1286,7 +1285,7 @@ The path is a well-known URI (RFC 8615), so it is fixed and cannot be moved. Two
 - **It is on the bypass list**, not by the convention that covers `/sitemap.xml` and `/data/`, but
   because a discovery client sends whatever `Accept` header it likes and must still get the JSON on
   disk. The rewrite patterns are anchored at `/docs` today, so the bypass is defence in depth, and
-  the assertion that it holds is in `scripts/static-docs-http.test.mjs`, which requests the card
+  the assertion that it holds is in `scripts/static-docs-http.test.ts`, which requests the card
   under `Accept: text/markdown` as well as `application/json`.
 - **The card is untracked.** `pathInfo()` in `lib/llms-tracking.ts` classifies it as `ignored`,
   which its tests pin: a discovery fetch is not a markdown read and must not join the
@@ -1329,7 +1328,7 @@ and the destination request is tracked instead.
 markdown shapes are the rows above with the version id inside the slug, and they normalise through
 the same code to `/docs/<slug>/<id>.md`. That is a different series from the live page's
 `/docs/<slug>.md`, which is the point: "who is reading the ArbOS 20 archive" is a question worth
-being able to answer. `scripts/lib/llms-tracking.test.mjs` pins it, since nothing in
+being able to answer. `scripts/lib/llms-tracking.test.ts` pins it, since nothing in
 `lib/llms-tracking.ts` mentions versions and the behaviour is therefore easy to lose.
 
 Two upstream rules are dropped: the `/sdk/` exclusion (there is no `/sdk` route here) and tracking
@@ -1356,7 +1355,7 @@ outlive the response. Upstream's middleware used the framework's event for the s
 Nothing catches that locally, which is what makes it worth a paragraph: the promise chain starts
 executing the moment it is constructed, so in `next dev` the fetch completes either way and an
 end-to-end check passes while production loses events. `waitUntil` only extends the runtime's
-lifetime past the response. Two tests in `scripts/lib/llms-tracking.test.mjs` assert the wiring
+lifetime past the response. Two tests in `scripts/lib/llms-tracking.test.ts` assert the wiring
 directly, because no runtime check can.
 
 **The `distinct_id` is pseudonymous, not anonymous.** `buildTrackingPayload` hashes the client IP
@@ -1390,7 +1389,7 @@ request origin would record two `$current_url` values for one page and split the
 keeps the site-URL rule in the one module that owns it (see [Page metadata](#page-metadata)).
 
 `lib/llms-tracking.ts` is **deliberately import-free**, including of `lib/shared.ts`, so that
-`scripts/lib/llms-tracking.test.mjs` can import it directly under `node --test` using Node 22's
+`scripts/lib/llms-tracking.test.ts` can import it directly under `node --test` using Node 22's
 native type stripping. That is what lets `pnpm test` exercise the exact module `proxy.ts` runs
 instead of a copy that would drift from it. The price is two local copies of the route constants;
 `proxy.ts` pins them with two `satisfies` statements, so moving `docsRoute` or `docsContentRoute`
@@ -1450,7 +1449,7 @@ hand-registered pages are versioned, in the `VERSIONED` registry in `lib/version
 An archive is served at `/docs/<slug>/<id>` (FS-2698 moved it off `?v=<id>`, which made every docs
 page dynamic). `lib/source.ts` `resolveDocsPath()` reads that path, **page first**: `/docs/a/b` is
 only reinterpreted as archive `b` of page `a` when no page exists at `a/b`, so an archive id can
-never shadow a child page. `scripts/versions-routing.test.mjs` separately asserts that no such
+never shadow a child page. `scripts/versions-routing.test.ts` separately asserts that no such
 collision exists, so creating one is a reviewed act.
 
 ### The archive's markdown mirror
@@ -1482,7 +1481,7 @@ Three things this must keep getting right:
 - **`postprocess.includeProcessedMarkdown` is per collection.** The `docsVersions` collection sets
   it separately from `docs`; without it `getText('processed')` rejects and the archive mirrors fail
   at request time, a long way from `source.config.ts`. What the mirror _contains_ is not per
-  collection, because the MDX comment stripping rides in `lib/mdx-options.mjs` rather than here (see
+  collection, because the MDX comment stripping rides in `lib/mdx-options.ts` rather than here (see
   [`source` is a choke point](#source-is-a-choke-point)), so an archive is covered by the same
   plugin a live page is.
 - **An archive is `noindex` with a canonical to the live page.** The HTML carries both tags. A
@@ -1490,7 +1489,7 @@ Three things this must keep getting right:
   Live markdown sends no such header.
 - **Archives stay out of discovery.** `llms.txt`, `llms-full.txt`, the sitemap and `og/` all derive
   from `source.getPages()`, which never sees the `docsVersions` collection, so this holds by
-  construction rather than by exclusion. `scripts/static-docs-http.test.mjs` asserts it against the
+  construction rather than by exclusion. `scripts/static-docs-http.test.ts` asserts it against the
   built site anyway, because "by construction" is exactly the kind of claim that quietly stops
   being true.
 
@@ -1508,11 +1507,11 @@ unknown `?v=` always did. A real page always wins: `/docs/a/b` is only read as a
 
 The registry itself lives in `lib/versions-constants.ts`, which imports nothing, because `proxy.ts`
 needs `isArchiveId` and cannot afford `collections/server`. `lib/versions.ts` keeps the lookups
-that need the compiled archive bodies. `scripts/lib/versions-registry.mjs` text-parses the registry
+that need the compiled archive bodies. `scripts/lib/versions-registry.ts` text-parses the registry
 rather than importing it, because no plain-node script can import `lib/source` — neither the
-`collections/*` alias nor TypeScript resolves. `redirects-check.mjs` hits the same wall, which is
+`collections/*` alias nor TypeScript resolves. `redirects-check.ts` hits the same wall, which is
 why it reads `/llms.txt` off a running site instead. Two scripts read that parse:
-`scripts/versioned-docs-check.mjs` (the advisory) and `scripts/versions-routing.test.mjs` (the
+`scripts/versioned-docs-check.ts` (the advisory) and `scripts/versions-routing.test.ts` (the
 invariants that fail).
 
 ## Glossary and inline references
@@ -1573,7 +1572,7 @@ keys to expand or collapse, and wheel zoom needs a modifier key so scrolling pas
 not trap the page.
 
 That snapshot has a generator: `pnpm edge-challenge:fetch`
-(`scripts/fetch-edge-challenge-data.mjs`). It reads every `EdgeAdded` / `EdgeBisected` /
+(`scripts/fetch-edge-challenge-data.ts`). It reads every `EdgeAdded` / `EdgeBisected` /
 `EdgeConfirmedByOneStepProof` log the BoLD `ChallengeManager` contract has emitted on Arbitrum
 Sepolia, backfills the `EdgeAdded` event for any edge only ever referenced (never directly logged)
 by a later event, resolves the staker address behind each `EdgeAdded` transaction, and overwrites
@@ -1627,7 +1626,7 @@ Markdown is the broken one because `next/image` requires dimensions it can no lo
 Measured on a scratch page, not inferred: a reachable remote src in markdown syntax returns HTTP 500
 with `Image with src "…" is missing required "width" property`, while the same URL through
 `<ImageZoom>` returns 200 and emits `<img src="https://…">`. A remote markdown image would fail for
-a second reason as well if it got past the first, since `next.config.mjs` declares no
+a second reason as well if it got past the first, since `next.config.ts` declares no
 `images.remotePatterns`.
 
 **So:** commit images under `public/` and reference them as `/img/…`. That is the only form that is
@@ -1841,11 +1840,11 @@ in-viewport links, which are 60 to 106 KiB per page and are the price of instant
 
 **Node 22 LTS, everywhere.** Three files state it and they must agree:
 
-| Where                            | What it says       | Who reads it                                    |
-| -------------------------------- | ------------------ | ----------------------------------------------- |
-| `engines.node` in `package.json` | `>=22.0.0 <23.0.0` | pnpm, which refuses to install on another major |
-| `.node-version`                  | `22`               | Vercel, nvm, fnm, asdf                          |
-| Vercel project settings          | Node.js 22.x       | the build and the serverless functions          |
+| Where                            | What it says        | Who reads it                                                                                                        |
+| -------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `engines.node` in `package.json` | `>=22.18.0 <23.0.0` | pnpm, which refuses to install on another major, or on a 22.x older than the first that runs a `.ts` file unflagged |
+| `.node-version`                  | `22`                | Vercel, nvm, fnm, asdf                                                                                              |
+| Vercel project settings          | Node.js 22.x        | the build and the serverless functions                                                                              |
 
 `.node-version` is the one that makes a fresh machine and a fresh Vercel build agree without anyone
 remembering to configure it. Vercel reads it on every build and pins the runtime to that major;
@@ -1859,7 +1858,44 @@ deployed functions run on, and a mismatch between them is not reported anywhere.
 **Locally, use nvm**: `nvm use 22` in this directory, or `nvm install 22` first. nvm reads
 `.node-version` as well as `.nvmrc`, so no argument is needed once the file is present. Node 24 and
 26 are rejected by `engines` before anything installs, which is the intended behaviour and not a bug
-to work around with `--ignore-engines`.
+to work around with `--ignore-engines`. The floor inside the major is 22.18.0, the first release
+that runs a `.ts` file with no flag; see the next section for why every script needs that.
+
+## Scripts are TypeScript, run by Node
+
+Everything outside `app/` and `components/` that the build, the gates or a writer runs is a `.ts`
+file that Node executes directly: `scripts/**`, the tests, the two redirect tables,
+`next.config.ts`, `prettier.config.ts`, `.lintstagedrc.ts` and `svgo.config.ts`. There is no `.mjs`
+or `.js` file in the repository and no runner (tsx, ts-node, jiti) to install. Node 22.18 and later
+strip the type annotations from a `.ts` file and run what is left, so `node scripts/nav-check.ts`
+is the whole invocation. That is what sets the `engines` floor at 22.18.0 rather than 22.0.0.
+
+Four settings make that safe, and each closes a failure that would otherwise surface only at
+runtime:
+
+- **`"type": "module"` in `package.json`.** Without it Node has to sniff every `.ts` file for
+  module syntax and prints `MODULE_TYPELESS_PACKAGE_JSON` each time. There was no `.js` or `.cjs`
+  file whose meaning could change.
+- **`erasableSyntaxOnly` in `tsconfig.json`.** Node strips types and compiles nothing else: an
+  enum, a namespace, a parameter property or `import x = require()` is a syntax error at runtime.
+  `tsc` rejects them first, in `types:check`.
+- **`verbatimModuleSyntax`.** Node leaves `import { Foo } from './x.ts'` in place; if `Foo` is only
+  a type, the import throws for a missing export. `tsc` requires `import type` for those.
+- **`allowImportingTsExtensions`.** Node resolves a relative import only with its extension, so
+  every relative import in a file Node runs is written `./x.ts`. TypeScript allows that only with
+  `noEmit`, which is set. Turbopack resolves the same specifiers, which is why `lib/shared.ts` can
+  say `./site-url.ts` and be imported by both the app and a test.
+
+`tsconfig.json`'s `include` covers `**/*.ts`, so every script is type-checked under `strict` by the
+same `types:check` gate that checks the app; `.lintstagedrc.ts` is listed on its own because a
+`**/*.ts` glob never matches a dotfile. Config loaders were checked in `node_modules`, not assumed:
+Next transpiles `next.config.ts` and the `.ts` files it imports, Prettier 3.9 and lint-staged 17
+both search for a `.ts` config, and svgo loads an explicit `--config` path with a dynamic `import`.
+Next's PostCSS loader is the exception: it accepts `.json`, `.js`, `.mjs` and `.cjs` only, and
+reads the `postcss` key of `package.json` before any file, so the Tailwind plugin is declared
+there. **A `postcss.config.ts` would be ignored silently and Tailwind would stop compiling**, with
+nothing reporting it. `@offchainlabs/prettier-config` ships no types;
+`types/offchainlabs-prettier-config.d.ts` declares it.
 
 ## Analytics
 
@@ -1945,23 +1981,23 @@ required check that never reports blocks every pull request indefinitely, which 
 
 **`Gates` (blocking)** — thirteen steps:
 
-| Step                       | Catches                                                                       |
-| -------------------------- | ----------------------------------------------------------------------------- |
-| `types:check`              | Frontmatter schema violations, TypeScript errors                              |
-| `test`                     | Regressions in the tooling scripts themselves                                 |
-| `vars:check`               | A `<Var name>` with no matching key in `vars.json`                            |
-| `nav:check`                | `meta.json` navigation integrity, section coverage, manifest duplicates       |
-| `partials:check`           | Unresolved includes, routing leaks, stale catalog, `cwd` include in a partial |
-| `versioned-docs-check.mjs` | Archived-page registry drift                                                  |
-| `references:check`         | Glossary ids and `<Reference>` targets                                        |
-| `faq:check`                | A `faqsId` with no matching entry in the FAQ data                             |
-| `images:presence`          | A markdown image with a remote src, which renders as a 500                    |
-| `check-links`              | Broken internal doc links and MDX fragments                                   |
-| `contracts:check`          | The generated contract-address partial matches `@arbitrum/sdk`                |
-| `format:check`             | Prettier style drift                                                          |
-| `content:lint`             | MDX structural defects, rules A1 through A14 except A7                        |
+| Step                      | Catches                                                                       |
+| ------------------------- | ----------------------------------------------------------------------------- |
+| `types:check`             | Frontmatter schema violations, TypeScript errors                              |
+| `test`                    | Regressions in the tooling scripts themselves                                 |
+| `vars:check`              | A `<Var name>` with no matching key in `vars.json`                            |
+| `nav:check`               | `meta.json` navigation integrity, section coverage, manifest duplicates       |
+| `partials:check`          | Unresolved includes, routing leaks, stale catalog, `cwd` include in a partial |
+| `versioned-docs-check.ts` | Archived-page registry drift                                                  |
+| `references:check`        | Glossary ids and `<Reference>` targets                                        |
+| `faq:check`               | A `faqsId` with no matching entry in the FAQ data                             |
+| `images:presence`         | A markdown image with a remote src, which renders as a 500                    |
+| `check-links`             | Broken internal doc links and MDX fragments                                   |
+| `contracts:check`         | The generated contract-address partial matches `@arbitrum/sdk`                |
+| `format:check`            | Prettier style drift                                                          |
+| `content:lint`            | MDX structural defects, rules A1 through A14 except A7                        |
 
-**Archived page registry drift, and what `versioned-docs-check.mjs` actually compares (FS-2747).**
+**Archived page registry drift, and what `versioned-docs-check.ts` actually compares (FS-2747).**
 Before this ticket the script always ran `git diff --name-only HEAD -- <pinned docs>`, working tree
 and staged changes against `HEAD`. That is empty by construction in this job: `actions/checkout`
 here takes no `fetch-depth`, so it defaults to a depth-1 checkout, and a freshly checked-out tree
@@ -2016,7 +2052,7 @@ working tree genuinely is dirty and the local comparison is the meaningful one, 
 job needs no `fetch-depth` of its own. The script always prints which comparison it ran, so a quiet
 `Gates` step can be told apart from one that had nothing to report.
 
-`pickComparison` in `scripts/lib/versioned-docs-comparison.mjs` is that decision on its own, pure and
+`pickComparison` in `scripts/lib/versioned-docs-comparison.ts` is that decision on its own, pure and
 exported, taking the environment and the two git probe results as plain booleans. It lives outside
 the CLI so `pnpm test` can pin all five shapes (local, pull request with the merge commit, pull
 request with no parent, pull request whose `HEAD` is not a merge, and a CI run that is not a pull
@@ -2027,7 +2063,7 @@ that made it do nothing is the part that needed a test.
 `pnpm build` chains it ahead of `next build`, so a broken link or fragment also fails the Vercel deploy.
 
 Fragment validation compiles each routed document with `@mdx-js/mdx`, Fumadocs' `applyMdxPreset`
-and `remarkInclude`, and the same options the site imports from `lib/mdx-options.mjs`. It reads
+and `remarkInclude`, and the same options the site imports from `lib/mdx-options.ts`. It reads
 IDs from the resulting HTML syntax tree instead of approximating heading slugs. Nested and repeated
 includes retain their position in the document, so duplicate headings and `[#custom-id]` headings
 resolve as they do on the site. Markdown and literal JSX links in included partials are checked in
@@ -2052,7 +2088,7 @@ No promote-when-zero rule is left to apply, and a failure in either step now mea
 review introduced it.
 
 **`Build` (blocking since FS-2746)** runs `pnpm build`, then starts `next start` and runs
-`redirects:check` and `scripts/static-docs-http.test.mjs` against it. It was advisory until then
+`redirects:check` and `scripts/static-docs-http.test.ts` against it. It was advisory until then
 because the MDX image pipeline fetched remote images at build time, so a dead third-party URL
 turned it red for reasons unrelated to the change under review. That reason is gone: the build no
 longer touches the network for images (see
@@ -2089,7 +2125,7 @@ external destination as `SKIPPED` without fetching it, and the HTTP suite talks 
 `STATIC_DOCS_TEST_URL`. The checkout and the install still do, as they must, which is why the claim
 is about the build step rather than the job. **Do not reintroduce a `next/font/google`
 declaration**; a new face belongs in `public/fonts/` with its licence beside it, and
-`scripts/lib/fonts.test.mjs` fails the `test` gate if one returns.
+`scripts/lib/fonts.test.ts` fails the `test` gate if one returns.
 
 The same removal reaches `upstream-refresh.yml`'s `stylus` job, whose gate list
 mirrors `Gates` plus the build: a Google Fonts outage on a Monday used to fail it before
@@ -2172,7 +2208,7 @@ See [Stylus by Example](#stylus-by-example).
 
 When `contracts:check`, `cli:check` or `stylus:check` fails it prints a line-level diff, so a reviewer can see
 whether a value moved or only the formatting did. That diff is a real one, computed over a longest common
-subsequence in `scripts/lib/line-diff.mjs`: comparing the two files by line index instead reported
+subsequence in `scripts/lib/line-diff.ts`: comparing the two files by line index instead reported
 every line after an insertion as changed, which on this 112-line partial meant 53 lines for a
 two-line edit and defeated the point of printing it.
 
@@ -2200,7 +2236,7 @@ worth knowing:
   pinned commit and fails loudly if it is missing, rather than dropping 19 flags silently.
 - **Anything it cannot evaluate fails the run.** Five flags default to `util.GoMaxProcs()`, decided
   at process start, and three are registered with `f.Var` and a custom `pflag.Value`. Those are
-  declared in `scripts/data/nitro-cli-reference.data.mjs`; a new one with no entry stops the
+  declared in `scripts/data/nitro-cli-reference.data.ts`; a new one with no entry stops the
   generator instead of publishing a blank cell. **The check runs in both directions**: an entry in
   either list that matches no flag Nitro still registers also stops the run, so a curated
   exemption cannot rot into a no-op the way it could when both lists were plain lookups.
@@ -2220,7 +2256,7 @@ weekly refresh PR's log.
 third-party repository. `pnpm stylus:generate` clones it and rewrites every page; `pnpm
 stylus:check` fails with a line diff when the committed tree has drifted from it. Unlike the CLI
 flags page these are generated whole, frontmatter included, so there is nothing on them a writer
-owns — a fix belongs upstream, or in `scripts/data/stylus-examples.data.mjs`.
+owns — a fix belongs upstream, or in `scripts/data/stylus-examples.data.ts`.
 
 They arrived here as a hand port of an arbitrum-docs pipeline
 (`scripts/sync-stylus-content.js` plus a `stylus-content` job in `update-external-content.yml`),
@@ -2254,7 +2290,7 @@ Six things about it are worth knowing:
   provisioned. The sibling `refresh` job has the same no-CI shape and no gates of its own; its
   payload is generator output over pinned inputs, so the exposure is smaller, but it is the same
   gap and worth closing separately.
-- **The published set is an allowlist**, in `scripts/data/stylus-examples.data.mjs`, and that list
+- **The published set is an allowlist**, in `scripts/data/stylus-examples.data.ts`, and that list
   doubles as the `meta.json` order. That order is **upstream's teaching sequence, not
   alphabetical**: `hello_world`, then the primitives, then what builds on them, straight from the
   `allowLists` block of arbitrum-docs `scripts/sync-stylus-content.js`. The hand port alphabetized
@@ -2271,7 +2307,7 @@ Six things about it are worth knowing:
   is only ever right because the one relative link in the published set happens to live there.
 - **The `metadata` export is parsed, never evaluated.** Upstream's `title` and `description` live
   in a JavaScript object literal, not JSON, so `parseObjectLiteral` in
-  `scripts/lib/stylus-examples.mjs` reads a grammar of JSON plus the four things upstream actually
+  `scripts/lib/stylus-examples.ts` reads a grammar of JSON plus the four things upstream actually
   writes — single quotes, bare keys, trailing commas, a value wrapped onto the next line — and
   throws on every other token, with no fallback. It replaced a `new Function(…)()`, which is a
   different thing from cloning: a clone copies bytes, evaluating one runs it, unpinned, weekly, in
@@ -2291,7 +2327,7 @@ Monday.
 
 ## The content-lint rules
 
-`pnpm content:lint` (`scripts/content-lint.mjs`, rules in `scripts/lib/content-lint.mjs`) is the
+`pnpm content:lint` (`scripts/content-lint.ts`, rules in `scripts/lib/content-lint.ts`) is the
 gate for MDX that compiles and type-checks but renders wrong. Every rule but `A6` ignores fenced
 blocks and inline code spans, so a page that documents syntax is never mistaken for a page that uses
 it. `A6` is the deliberate exception and reads inside them, because a `<Var>` that ships as a
@@ -2350,7 +2386,7 @@ reader sees a flash and loses any client state in it.
   content when they start on their own line, so remark wraps the prose in a paragraph and the
   element becomes `<p><p>…</p></p>`. Written inline, `<p>text</p>` renders one paragraph and is not
   flagged; the generated precompile partials use that form, and a rule that flagged it would demand
-  an edit to a generated file (`generate-precompile-tables.mjs` writes them from fetched Solidity
+  an edit to a generated file (`generate-precompile-tables.ts` writes them from fetched Solidity
   sources) for markup that renders correctly.
 - **`A10`, a `<tr>` directly inside a `<table>`.** The parser inserts the `<tbody>` the source
   omitted, so the client tree gains an element the server tree does not have. Put every row inside a
@@ -2362,7 +2398,7 @@ single "invalid nesting" id would print one count covering three unrelated edits
 
 ### A12 and A13 are a pair: this repo has two markdown parsers and they disagree
 
-`scripts/lib/strip-code.mjs` models CommonMark. The site compiles with `remark-mdx`, which turns off
+`scripts/lib/strip-code.ts` models CommonMark. The site compiles with `remark-mdx`, which turns off
 indented code blocks and, with them, CommonMark's three-column cap on a closing fence. Measured
 across closer indentations 0 to 6 on one input (FS-2743):
 
@@ -2383,7 +2419,7 @@ opposite.
   renders before choosing: the two look identical in the source and the fixes are not
   interchangeable.
 - **`A13`, a closer indented more than three columns past its opener.** The site's parser ends the
-  fence at that line and `strip-code.mjs` does not, so every gate reading MDX through it (A1 to A11
+  fence at that line and `strip-code.ts` does not, so every gate reading MDX through it (A1 to A11
   above, `check-links`, `partials:check`, `images:presence`) treats the lines between as fence body
   and blanks them. One stray indent switched eighteen lines of
   `launch-arbitrum-chain/integrations/da-api-integration-guide.mdx` off from all of them, two of
@@ -2407,7 +2443,7 @@ renderer would remove the disagreement at its root, but it changes what every co
 the whole tree and could regress any gate that reads it, so it wants its own ticket. With `A13`
 blocking, no file in `content/` relies on the difference meanwhile.
 
-Neither rule brings a parser of its own. `scanFences` in `strip-code.mjs` is one generator yielding
+Neither rule brings a parser of its own. `scanFences` in `strip-code.ts` is one generator yielding
 each fence with both readings of its closer; `codeRegions` takes the offsets it already used and
 `fenceDefects` takes the two closer positions. A rule about where a fence ends cannot disagree with
 the masking that acts on it, which is the whole point of the FS-2729 convergence.
@@ -2460,14 +2496,14 @@ There are none in `content/` today, across all 524 files carrying frontmatter, a
 contract gives no reason to reach for one; a writer who does gets no whitespace checking on that
 field. And the rule is **path-agnostic**, so it covers `content/_versions/**` as well: a whitespace
 defect frozen into an archive is a blocking `content:lint` finding whose only fix is editing the
-archive, which then trips `versioned-docs-check.mjs` in turn. That warning is expected in that case,
+archive, which then trips `versioned-docs-check.ts` in turn. That warning is expected in that case,
 not a second defect. No such finding exists today.
 
 Three findings existed when the rule landed. Two were hand-owned pages with a trailing space in
 `description` (`launch-arbitrum-chain/deploy/deploying-an-arbitrum-chain.mdx` and
 `deploying-token-bridge.mdx` in the same directory), fixed by hand. The third was a doubled space in
 `stylus/stylus-by-example/basic_examples/variables.mdx`, a page `pnpm stylus:generate` writes; that
-one is fixed in the generator (`parseMetadata` in `scripts/lib/stylus-examples.mjs` now collapses
+one is fixed in the generator (`parseMetadata` in `scripts/lib/stylus-examples.ts` now collapses
 whitespace runs and trims `title`/`description` after reading them), not in the committed `.mdx`,
 because a hand-edit there would be overwritten by the next weekly `stylus` job. The doubled space
 was in upstream's own metadata string verbatim, not introduced by this generator, and normalizing it
@@ -2477,12 +2513,12 @@ says has to be made upstream.
 ## The local pre-commit hook
 
 A Husky pre-commit hook (`.husky/pre-commit`) runs `pnpm exec lint-staged` on every `git commit`,
-configured in `.lintstagedrc.mjs`. It exists to catch what the gates above only catch several
+configured in `.lintstagedrc.ts`. It exists to catch what the gates above only catch several
 commits later, in CI. It is a separate, third tier from the two CI tiers, not a copy of either
 one:
 
 - Prettier runs on every staged file type it understands, except `meta.json`. `meta.json` is
-  generator output (`stringifyMeta` in `scripts/lib/doc-links.mjs`), written one array entry per
+  generator output (`stringifyMeta` in `scripts/lib/doc-links.ts`), written one array entry per
   line on purpose; Prettier collapses a short array onto one line, so the two would fight each
   other on every `pnpm move-doc` run. `.prettierignore` excludes `**/meta.json` repo-wide for the
   same reason, so `format:check` does not report them either and nothing is hidden here.
@@ -2522,7 +2558,7 @@ Every gate has a blind spot. These are the ones that have bitten:
   a page along with its inbound links passes every gate while the page's published URL starts
   404ing. `move-doc` covers a move, and `redirects:check` proves a destination resolves, but
   neither sees a plain deletion, and the upstream comparison that would have reported the page
-  absent after the fact went with FS-2706. Write the redirect into `redirects.config.mjs` by hand
+  absent after the fact went with FS-2706. Write the redirect into `redirects.config.ts` by hand
   in the same commit as the deletion.
 - **A third-party image that has rotted.** Nothing in CI requests it, so a dead URL behind
   `<ImageZoom src="https://…">` is silent. `pnpm images:check` is the manual sweep. The one case CI
@@ -2601,7 +2637,7 @@ curl -sS -D - -o body.html http://localhost:3000/docs/does-not-exist
 The three HTML 404s carry the same `ETag` as `/does-not-exist` and diff clean against it, because
 all four are one prerendered `/_not-found` response. Strip `<script>` blocks before grepping a body:
 a **200** docs page also contains the 404 copy, inside the router's prefetched flight payload, which
-is why `scripts/static-docs-http.test.mjs` matches on `documentOnly(html)`.
+is why `scripts/static-docs-http.test.ts` matches on `documentOnly(html)`.
 
 **The three markdown shapes answer 404 with an empty body on purpose.** A client that asked for
 `text/markdown` has no use for 82 KB of HTML chrome, and the reader-facing case, a browser following
@@ -2670,7 +2706,7 @@ tickets share one root cause and would come back together.
 compatible with `nextConfig.cacheComponents`". The migration guide's replacement is to call
 `notFound()` in the page for a param that does not resolve, which is precisely the shape that
 produced the empty shell here, so enabling that flag is a migration for this route and not a flag
-flip. `next.config.mjs` does not set it today. If it ever does, re-run the curl recipe above before
+flip. `next.config.ts` does not set it today. If it ever does, re-run the curl recipe above before
 believing the route still 404s visibly.
 
 ## Design specs

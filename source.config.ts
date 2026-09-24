@@ -3,7 +3,7 @@ import { defineCollections, defineConfig, defineDocs } from 'fumadocs-mdx/config
 import { execFileSync } from 'node:child_process';
 import { z } from 'zod';
 
-import { mdxOptions } from './lib/mdx-options.mjs';
+import { mdxOptions } from './lib/mdx-options.ts';
 import { referenceSchema } from './lib/reference-schema';
 
 /**
@@ -92,7 +92,7 @@ const arbitrumPageSchema = pageSchema.extend({
 /**
  * Partials live in `content/partials/` — outside the doc collection `dir` entirely — so they can
  * never be routed and need no glob exclusion here. They are inlined via `<include cwd>…</include>`.
- * `scripts/partials-check.mjs` enforces that no `_`-prefixed file reappears under content/docs.
+ * `scripts/partials-check.ts` enforces that no `_`-prefixed file reappears under content/docs.
  */
 export const docs = defineDocs({
   dir: 'content/docs',

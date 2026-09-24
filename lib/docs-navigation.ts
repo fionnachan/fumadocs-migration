@@ -1,24 +1,12 @@
 import type { Folder, Item, Node, Root, Separator } from 'fumadocs-core/page-tree';
 import type { ContentStorage } from 'fumadocs-core/source';
 
-import { duplicateManifestPages, sectionLandingClaims } from './docs-navigation-rules.mjs';
-
-interface NavigationEntry {
-  name?: string;
-  page?: string;
-  href?: string;
-  folder?: string;
-  flatten?: boolean;
-  defaultOpen?: boolean;
-  children?: NavigationEntry[];
-}
-
-interface NavigationSection {
-  id: string;
-  name: string;
-  sourceFolders: string[];
-  children: NavigationEntry[];
-}
+import {
+  type NavigationEntry,
+  type NavigationSection,
+  duplicateManifestPages,
+  sectionLandingClaims,
+} from './docs-navigation-rules.ts';
 
 /** A display-only link: unlike a page, it cannot claim the destination's sidebar root. */
 export interface NavigationReference extends Separator {
