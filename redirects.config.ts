@@ -1,9 +1,11 @@
-// Single source of truth for internal doc redirects. Consumed by next.config.mjs.
+// Single source of truth for internal doc redirects. Consumed by next.config.ts.
 // Entries between the AUTO-GENERATED markers are maintained by `pnpm move-doc`.
-import { legacyRedirects } from './redirects.legacy.mjs';
+import { legacyRedirects } from './redirects.legacy.ts';
 
-/** @type {{ source: string, destination: string, permanent: boolean }[]} */
-export const redirects = [
+/** The shape `next.config.ts` hands to Next; `redirects.legacy.ts` imports it as a type only. */
+export type Redirect = { source: string; destination: string; permanent: boolean };
+
+export const redirects: Redirect[] = [
   // AUTO-GENERATED REDIRECTS START
   {
     source: '/docs/launch-arbitrum-chain/run-a-node/run-batch-poster',
@@ -28,6 +30,6 @@ export const redirects = [
   // AUTO-GENERATED REDIRECTS END
 
   // Legacy docs.arbitrum.io URLs (root-level, pre-migration), hand-maintained in
-  // redirects.legacy.mjs. Listed last so a hand-written or move-doc entry above always wins.
+  // redirects.legacy.ts. Listed last so a hand-written or move-doc entry above always wins.
   ...legacyRedirects,
 ];

@@ -4,20 +4,19 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { localSiteUrl, resolveSiteUrl } from '../../lib/site-url.mjs';
+import { localSiteUrl, resolveSiteUrl } from '../../lib/site-url.ts';
 
 /**
- * Covers the site-URL rule in `lib/site-url.mjs`, whose whole job is to fail loudly.
+ * Covers the site-URL rule in `lib/site-url.ts`, whose whole job is to fail loudly.
  *
  * `NEXT_PUBLIC_SITE_URL` is inlined at build time, so a production build without it would bake
  * `http://localhost:3000` into every canonical and social image URL in the deployed output. That
  * failure is invisible on the running site and only visible to crawlers, so the rule throws
  * instead, and this file is what keeps the throw from being softened into a fallback later.
  *
- * The rule is plain JavaScript and takes its environment as an argument, so most cases call it
- * directly. Two things wrap it and each gets a case of its own, because the wrappers are where it
+ * The rule takes its environment as an argument, so most cases call it directly. Two things wrap it and each gets a case of its own, because the wrappers are where it
  * is actually applied: `getSiteUrl()` in lib/shared.ts, which binds it to `process.env` for app
- * code, and `next.config.mjs`, which is the only one of the two that runs during a build.
+ * code, and `next.config.ts`, which is the only one of the two that runs during a build.
  */
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -86,39 +85,28 @@ test('resolveSiteUrl rejects a malformed value outside production too', () => {
 });
 
 /**
- * Type stripping arrived in Node 22.6 and `engines` allows any 22.x, so on an older 22 the
- * lib/shared.ts case skips with a reason rather than failing for an unrelated cause. CI pins
- * `node-version: 22`, which resolves to the latest 22.x, so it does run there.
+ * Runs `script` in a fresh Node. Both cases import a `.ts` file, which Node type-strips on its own
+ * from 22.18, the floor `engines` sets; this test file is itself `.ts`, so an older Node never gets
+ * this far.
  */
-const stripTypes = (() => {
-  try {
-    execFileSync(
-      process.execPath,
-      ['--experimental-strip-types', '--no-warnings', '--input-type=module', '--eval', 'void 0'],
-      { stdio: 'ignore' },
-    );
-    return false;
-  } catch {
-    return 'node --experimental-strip-types is unavailable on this Node build';
-  }
-})();
-
-function runInSubprocess(script, env) {
+function runInSubprocess(script: string, env: Record<string, string | undefined>): string {
   return execFileSync(
     process.execPath,
-    ['--experimental-strip-types', '--no-warnings', '--input-type=module', '--eval', script],
+    ['--no-warnings', '--input-type=module', '--eval', script],
     {
       encoding: 'utf8',
       cwd: repoRoot,
       // A bare object, not a spread of process.env, so a NEXT_PUBLIC_SITE_URL that happens to be
-      // exported in the developer's shell cannot mask a failure here.
-      env: { PATH: process.env.PATH, ...env },
+      // exported in the developer's shell cannot mask a failure here. `NODE_ENV` is named because
+      // Next's global types make it a required key of `ProcessEnv`; nothing either case imports
+      // reads it.
+      env: { PATH: process.env.PATH, NODE_ENV: 'test', ...env },
       stdio: ['ignore', 'pipe', 'pipe'],
     },
   );
 }
 
-test('getSiteUrl binds the rule to process.env', { skip: stripTypes }, () => {
+test('getSiteUrl binds the rule to process.env', () => {
   const script = `
     const { getSiteUrl } = await import(${JSON.stringify(path.join(repoRoot, 'lib/shared.ts'))});
     process.stdout.write(getSiteUrl());
@@ -137,13 +125,14 @@ test('getSiteUrl binds the rule to process.env', { skip: stripTypes }, () => {
 /**
  * The case that matters most, and the one nothing covered before the rule was extracted.
  *
- * `next.config.mjs` is the copy that always runs during a build, because it is the first thing the
+ * `next.config.ts` is the copy that always runs during a build, because it is the first thing the
  * build evaluates, and the only one a build whose prerendered routes never reach `getSiteUrl()`
  * has. If it stops throwing, a misconfigured production deploy ships and fails on its first
- * request instead of failing the build.
+ * request instead of failing the build. Next evaluates the file through its own transpiler; this
+ * case imports it under Node's type stripping, which runs the same statements.
  */
-test('next.config.mjs fails the build on a missing or malformed site URL', () => {
-  const script = `await import(${JSON.stringify(path.join(repoRoot, 'next.config.mjs'))});`;
+test('next.config.ts fails the build on a missing or malformed site URL', () => {
+  const script = `await import(${JSON.stringify(path.join(repoRoot, 'next.config.ts'))});`;
 
   assert.throws(
     () => runInSubprocess(script, { VERCEL_ENV: 'production' }),

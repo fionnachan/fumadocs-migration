@@ -1,3 +1,5 @@
+import type { Configuration } from 'lint-staged';
+
 /**
  * Pre-commit checks, scoped to staged files only. Run via `.husky/pre-commit`.
  *
@@ -26,17 +28,19 @@
  *   `.source/`, runs `next typegen`, then type-checks the whole project, so even a one-line `.ts`
  *   edit pays for a full run, not just for the file you touched.
  */
-export default {
-  '*.{js,mjs,ts,tsx,md,yml,yaml,css}': 'prettier --write',
+const config: Configuration = {
+  '*.{ts,tsx,md,yml,yaml,css}': 'prettier --write',
   // Every *.json file except meta.json. meta.json is generator output (`stringifyMeta` in
   // scripts/lib/doc-links.mjs), which writes one array entry per line on purpose; Prettier
   // collapses a short array onto one line, so formatting it here would fight `pnpm move-doc` on
   // every run, each undoing the other's style. `.prettierignore` excludes them repo-wide for the
   // same reason, so `format:check` does not report them either and nothing is hidden here.
   '!(meta).json': 'prettier --write',
-  'content/**/*.mdx': (files) => [
+  'content/**/*.mdx': (files: readonly string[]) => [
     `prettier --write ${files.map((f) => `"${f}"`).join(' ')}`,
     `node scripts/content-lint.mjs ${files.map((f) => `"${f}"`).join(' ')}`,
   ],
   '*.{ts,tsx}': () => 'pnpm run types:check',
 };
+
+export default config;

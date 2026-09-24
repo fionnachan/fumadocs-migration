@@ -5,8 +5,9 @@
 // generator is gone, so add an entry by writing it here, in source order, and prove the
 // destination with `pnpm redirects:check`. See INTERNALS.md#redirects for the resolution order
 // these entries were built on and for how to pick a destination.
-/** @type {{ source: string, destination: string, permanent: boolean }[]} */
-export const legacyRedirects = [
+import type { Redirect } from './redirects.config.ts';
+
+export const legacyRedirects: Redirect[] = [
   {
     source: '/anytrust',
     destination: '/docs/how-arbitrum-works/deep-dives/anytrust-protocol',

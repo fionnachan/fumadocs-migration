@@ -2,9 +2,10 @@
   "name": "Fumadocs-test",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "packageManager": "pnpm@10.29.3",
   "engines": {
-    "node": ">=22.0.0 <23.0.0",
+    "node": ">=22.18.0 <23.0.0",
     "pnpm": ">=10.0.0"
   },
   "scripts": {
@@ -36,11 +37,16 @@
     "content:lint": "node scripts/content-lint.mjs",
     "images:check": "node scripts/remote-images-check.mjs",
     "images:presence": "node scripts/remote-images-check.mjs --presence",
-    "test": "node --test \"scripts/**/*.test.mjs\"",
+    "test": "node --test \"scripts/**/*.test.mjs\" \"scripts/**/*.test.ts\"",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "postinstall": "fumadocs-mdx",
     "prepare": "husky || true"
+  },
+  "postcss": {
+    "plugins": {
+      "@tailwindcss/postcss": {}
+    }
   },
   "dependencies": {
     "@ethersproject/address": "5.8.0",

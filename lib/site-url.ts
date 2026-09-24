@@ -1,15 +1,13 @@
 /**
- * The site-URL rule, in one place, in plain JavaScript.
+ * The site-URL rule, in one place.
  *
- * **Why this is `.mjs` and not `.ts`, next to the TypeScript it serves.** Two things have to apply
- * this rule and they cannot share a TypeScript module. `lib/shared.ts` is app code compiled by
- * Next. `next.config.mjs` is evaluated by Node before any of that exists, so it can only import
- * plain JavaScript. The rule used to be written out by hand in both, and the copy that actually
- * enforces it during a build was the copy with no tests. `next.config.mjs` is the earliest thing a
- * build evaluates, which makes it the check that always fires, including for a build whose
- * prerendered routes never reach `getSiteUrl()`. One module imported by both means the enforcing
- * copy and the tested copy are the same copy. `tsconfig.json` sets `allowJs`, so `lib/shared.ts`
- * imports this with inferred types and no `.d.ts`.
+ * Two things have to apply this rule. `lib/shared.ts` is app code compiled by Next, and
+ * `next.config.ts` is evaluated by Node before any of that exists (Next transpiles it and the
+ * `.ts` files it imports on the fly). The rule used to be written out by hand in both, and the copy
+ * that actually enforces it during a build was the copy with no tests. `next.config.ts` is the
+ * earliest thing a build evaluates, which makes it the check that always fires, including for a
+ * build whose prerendered routes never reach `getSiteUrl()`. One module imported by both means the
+ * enforcing copy and the tested copy are the same copy.
  *
  * Takes its environment as an argument rather than reading `process.env`, so the tests can call it
  * directly instead of through a subprocess.
@@ -43,10 +41,10 @@ const missingMessage =
  * Outside production the localhost fallback is correct and convenient: `pnpm dev`, `pnpm build` on
  * a laptop, CI, and preview deployments all work with nothing configured.
  *
- * @param {Record<string, string | undefined>} env Usually `process.env`.
- * @returns {string} The origin, guaranteed parseable by `new URL()`.
+ * @param env Usually `process.env`.
+ * @returns The origin, guaranteed parseable by `new URL()`.
  */
-export function resolveSiteUrl(env) {
+export function resolveSiteUrl(env: Record<string, string | undefined>): string {
   const configured = env.NEXT_PUBLIC_SITE_URL;
 
   if (configured) {

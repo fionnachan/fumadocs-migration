@@ -1,5 +1,5 @@
 import vars from '../content/vars.json' with { type: 'json' };
-import { localSiteUrl, resolveSiteUrl } from './site-url.mjs';
+import { localSiteUrl, resolveSiteUrl } from './site-url.ts';
 
 export const appName = 'Arbitrum docs';
 /**
