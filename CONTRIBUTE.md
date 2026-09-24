@@ -43,23 +43,13 @@ sidebar, but only if the page has no explicit `name` in `lib/docs-navigation.jso
 `name` always wins over `sidebar_label`, and a page the manifest never names renders its
 `sidebar_label`.
 
-**If `pnpm test` fails on your new page naming a legacy redirect, that is the gate working.** A
-couple of legacy `docs.arbitrum.io` URLs point at a section landing because the page they asked for
-had not been ported yet, and the check fires when your page's frontmatter `title` matches the
-upstream page's title exactly. Which fix applies depends on whether your page is that upstream page:
-
-- **It is the port.** Move the entry from `SECTION_LANDINGS` into `MANUAL_DESTINATIONS` in
-  `scripts/lib/legacy-redirects.ts`, pointed at your page, and retarget the matching entry in
-  `redirects.legacy.ts`. Nothing re-resolves those URLs on its own, so leaving them answers a
-  reader who asked for your page with a list of links instead.
-- **It only happens to share the title.** The recorded titles include short generic nouns such as
-  "Sequencer", so this is a real possibility. Leave both destinations alone and delete that source's
-  entry from `UPSTREAM_TITLES` in the same module, with a comment saying why. Retargeting would send
-  readers to a page that is not the one they asked for, which is worse than the landing page they
-  reach today.
-
-The failure message says both, and quotes the title and the page, so you do not have to read the
-test to tell which case you are in.
+**If you are porting a page a legacy redirect is waiting for, retarget the redirect.** Two legacy
+`docs.arbitrum.io` URLs in `redirects.config.ts` point at a section landing because the page they
+asked for was never ported; each carries a comment saying so. Nothing automated notices when the
+page lands, so if yours is that page, point its entry at your page in the same PR. If yours merely
+shares the title (the upstream titles are short generic nouns such as "Sequencer"), leave the
+redirect alone: sending readers to a page that is not the one they asked for is worse than the
+landing page they reach today.
 
 ### Place your page in the sidebar
 
@@ -200,11 +190,11 @@ surrounding `meta.json`, and records the redirect in `redirects.config.ts` for y
 hand-edit between the `AUTO-GENERATED` markers in `redirects.config.ts`**, since `move-doc` owns that
 block. Use `--dry-run` first to preview the changes, and confirm afterward with `pnpm check-links`.
 
-`move-doc` also retargets the two hand-written maps in `scripts/lib/legacy-redirects.ts` that decide
-where legacy `docs.arbitrum.io` URLs point, if either names the page, and prints a note when a
-`redirects.legacy.ts` entry is left one hop long. That file is hand-maintained: add or retarget a
-legacy redirect by editing it directly, then prove the destination with `pnpm redirects:check`
-against a running site.
+`move-doc` also retargets every other entry in `redirects.config.ts` that pointed at the old URL,
+including the legacy `docs.arbitrum.io` entries after the markers, so nothing chains, and removes
+any entry that redirected away from the new URL, so nothing shadows the page. Those legacy
+entries are hand-maintained: add one by editing the file directly, in source order, then prove the
+destination with `pnpm redirects:check` against a running site.
 
 ## Gates to run before you push
 

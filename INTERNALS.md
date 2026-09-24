@@ -118,8 +118,8 @@ so the differences that actually cause mistakes are worth keeping written down:
 
 The numeric-prefix rule was the sharpest edge when porting URLs: a path that Docusaurus served at
 `/foo/bar` serves at `/02-foo/bar` here unless the directory is renamed or a redirect is added. It
-is why `redirects.legacy.ts` exists, and it still decides where a hand-added legacy redirect should
-point.
+is why the legacy block of `redirects.config.ts` exists, and it still decides where a hand-added
+legacy redirect should point.
 
 `@fumadocs/cli` exists but only **installs UI components**. It does not move, rename, or restructure
 docs, and it does not manage redirects. Every tool in `scripts/` exists because nothing else
@@ -1028,72 +1028,33 @@ The Docusaurus site needed two copies (a client-redirects plugin for in-app navi
 `redirects()` runs **before** `proxy.ts`, so a redirected URL gets markdown negotiation on the
 destination, not on the first hop.
 
-The `AUTO-GENERATED` block in `redirects.config.ts` is written by `pnpm move-doc`; never hand-edit
-between its markers. The rest of the file, and `redirects.legacy.ts` beside it, are hand-maintained.
+The file has two blocks. Between the `AUTO-GENERATED` markers, one entry per moved page, written by
+`pnpm move-doc`; never hand-edit between the markers. After them, the legacy `docs.arbitrum.io`
+entries, hand-maintained. The two used to be separate files (`redirects.legacy.ts` held the
+legacy block, and a further module under `scripts/lib/` held the hand-written maps the legacy
+entries had been generated from); both were folded into this one file on 2026-09-24 so that a
+redirect has exactly one place to live and `move-doc` has exactly one file to keep correct.
 
 **Moved pages.** `pnpm move-doc <from> <to>` writes the old→new URL between the `AUTO-GENERATED`
-markers.
-
-**It then retargets the legacy destination overlay, as its last step.**
-`scripts/lib/legacy-redirects.ts` keeps two hand-written maps naming this site's pages,
-`MANUAL_DESTINATIONS` and `SECTION_LANDINGS`, as **site URLs** (`/docs/…`, sometimes with an
-`#anchor`) rather than content-relative paths. `scripts/lib/legacy-destinations.ts` retargets both.
-Before this, moving a page named in either left a legacy `docs.arbitrum.io` URL pointing at a 404
-until the tripwire in `scripts/lib/legacy-redirects.test.ts` ("every hand-written destination still
-names a live page") failed in whatever PR ran `pnpm test` next.
-
-Three things about that rewrite are load-bearing, and each exists because the alternative fails
-quietly:
-
-- **It edits only inside the two named `new Map([…])` literals.** `legacy-redirects.ts` also
-  declares `SECTION_RENAMES`, an array of URL-shaped strings. A whole-file match for a page's URL
-  could rewrite one of those while reporting itself on the CLI as a destination change.
-- **A missed match aborts the step.** The rewrite is textual and single-quote-only, so reformatting
-  the module to double quotes, or writing an entry as a template literal, would match nothing and
-  leave the stale destination in place, which is the original bug again with no warning. After
-  rewriting, `legacy-destinations` imports the module and checks its substitution count against the
-  parsed maps; a disagreement throws and names the URL.
-- **It runs last and writes both maps or neither.** Every read, rewrite, verification and Prettier
-  pass happens before the first write, and `move-doc` calls it after the redirect is appended, so a
-  formatter or parse failure cannot cost the redirect or leave one map retargeted and the other not.
-
-Three further details come from the data:
-
-- **It works in URLs, so `move-doc` hands it `fromMeta.url`/`toMeta.url`.** A partial (no URL) and a
-  move that does not change the URL are both no-ops.
-- **It tells values from keys by position, not by a trailing `:`.** A `Map` entry is `[key, value]`,
-  so the value is the string the `]` follows: `'…'(?=\s*,?\s*\])`. Both Prettier layouts (one line,
-  and the value wrapped onto its own line) satisfy it. An `#anchor` on a destination is carried
-  across; the closing quote sits immediately after the URL, so `/docs/get-started` cannot match
-  inside `/docs/get-started/child`.
-- **It does not retarget `redirects.legacy.ts` itself.** Readers do not need it: `move-doc` has
-  already appended `oldUrl → newUrl` to `redirects.config.ts`, and Next serves one redirect per
-  request, so a legacy URL still reaches the moved page in two hops. `redirects:check` does care.
-  `redirects.legacy.ts` still names the old URL as its destination, and the check compares a
-  destination against the routable pages without ever following a second hop, so every legacy source
-  that named the moved page reports `DEAD`. That file is hand-maintained, so the fix is to retarget
-  those entries or accept the extra hop. The same one-hop reading reaches the `AUTO-GENERATED` block:
-  an earlier move's redirect whose destination is the page just moved now chains and reports `DEAD`
-  alongside them. Retarget it to the new URL. The step prints a note saying all of this.
-- **The chained `AUTO-GENERATED` entry gets its own note, and only when there is one.** The block
-  holds four entries in total, so a move of any other page has nothing chained to it: asserting the
-  chain unconditionally was false for 64 of the 68 pages the two maps name, and sent the mover
-  looking for a line that does not exist. `findChainedAutoRedirects` reads `redirects.config.ts`
-  between the two markers, matches `source` then `destination` (the order `appendRedirect` writes
-  and Prettier preserves when it wraps), compares the destination for exact equality so a move of
-  `/docs/run-a-node` cannot claim the entry pointing at `/docs/run-a-node/run-batch-poster`, and
-  names the source URL(s) to retarget. The entry `move-doc` appended moments earlier cannot match
-  itself, because its destination is the _new_ URL. That note is **not** gated on either legacy map
-  having changed, unlike the `redirects.legacy.ts` note above it: a chained entry is an earlier
-  move's business, not the maps', and a page no legacy map names would otherwise chain in silence.
-
-**This step was written to outlive the legacy redirect generator, and did.** The derivation half of
-that system, everything that read an arbitrum-docs checkout, was deleted in FS-2706 when that repo
-was archived. The two maps were not: `docs.arbitrum.io` URLs have to keep resolving forever. Because
-`legacy-destinations.ts` imports only those two named exports, rewrites only the two literals that
-declare them, and reads nothing else, the generator's deletion cost it no change at all. Should the
-maps ever move to a different module, the textual rewrite finds nothing and the cross-check throws,
-rather than the step silently skipping.
+markers, and then, as its last step, **retargets every other entry in the file whose destination was
+the old URL** (`retargetRedirects` in `scripts/lib/redirects-config.ts`). Readers would reach the
+page either way, since Next serves one redirect per request and a chain still lands, but
+`pnpm redirects:check` follows one hop only and would report every chained entry `DEAD`. The
+rewrite matches `destination: '<old URL>'` with an optional `#anchor` carried across, in either
+quote style; a `source` cannot match because the pattern starts with the `destination` key, and a
+child page cannot match because the closing quote has to follow the URL immediately. **The same
+step deletes any entry whose source is the new URL.** That is the out-and-back move: an earlier
+move left `X -> Y` on file, the page comes back to `X`, and without the deletion the retarget
+would turn that entry into `X -> X`, a loop that Next's `redirects()` serves before the route, so
+the restored page is unreachable (the base had the same defect as a two-entry loop). The result is
+run through Prettier before it is written, so a value that changed length cannot leave the file
+failing `format:check`. The step runs after the new entry is appended only so the notes print in
+the order the steps happened; the appended entry has the old URL as its source and the new one as
+its destination, so neither rewrite can touch it in either order. A partial (no URL) and a move
+that keeps its URL are no-ops. `scripts/move-doc.test.ts` runs the real CLI against a fixture
+repo for the real run, the dry run, a move only some entries name, and the out-and-back move;
+`scripts/lib/redirects-config.test.ts` unit-tests both rewrites, including the wrapped and
+double-quoted shapes and the two no-ops.
 
 **`VERSIONED` in `lib/versions-constants.ts` is still on the mover, but it is no longer silent.**
 That registry keys the partial versioning registry by canonical slug (`'run-a-node/start-here'`) and
@@ -1107,29 +1068,26 @@ it is not what catches this. Retargeting the key is a
 judgement call (`archivePath` mirrors the old slug on every current entry but is not required to),
 so after moving a versioned page, retarget its `VERSIONED` key by hand.
 
-**Legacy `docs.arbitrum.io` URLs.** `redirects.legacy.ts` holds 853 of them. Legacy URLs were
-served at the site root (`/stylus/using-cli`) and this site serves docs under `/docs`, so sources
-stay root-level (that is what real inbound links look like) and destinations point at `/docs/…`. The
-file is committed and **hand-maintained**: add an entry by writing it, in source order, and prove the
-destination with `pnpm redirects:check`.
+**Legacy `docs.arbitrum.io` URLs.** The legacy block holds 853 of them. Legacy URLs were served at
+the site root (`/stylus/using-cli`) and this site serves docs under `/docs`, so sources stay
+root-level (that is what real inbound links look like) and destinations point at `/docs/…`. The
+block is **hand-maintained**: add an entry by writing it, in source order, and prove the destination
+with `pnpm redirects:check`.
 
 It was originally generated, from two inputs that no longer exist: the Docusaurus repo's own
 `vercel.json` redirect sources, and every canonical page URL derived from its `docs/` tree by
-reimplementing Docusaurus routing. That generator, and the `pnpm redirects:legacy` script around it,
-were deleted in FS-2706 along with the rest of the upstream coupling. What survives is
-`scripts/lib/legacy-redirects.ts`: `MANUAL_DESTINATIONS`, `SECTION_LANDINGS`, `SECTION_RENAMES`, the
-content-tree inventory the tripwire resolves against, and the record of the resolution order below.
+reimplementing Docusaurus routing. That generator was deleted in FS-2706 along with the rest of the
+upstream coupling, and the hand-written maps it read (`MANUAL_DESTINATIONS`, `SECTION_LANDINGS`,
+`SECTION_RENAMES`, `UPSTREAM_TITLES`) were deleted on 2026-09-24, since nothing served from them.
+What survives is the record of the resolution order below, which is how every committed entry was
+decided and how a new one should be. Each legacy URL took the first rule that matched, and a rule
+that could not decide declined rather than guessing.
 
-**The resolution order is how every committed entry was decided, and how a new one should be.** Each
-legacy URL took the first rule that matched, and a rule that could not decide declined rather than
-guessing.
-
-1. **`MANUAL_DESTINATIONS`**, a hand-verified legacy destination → local page, confirmed by comparing
-   the upstream page's frontmatter title against the local candidates. A value may carry an
-   `#anchor`; the page part has to resolve.
+1. **A hand-verified destination**, confirmed by comparing the upstream page's frontmatter title
+   against the local candidates. A value may carry an `#anchor`; the page part has to resolve.
 2. **Self-URL**, where the legacy path still names a live page here under `/docs`. This resolved most of
    the canonical URLs, which had only ever needed the `/docs` prefix.
-3. **`SECTION_RENAMES`**, whole sections that moved wholesale (`/run-arbitrum-node` →
+3. **Section renames**, whole sections that moved wholesale (`/run-arbitrum-node` →
    `/run-a-node`). Deep restructures are deliberately absent: their pages moved individually, so a
    prefix rule would produce confidently-wrong destinations.
 4. **Exact title**, when exactly one local page carried the upstream page's frontmatter title
@@ -1142,76 +1100,34 @@ guessing.
    disambiguating and the title cannot.
 5. **Basename fallback**, accepted only when exactly one local page carried that slug _and_ the
    basename was unique upstream too.
-6. **`SECTION_LANDINGS`**, the nearest live section, for a page upstream had and this site never
-   ported. Not an equivalence, and last on purpose, so it never masks a page that does exist.
+6. **The nearest live section landing**, for a page upstream had and this site never ported. Not an
+   equivalence, and last on purpose, so it never masks a page that does exist.
 
-**Rule 6 was written to expire on its own, and never did.** The self-correction was a re-resolution:
-run the generator again once the page is ported, and rule 2 claims the URL before rule 6 is
-consulted. It needed a run, and the run never happened. Nine of the eleven `SECTION_LANDINGS`
-entries were already wrong in the commit that introduced them, which FS-2748 established from the
-history: all nine pages were ported on 2026-09-11 (`a36b096`, `3ea315c`), each carrying the upstream
-title verbatim and the same basename, and all nine were in the tree at `27f7660`, the commit that
-seeded `redirects.legacy.ts` on 2026-09-15. The generator's output had been computed against an
-older tree and was not recomputed against the merged one, so a reader asking for "Common error
-messages" was answered with a list of links to the Operate section from the first day the redirect
-existed. FS-2706 then deleted the generator, which turns a missed re-run into a permanent state: no
-committed destination is ever recomputed again. Those nine now sit in `MANUAL_DESTINATIONS`.
-Rules 2 and 3 would reach the same nine destinations unaided, but the entries stay, because being in
-a map is what puts them in front of `pnpm move-doc`, which retargets both maps and prints the note
-that `redirects.legacy.ts` names those pages too. **Porting a page named in `SECTION_LANDINGS` is
-therefore a two-file edit**: move the entry into `MANUAL_DESTINATIONS` pointed at the page, and
-retarget its twin in `redirects.legacy.ts`. Two entries are left there, `config-batch-poster` and
-`sequencer-content-map`, and no page here carries either title or either basename.
-
-**`UPSTREAM_TITLES` is what makes forgetting that edit fail the suite.** It records the upstream
-frontmatter title per legacy source, as data rather than in the comment beside the entry, and
-`legacy-redirects.test.ts` asserts rule 4 over it continuously: when exactly one page here carries
-that title verbatim, the entry's destination has to be that page. The assertion is conditional in
-both directions, which is what makes it safe to leave standing. A title no page carries is skipped,
-so the two surviving landings pass today and start failing the moment either page is ported. A title
-two pages share is skipped as well, for the reason rule 4 declines there: the title no longer
-identifies one page. Only verified titles are recorded, since inventing a plausible one would turn
-the test into a guess. Nothing else could have caught this class, which is the same blind spot the
-guiding rule below describes: `redirects:check` asks only whether a destination exists, and a
+**Rule 6 entries do not correct themselves when the page is ported.** Nine of them were already
+wrong in the commit that introduced them (FS-2748): the pages had been ported four days before the
+redirects were seeded from a stale computation, so a reader asking for "Common error messages" was
+sent to a section landing from day one. Two rule 6 entries remain and carry a comment in the file
+saying so: `/launch-arbitrum-chain/chain-config/batch-poster/config-batch-poster` and
+`/node-running/sequencer-content-map`. **Porting either page means retargeting its entry**, and
+nothing automated will remind you; `redirects:check` asks only whether a destination exists, and a
 section landing exists.
-
-**A title match is evidence, not proof, so the failure has two correct answers and names both.** Two
-of the recorded titles are short generic nouns, "Batch Poster" and "Sequencer", and a page that takes
-one of those for reasons of its own is not thereby the port of the upstream page. Retargeting at it
-would write precisely the plausible-but-wrong redirect the guiding rule below forbids. The second
-answer is to delete that source's `UPSTREAM_TITLES` entry, with a comment, and leave the destination
-alone: nothing requires a map entry to carry a recorded title, so the map goes on working and only
-the claim nobody can verify any more is dropped. Retarget only when the page really is the port. The
-assertion message spells out both, because a failure that names one fix gets that fix, and
-[CONTRIBUTE](CONTRIBUTE.md) puts the same fork in front of a contributor adding a page.
 
 **The guiding rule: a redirect to a plausible-but-wrong page is worse than a 404.** It silently
 sends readers somewhere wrong, and `redirects:check` cannot catch it, because the destination
 exists. Anything no rule resolved was left unmapped rather than pointed at a plausible page, and the
-same judgement applies to a hand-added entry.
+same judgement applies to a hand-added entry. A title match is evidence, not proof: a page that
+takes a short generic title such as "Sequencer" for reasons of its own is not thereby the port of
+the upstream page of that name.
 
 **A source that names a live route here must never be added.** Next runs `redirects()` before
 anything renders, so such a redirect wins over the route and makes it unreachable. The site root,
 `/llms*`, `/og`, `/api`, `/img`, the `public/` asset directories and the icon and PDF files are all
 in that category; `redirects:check` reports one as `SHADOWED`.
 
-**`MANUAL_DESTINATIONS` and `SECTION_LANDINGS` are hand-written, so tests pin them against the
-content tree.** An orphaned entry would otherwise rot silently into a redirect to a 404.
-`pnpm test` walks `content/docs` and asserts every non-external value in both maps still resolves,
-that every destination with a recorded `UPSTREAM_TITLES` title names the page carrying it, and that
-no recorded title outlives its entry. Since the generator was deleted these are the only automated
-checks on either map that run without a server, which is why `pnpm move-doc` retargets both in the
-same run as the move (see [Moved pages](#redirects)); they guard against a hand edit, against a page
-leaving the tree some other way, and against a page arriving in it, not against the mover.
-
-That last case is the one FS-2748 added. The first test only ever asked whether a destination
-resolves, so nine entries pointed at a landing page that resolves perfectly while the page the
-reader asked for sat one level below it. Both halves of the check share one content walk
-(`collectLocalPages`, which `collectValidUrls` and `collectPagesByTitle` are both built on) so a
-title and a URL can never be resolved against different inventories, and titles are read with
-`splitFrontmatter`, the repo's one frontmatter-title reader, rather than a second regex: this tree
-writes `title: 'BoLD FAQ'` and `title: Sequencer configuration reference` in roughly equal measure,
-and a reader that kept the quotes would match neither form against the other.
+**Three offline tests pin the file** (`scripts/lib/redirects-config.test.ts`, run by `pnpm test`):
+every internal destination names a page under `content/docs`, case-sensitively; no source is a
+live page or redirects to itself; and no source is listed twice. They guard against a hand edit and against a page leaving the tree some other way;
+`move-doc` guards against the move.
 
 `pnpm redirects:check` validates every destination against `/llms.txt` — the router's own page
 list — and fails on a dead destination or a source that shadows a live page. It needs the site

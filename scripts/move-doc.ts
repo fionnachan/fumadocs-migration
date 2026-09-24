@@ -11,23 +11,18 @@
  *   2. moves the file (via `git mv`), recomputing the file's *own* relative links so they stay valid;
  *   3. updates the doc's entry in the surrounding `meta.json` navigation;
  *   4. records the old→new URL in `redirects.config.ts`;
- *   5. retargets the moved page's *URL* in `scripts/lib/legacy-redirects.ts`'s
- *      `MANUAL_DESTINATIONS` and `SECTION_LANDINGS`, if either names it (see
- *      `scripts/lib/legacy-destinations.ts`) — otherwise a move leaves a legacy docs.arbitrum.io
- *      URL pointing at a 404, which `pnpm test` only catches in whatever unrelated PR happens to
- *      run next.
+ *   5. retargets every existing entry in `redirects.config.ts` whose destination was the old URL
+ *      (a legacy docs.arbitrum.io entry, or an earlier move's), so no redirect chains through the
+ *      one just written (`pnpm redirects:check` follows one hop only and would report a chain
+ *      DEAD), and deletes any entry whose source is the new URL, which an earlier move away from
+ *      that URL would have left behind to shadow the page now living there.
  *
- * Step 5 runs last because it is the only step that can legitimately refuse: it verifies its own
- * rewrite and formats through Prettier before writing, and aborting there must not cost the
- * redirect. It used to be preceded by a sixth step retargeting the drift exemption maps; those maps
- * were deleted with the upstream comparison (FS-2706). One hand-written map is still on the mover:
- * `VERSIONED` in
- * `lib/versions.ts` (keyed by canonical slug), where nothing fails at all —
- * `versioned-docs-check.ts` always exits 0, so a moved versioned page just loses its version
- * dropdown. Retarget that one by hand.
+ * One hand-written registry is still on the mover: `VERSIONED` in `lib/versions-constants.ts`
+ * (keyed by canonical slug). `scripts/versions-routing.test.ts` fails on a dead key, so forgetting
+ * is loud, but retarget it by hand.
  *
  * `--dry-run` prints every change without touching the filesystem. Paths are repo-relative files under
- * `content/docs/` (not site URLs). After a real run, verify with `pnpm restructure` or `pnpm check-links`.
+ * `content/docs/` (not site URLs). After a real run, verify with `pnpm check-links`.
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
@@ -58,8 +53,8 @@ import {
   REDIRECTS_CONFIG_PATH,
   REDIRECTS_END,
   REDIRECTS_START,
-  updateLegacyDestinations,
-} from './lib/legacy-destinations.ts';
+  retargetRedirects,
+} from './lib/redirects-config.ts';
 
 /** One link occurrence, with the file that holds it and the file it resolves to. */
 interface LinkRecord {
@@ -407,7 +402,7 @@ async function main(): Promise<void> {
       );
     }
     // Reported last, mirroring the order a real run applies the steps in.
-    for (const n of await updateLegacyDestinations(repoRoot, fromMeta.url, toMeta.url, true))
+    for (const n of await retargetRedirects(repoRoot, fromMeta.url, toMeta.url, true))
       console.log(`  ${n}`);
     console.log('\n[dry-run] no files were changed.');
     return;
@@ -436,18 +431,14 @@ async function main(): Promise<void> {
     );
   }
 
-  // Last on purpose. This step reads two files, verifies its own rewrite against the parsed maps,
-  // and runs the result through Prettier, any of which can throw; running it after the redirect is
-  // appended means a failure here costs only this step, and it writes both maps or neither.
-  // Everything before it has already landed, so the fix is to retarget the maps by hand. It works
-  // in site URLs rather than content-relative paths, because that is what the two legacy maps
-  // store, and it writes nothing but those two maps, which is why deleting the legacy redirect
-  // *generator* left it working as is. It also reads back the AUTO-GENERATED block appended just
-  // above, to report any earlier move's redirect this one has just turned into a two-hop chain.
-  for (const n of await updateLegacyDestinations(repoRoot, fromMeta.url, toMeta.url, false))
+  // Every entry that pointed at the old URL now points at the new one, and nothing redirects away
+  // from the new URL. Last only so the notes print in the order the steps happened; the entry just
+  // appended has the new URL as its destination and the old as its source, so neither rewrite can
+  // touch it whichever order they run in.
+  for (const n of await retargetRedirects(repoRoot, fromMeta.url, toMeta.url, false))
     console.log(`  ${n}`);
 
-  console.log('\nDone. Verify with `pnpm check-links` (or `pnpm restructure` runs it for you).');
+  console.log('\nDone. Verify with `pnpm check-links`.');
 }
 
 function exitErr(msg: string): never {
