@@ -9,11 +9,11 @@
  *
  * Nothing else checks these three hrefs. `scripts/check-links.mjs` walks `content/docs/**`
  * `.md(x)` files only, by its own header comment, and `pnpm move-doc` retargets `redirects.config.mjs`
- * and the drift/legacy-destination maps but not a `.tsx` file. Without this test, deleting or
- * renaming one of the three pages would leave a silent 404 in the footer of every section sidebar.
- * Same ungated shape `announcementLinkHref` has, which is why `collectValidUrls`/`resolveUrl` (the
- * content-tree walk `legacy-redirects.test.mjs` pins its own hand-written maps against) is reused
- * here rather than writing a third copy of "map a /docs/... URL to a file".
+ * but not a `.tsx` file. Without this test, deleting or renaming one of the three pages would
+ * leave a silent 404 in the footer of every section sidebar. Same ungated shape
+ * `announcementLinkHref` has, which is why `buildIndex` (the content-tree walk every other tool
+ * resolves URLs against) is reused here rather than writing another copy of "map a /docs/... URL
+ * to a file".
  */
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -21,17 +21,14 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { sidebarResourceLinks } from '../../lib/shared.ts';
-import { collectValidUrls, resolveUrl } from './legacy-redirects.mjs';
+import { buildIndex } from './doc-links.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 test('every sidebar resource link resolves to a real page under content/docs', () => {
-  const valid = collectValidUrls(path.join(repoRoot, 'content/docs'));
-  const missing = sidebarResourceLinks
-    .map((link) => link.url)
-    // resolveUrl is case-insensitive for the legacy corpus; Next routes are not, so require the
-    // exact string back rather than any truthy match.
-    .filter((url) => resolveUrl(valid, url) !== url);
+  const { byUrl } = buildIndex(repoRoot);
+  // Next routes are case-sensitive, and so is this lookup.
+  const missing = sidebarResourceLinks.map((link) => link.url).filter((url) => !byUrl.has(url));
   assert.deepEqual(missing, []);
 });
 

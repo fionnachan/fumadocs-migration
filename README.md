@@ -281,19 +281,11 @@ pnpm move-doc <from> <to>
 ```
 
 This rewrites inbound links, re-bases the moved page's own relative links and includes, updates
-`meta.json`, writes the redirect, and retargets the two legacy-redirect destination maps if either
-names the page. Add `--dry-run` to see all of it without touching a file. One map it cannot fix is
-`VERSIONED` in `lib/versions-constants.ts`. If the page you moved has a version dropdown, retarget its key by
-hand. Forgetting is not silent, at least. `pnpm test` fails on a registry key that names no live
-page.
-
-Readers are fine either way: a legacy `docs.arbitrum.io` URL still reaches the page through the
-redirect just written, one hop longer. `pnpm redirects:check` is not. It follows one hop only, so
-every entry in `redirects.legacy.mjs` still pointing at the old URL reports `DEAD`. That file is
-hand-maintained, so either retarget those entries or accept the extra hop and the report. If an
-earlier move's redirect in `redirects.config.mjs` pointed at the page you just moved, `move-doc`
-prints a second note naming it: it reports `DEAD` for the same reason, so point it at the new URL.
-No such note means there is no such entry.
+`meta.json`, writes the redirect, and retargets every existing redirect that pointed at the old URL
+so none of them chains. Add `--dry-run` to see all of it without touching a file. One registry it
+cannot fix is `VERSIONED` in `lib/versions-constants.ts`. If the page you moved has a version
+dropdown, retarget its key by hand. Forgetting is not silent, at least. `pnpm test` fails on a
+registry key that names no live page.
 
 **Never hand-edit between the `AUTO-GENERATED` markers in `redirects.config.mjs`**, since `move-doc`
 owns that block. ([Details](INTERNALS.md#redirects).)

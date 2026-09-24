@@ -1,11 +1,10 @@
 /**
  * End-to-end tests for `move-doc.mjs` against a throwaway fixture "repo" — not a unit test of any one
  * function, but a check that running the real CLI actually rewrites the files on disk the way the
- * inline doc comment promises. Focused on FS-2697's `MANUAL_DESTINATIONS` / `SECTION_LANDINGS`
- * retarget, which only shows up end-to-end because `move-doc.mjs`'s `main()` resolves every path off
- * `process.cwd()`, and whose ordering (it can refuse, so it must run after everything that must not
- * be lost) is a property only a full run can pin. A sibling set covering the drift exemption maps
- * was deleted with the upstream comparison (FS-2706).
+ * inline doc comment promises. Focused on the redirect step, which only shows up end-to-end because
+ * `move-doc.mjs`'s `main()` resolves every path off `process.cwd()`, and whose ordering (the
+ * retarget runs after the new redirect is appended, so it cannot match itself) is a property only a
+ * full run can pin.
  */
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -32,23 +31,27 @@ const PAGE_FRONTMATTER = [
   '',
 ].join('\n');
 
+const REDIRECTS_FIXTURE = `export const redirects = [
+  // AUTO-GENERATED REDIRECTS START
+  { source: '/docs/example/older-name', destination: '/docs/example/old-name', permanent: true },
+  // AUTO-GENERATED REDIRECTS END
+
+  // Legacy docs.arbitrum.io URLs
+  { source: '/legacy/old-name', destination: '/docs/example/old-name', permanent: false },
+  {
+    source: '/legacy/anchored',
+    destination: '/docs/example/old-name#a-section',
+    permanent: false,
+  },
+  { source: '/legacy/unrelated', destination: '/docs/example/unrelated', permanent: false },
+];
+`;
+
 /** A throwaway repo with just enough shape for move-doc.mjs to run: a docs tree and a
- * legacy-redirects module whose `MANUAL_DESTINATIONS` and `SECTION_LANDINGS` both point at the page
- * under test.
- *
- * `legacyDoubleQuoted` writes the same maps with double quotes, invisible to the single-quote-only
- * textual rewrite, so the cross-check aborts that step. That is the only way to reach the failure
- * path end to end.
- */
-function fixtureRepo({ legacyDoubleQuoted = false } = {}) {
+ * `redirects.config.mjs` in which an earlier move's entry and two legacy entries point at the page
+ * under test. */
+function fixtureRepo() {
   const root = mkdtempSync(path.join(tmpdir(), 'move-doc-e2e-'));
-  // move-doc.mjs writes legacy-redirects.mjs back through Prettier, which resolves config from the
-  // file's own location. Give the fixture its own, matching the real repo's style, so the assertions
-  // below exercise the actual write path instead of Prettier's double-quote default.
-  writeFileSync(
-    path.join(root, '.prettierrc.json'),
-    '{"singleQuote": true, "trailingComma": "all"}',
-  );
   const docsDir = path.join(root, 'content', 'docs', 'example');
   mkdirSync(docsDir, { recursive: true });
   writeFileSync(path.join(docsDir, 'old-name.mdx'), PAGE_FRONTMATTER);
@@ -56,126 +59,80 @@ function fixtureRepo({ legacyDoubleQuoted = false } = {}) {
     path.join(docsDir, 'unrelated.mdx'),
     PAGE_FRONTMATTER.replace('Old name', 'Unrelated'),
   );
-
-  const libDir = path.join(root, 'scripts', 'lib');
-  mkdirSync(libDir, { recursive: true });
-
-  // The legacy-redirect overlay: hand-written legacy URL -> this site's page, stored as site URLs
-  // rather than file paths. Nothing here reads an upstream checkout, which is the whole point —
-  // `move-doc` retargets these maps from the two exports alone.
-  const lq = legacyDoubleQuoted ? '"' : "'";
-  writeFileSync(
-    path.join(libDir, 'legacy-redirects.mjs'),
-    `export const SECTION_RENAMES = [[${lq}/legacy-example${lq}, ${lq}/example${lq}]];\n` +
-      `\n` +
-      `export const MANUAL_DESTINATIONS = new Map([\n` +
-      `  [${lq}/legacy/old-name${lq}, ${lq}/docs/example/old-name${lq}],\n` +
-      `  [${lq}/legacy/anchored${lq}, ${lq}/docs/example/old-name#a-section${lq}],\n` +
-      `  [${lq}/legacy/unrelated${lq}, ${lq}/docs/example/unrelated${lq}],\n` +
-      `]);\n` +
-      `\n` +
-      `export const SECTION_LANDINGS = new Map([\n` +
-      `  [${lq}/legacy/never-ported${lq}, ${lq}/docs/example/old-name${lq}],\n` +
-      `]);\n`,
-  );
+  writeFileSync(path.join(root, 'redirects.config.mjs'), REDIRECTS_FIXTURE);
 
   return {
     root,
-    legacyRedirectsPath: path.join(libDir, 'legacy-redirects.mjs'),
+    redirectsPath: path.join(root, 'redirects.config.mjs'),
     fromRel: 'content/docs/example/old-name.mdx',
     toRel: 'content/docs/example/new-name.mdx',
   };
 }
 
-// --- FS-2697: the legacy destination overlay ------------------------------------------------------
+// --- the redirect step ------------------------------------------------------------------------------
 
-test('move-doc retargets MANUAL_DESTINATIONS and SECTION_LANDINGS for the moved page', (t) => {
-  const { root, legacyRedirectsPath, fromRel, toRel } = fixtureRepo();
+test('move-doc appends the redirect and retargets every entry that pointed at the moved page', (t) => {
+  const { root, redirectsPath, fromRel, toRel } = fixtureRepo();
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
-  const before = readFileSync(legacyRedirectsPath, 'utf8');
   const output = execFileSync('node', [MOVE_DOC, fromRel, toRel], { cwd: root, encoding: 'utf8' });
+  const after = readFileSync(redirectsPath, 'utf8');
 
-  // Byte-for-byte the original with the three destinations retargeted and nothing else: the key,
-  // the unrelated entry, the `#a-section` anchor and SECTION_RENAMES all survive.
-  assert.equal(
-    readFileSync(legacyRedirectsPath, 'utf8'),
-    before.replaceAll("'/docs/example/old-name", "'/docs/example/new-name"),
-    'only the destinations naming the moved page changed',
-  );
-
-  assert.match(output, /legacy-redirects\.mjs: retargeted 2 MANUAL_DESTINATIONS destination\(s\)/);
-  assert.match(output, /legacy-redirects\.mjs: retargeted 1 SECTION_LANDINGS destination\(s\)/);
   assert.match(
-    output,
-    /hand-maintained/,
-    'tells the mover the committed legacy map is a hop stale and is theirs to fix',
+    after,
+    /source: '\/docs\/example\/old-name', destination: '\/docs\/example\/new-name'/,
+    'the moved page gets its own redirect',
   );
+  assert.match(
+    after,
+    /source: '\/docs\/example\/older-name', destination: '\/docs\/example\/new-name'/,
+  );
+  assert.match(after, /source: '\/legacy\/old-name', destination: '\/docs\/example\/new-name'/);
+  assert.match(
+    after,
+    /destination: '\/docs\/example\/new-name#a-section'/,
+    'anchor carried across',
+  );
+  assert.match(after, /source: '\/legacy\/unrelated', destination: '\/docs\/example\/unrelated'/);
+  assert.ok(
+    !/destination: '\/docs\/example\/old-name/.test(after),
+    'nothing still points at the old URL',
+  );
+  assert.match(output, /redirects\.config\.mjs: retargeted 3 existing redirect\(s\)/);
+  assert.ok(existsSync(path.join(root, toRel)) && !existsSync(path.join(root, fromRel)));
 });
 
-test('move-doc --dry-run reports the legacy destination changes without writing them', (t) => {
-  const { root, legacyRedirectsPath, fromRel, toRel } = fixtureRepo();
+test('move-doc --dry-run reports the retarget without writing it', (t) => {
+  const { root, redirectsPath, fromRel, toRel } = fixtureRepo();
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
-  const before = readFileSync(legacyRedirectsPath, 'utf8');
+  const before = readFileSync(redirectsPath, 'utf8');
   const output = execFileSync('node', [MOVE_DOC, fromRel, toRel, '--dry-run'], {
     cwd: root,
     encoding: 'utf8',
   });
-
-  assert.equal(readFileSync(legacyRedirectsPath, 'utf8'), before, 'dry-run must not write');
-  assert.match(output, /legacy-redirects\.mjs: retargeted 2 MANUAL_DESTINATIONS destination\(s\)/);
-  assert.match(output, /legacy-redirects\.mjs: retargeted 1 SECTION_LANDINGS destination\(s\)/);
+  assert.equal(readFileSync(redirectsPath, 'utf8'), before, 'dry-run must not write');
+  assert.ok(existsSync(path.join(root, fromRel)), 'dry-run must not move');
+  assert.match(output, /redirects\.config\.mjs: retargeted 3 existing redirect\(s\)/);
 });
 
-test('move-doc is a no-op on the legacy maps for a page neither map names', (t) => {
-  const { root, legacyRedirectsPath } = fixtureRepo();
+test('move-doc retargets only the entries that name the moved page', (t) => {
+  const { root, redirectsPath } = fixtureRepo();
   t.after(() => rmSync(root, { recursive: true, force: true }));
-
-  const docsDir = path.join(root, 'content', 'docs', 'example');
-  writeFileSync(path.join(docsDir, 'plain.mdx'), PAGE_FRONTMATTER.replace('Old name', 'Plain'));
-  const before = readFileSync(legacyRedirectsPath, 'utf8');
 
   const output = execFileSync(
     'node',
-    [MOVE_DOC, 'content/docs/example/plain.mdx', 'content/docs/example/plain-2.mdx'],
+    [MOVE_DOC, 'content/docs/example/unrelated.mdx', 'content/docs/example/moved-unrelated.mdx'],
     { cwd: root, encoding: 'utf8' },
   );
-
-  assert.doesNotMatch(output, /MANUAL_DESTINATIONS/);
-  assert.doesNotMatch(output, /SECTION_LANDINGS/);
-  assert.equal(readFileSync(legacyRedirectsPath, 'utf8'), before, 'a no-op must not reformat');
-});
-
-test('an aborted legacy step leaves the move and the redirect behind, and writes no map', (t) => {
-  // The legacy step is last, because it is the one step that can refuse. Nothing else pins that
-  // ordering, so moving it ahead of the redirect would silently cost a page its redirect on every
-  // abort. This is the regression test for the ordering, not just for the abort.
-  const { root, legacyRedirectsPath, fromRel, toRel } = fixtureRepo({
-    legacyDoubleQuoted: true,
-  });
-  t.after(() => rmSync(root, { recursive: true, force: true }));
-
-  const legacyBefore = readFileSync(legacyRedirectsPath, 'utf8');
-
-  let failure;
-  try {
-    execFileSync('node', [MOVE_DOC, fromRel, toRel], { cwd: root, encoding: 'utf8' });
-  } catch (err) {
-    failure = err;
-  }
-  assert.ok(failure, 'move-doc must exit non-zero when the legacy cross-check fails');
-  assert.equal(failure.status, 1);
-  assert.match(failure.stderr, /MANUAL_DESTINATIONS rewrite/);
-  assert.match(failure.stderr, /the parsed map names it 2 time\(s\)/);
-
-  assert.equal(readFileSync(legacyRedirectsPath, 'utf8'), legacyBefore, 'nothing written');
-
-  // Everything before it landed: the move and the redirect.
-  assert.ok(existsSync(path.join(root, toRel)), 'the move itself still happened');
+  const after = readFileSync(redirectsPath, 'utf8');
+  // The legacy entry for /legacy/unrelated does name it, so exactly one line is retargeted; the
+  // three entries naming old-name are untouched.
+  assert.match(output, /retargeted 1 existing redirect\(s\)/);
+  assert.equal((after.match(/destination: '\/docs\/example\/old-name/g) ?? []).length, 3);
   assert.match(
-    readFileSync(path.join(root, 'redirects.config.mjs'), 'utf8'),
-    /source: '\/docs\/example\/old-name', destination: '\/docs\/example\/new-name'/,
+    after,
+    /source: '\/docs\/example\/unrelated', destination: '\/docs\/example\/moved-unrelated'/,
   );
 });
 
