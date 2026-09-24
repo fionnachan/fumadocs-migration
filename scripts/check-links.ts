@@ -10,13 +10,24 @@
  * `<include>`) resolves to an existing file. Fragments are checked against the site's MDX pipeline,
  * including nested partials and custom heading ids. External links and dynamic JSX attrs are skipped.
  */
-import { findBrokenAnchors } from './lib/doc-anchors.mjs';
-import { buildIndex, findBrokenLinks } from './lib/doc-links.mjs';
+import { findBrokenAnchors } from './lib/doc-anchors.ts';
+import type { BrokenAnchor } from './lib/doc-anchors.ts';
+import { type BrokenLink, buildIndex, findBrokenLinks } from './lib/doc-links.ts';
 
-async function main() {
+/** A path finding carries no reason; an anchor finding names the page it was checked on. */
+type Finding = (BrokenLink & { reason?: undefined; page?: undefined }) | BrokenAnchor;
+
+/** `error.message` for anything thrown, the way reading the property off it would answer. */
+function messageOf(error: unknown): unknown {
+  return typeof error === 'object' && error !== null && 'message' in error
+    ? error.message
+    : undefined;
+}
+
+async function main(): Promise<void> {
   const json = process.argv.slice(2).includes('--json');
   const index = buildIndex(process.cwd());
-  const broken = [...findBrokenLinks(index), ...(await findBrokenAnchors(index))];
+  const broken: Finding[] = [...findBrokenLinks(index), ...(await findBrokenAnchors(index))];
 
   if (json) {
     console.log(JSON.stringify(broken.map(({ rel, line, url }) => ({ rel, line, url }))));
@@ -37,7 +48,7 @@ async function main() {
   process.exit(1);
 }
 
-main().catch((error) => {
-  console.error(`check-links: ${error.message}`);
+main().catch((error: unknown) => {
+  console.error(`check-links: ${messageOf(error)}`);
   process.exitCode = 1;
 });

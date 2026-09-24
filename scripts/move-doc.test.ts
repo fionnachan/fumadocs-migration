@@ -1,8 +1,8 @@
 /**
- * End-to-end tests for `move-doc.mjs` against a throwaway fixture "repo" — not a unit test of any one
+ * End-to-end tests for `move-doc.ts` against a throwaway fixture "repo" — not a unit test of any one
  * function, but a check that running the real CLI actually rewrites the files on disk the way the
  * inline doc comment promises. Focused on FS-2697's `MANUAL_DESTINATIONS` / `SECTION_LANDINGS`
- * retarget, which only shows up end-to-end because `move-doc.mjs`'s `main()` resolves every path off
+ * retarget, which only shows up end-to-end because `move-doc.ts`'s `main()` resolves every path off
  * `process.cwd()`, and whose ordering (it can refuse, so it must run after everything that must not
  * be lost) is a property only a full run can pin. A sibling set covering the drift exemption maps
  * was deleted with the upstream comparison (FS-2706).
@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 import { readVars } from '../lib/var-links.mjs';
 
-const MOVE_DOC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'move-doc.mjs');
+const MOVE_DOC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'move-doc.ts');
 
 const PAGE_FRONTMATTER = [
   '---',
@@ -32,7 +32,7 @@ const PAGE_FRONTMATTER = [
   '',
 ].join('\n');
 
-/** A throwaway repo with just enough shape for move-doc.mjs to run: a docs tree and a
+/** A throwaway repo with just enough shape for move-doc.ts to run: a docs tree and a
  * legacy-redirects module whose `MANUAL_DESTINATIONS` and `SECTION_LANDINGS` both point at the page
  * under test.
  *
@@ -40,9 +40,14 @@ const PAGE_FRONTMATTER = [
  * textual rewrite, so the cross-check aborts that step. That is the only way to reach the failure
  * path end to end.
  */
-function fixtureRepo({ legacyDoubleQuoted = false } = {}) {
+function fixtureRepo({ legacyDoubleQuoted = false }: { legacyDoubleQuoted?: boolean } = {}): {
+  root: string;
+  legacyRedirectsPath: string;
+  fromRel: string;
+  toRel: string;
+} {
   const root = mkdtempSync(path.join(tmpdir(), 'move-doc-e2e-'));
-  // move-doc.mjs writes legacy-redirects.mjs back through Prettier, which resolves config from the
+  // move-doc.ts writes legacy-redirects.mjs back through Prettier, which resolves config from the
   // file's own location. Give the fixture its own, matching the real repo's style, so the assertions
   // below exercise the actual write path instead of Prettier's double-quote default.
   writeFileSync(
@@ -85,6 +90,17 @@ function fixtureRepo({ legacyDoubleQuoted = false } = {}) {
     fromRel: 'content/docs/example/old-name.mdx',
     toRel: 'content/docs/example/new-name.mdx',
   };
+}
+
+/** What `execFileSync` throws on a non-zero exit with `encoding: 'utf8'`. */
+function isExecError(value: unknown): value is Error & { status: number | null; stderr: string } {
+  return (
+    value instanceof Error &&
+    'status' in value &&
+    (typeof value.status === 'number' || value.status === null) &&
+    'stderr' in value &&
+    typeof value.stderr === 'string'
+  );
 }
 
 // --- FS-2697: the legacy destination overlay ------------------------------------------------------
@@ -158,13 +174,13 @@ test('an aborted legacy step leaves the move and the redirect behind, and writes
 
   const legacyBefore = readFileSync(legacyRedirectsPath, 'utf8');
 
-  let failure;
+  let failure: unknown;
   try {
     execFileSync('node', [MOVE_DOC, fromRel, toRel], { cwd: root, encoding: 'utf8' });
   } catch (err) {
     failure = err;
   }
-  assert.ok(failure, 'move-doc must exit non-zero when the legacy cross-check fails');
+  assert.ok(isExecError(failure), 'move-doc must exit non-zero when the legacy cross-check fails');
   assert.equal(failure.status, 1);
   assert.match(failure.stderr, /MANUAL_DESTINATIONS rewrite/);
   assert.match(failure.stderr, /the parsed map names it 2 time\(s\)/);

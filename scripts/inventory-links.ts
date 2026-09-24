@@ -9,9 +9,9 @@
  */
 import path from 'node:path';
 
-import { buildIndex, extractRefs, lineAt, resolveRefToFile, toPosix } from './lib/doc-links.mjs';
+import { buildIndex, extractRefs, lineAt, resolveRefToFile, toPosix } from './lib/doc-links.ts';
 
-function main() {
+function main(): void {
   const arg = process.argv.slice(2).find((a) => !a.startsWith('--'));
   if (!arg) {
     console.error('usage: pnpm inventory-links <path-or-slug>');
@@ -29,7 +29,7 @@ function main() {
     process.exit(1);
   }
 
-  const byFile = new Map();
+  const byFile = new Map<string, { line: number; url: string }[]>();
   for (const file of index.files) {
     if (file.abs === targetAbs) continue;
     for (const ref of extractRefs(file.content)) {

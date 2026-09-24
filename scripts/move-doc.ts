@@ -10,7 +10,7 @@
  *      with any `#anchor`/`?query`);
  *   2. moves the file (via `git mv`), recomputing the file's *own* relative links so they stay valid;
  *   3. updates the doc's entry in the surrounding `meta.json` navigation;
- *   4. records the old→new URL in `redirects.config.mjs`;
+ *   4. records the old→new URL in `redirects.config.ts`;
  *   5. retargets the moved page's *URL* in `scripts/lib/legacy-redirects.mjs`'s
  *      `MANUAL_DESTINATIONS` and `SECTION_LANDINGS`, if either names it (see
  *      `scripts/lib/legacy-destinations.mjs`) — otherwise a move leaves a legacy docs.arbitrum.io
@@ -35,6 +35,10 @@ import path from 'node:path';
 
 import {
   CONTENT_DIR,
+  type DocIndex,
+  type LinkRef,
+  type MetaFile,
+  type Rewrite,
   applyRewrites,
   buildIndex,
   computeFileMeta,
@@ -49,7 +53,7 @@ import {
   splitSuffix,
   stringifyMeta,
   toPosix,
-} from './lib/doc-links.mjs';
+} from './lib/doc-links.ts';
 import {
   REDIRECTS_CONFIG_PATH,
   REDIRECTS_END,
@@ -57,7 +61,22 @@ import {
   updateLegacyDestinations,
 } from './lib/legacy-destinations.mjs';
 
-function parseArgs(argv) {
+/** One link occurrence, with the file that holds it and the file it resolves to. */
+interface LinkRecord {
+  fromAbs: string;
+  ref: LinkRef;
+  placeholder: boolean;
+  toAbs: string | null;
+}
+
+/** A planned rewrite, for the report. */
+interface Change {
+  file: string;
+  old: string;
+  next: string;
+}
+
+function parseArgs(argv: string[]): { from: string; to: string; dryRun: boolean } {
   const positional = argv.filter((a) => !a.startsWith('--'));
   if (positional.length !== 2) {
     console.error('usage: pnpm move-doc <from> <to> [--dry-run]');
@@ -66,7 +85,7 @@ function parseArgs(argv) {
   return { from: positional[0], to: positional[1], dryRun: argv.includes('--dry-run') };
 }
 
-function validatePath(label, raw, abs, docsRoot) {
+function validatePath(label: string, raw: string, abs: string, docsRoot: string): void {
   if (raw.startsWith('/')) {
     console.error(
       `move-doc: <${label}> starts with '/': ${raw}\n` +
@@ -81,8 +100,8 @@ function validatePath(label, raw, abs, docsRoot) {
 }
 
 /** Scan every file for links, resolving each to the file it targets. */
-function scanLinks(index) {
-  const records = [];
+function scanLinks(index: DocIndex): LinkRecord[] {
+  const records: LinkRecord[] = [];
   for (const file of index.files) {
     for (const ref of extractRefs(file.content)) {
       // A destination holding a `{var:name}` placeholder resolves, because the resolver expands it
@@ -102,7 +121,12 @@ function scanLinks(index) {
 }
 
 /** Plan one link's rewrite, preserving its form. Returns null when unchanged, `false` when unrenderable. */
-function planRewrite(ref, targetAbs, containerAbs, index) {
+function planRewrite(
+  ref: LinkRef & { range: [number, number] },
+  targetAbs: string,
+  containerAbs: string,
+  index: DocIndex,
+): Rewrite | null | false {
   const { pathPart, suffix } = splitSuffix(ref.rawUrl);
   const style = detectStyle(pathPart, ref.surface);
   const next = renderRef(style, targetAbs, containerAbs, pathPart, index);
@@ -117,11 +141,16 @@ function planRewrite(ref, targetAbs, containerAbs, index) {
  * (the moved file's own relative links, re-based from its new directory). Returns per-file edits,
  * a flat change list for reporting, and links that resolve to the move but can't be auto-rewritten.
  */
-function planMove(records, index, fromAbs, toAbs) {
-  const editsByFile = new Map();
-  const changes = [];
-  const unrenderable = [];
-  const pushEdit = (abs, rewrite) => {
+function planMove(
+  records: LinkRecord[],
+  index: DocIndex,
+  fromAbs: string,
+  toAbs: string,
+): { editsByFile: Map<string, Rewrite[]>; changes: Change[]; unrenderable: LinkRecord[] } {
+  const editsByFile = new Map<string, Rewrite[]>();
+  const changes: Change[] = [];
+  const unrenderable: LinkRecord[] = [];
+  const pushEdit = (abs: string, rewrite: Rewrite): void => {
     const bucket = editsByFile.get(abs);
     if (bucket) bucket.push(rewrite);
     else editsByFile.set(abs, [rewrite]);
@@ -167,7 +196,7 @@ function planMove(records, index, fromAbs, toAbs) {
 }
 
 /** Move a file with `git mv` (staged rename); fall back to a filesystem move. Returns true if staged. */
-function moveFile(fromAbs, toAbs, repoRoot) {
+function moveFile(fromAbs: string, toAbs: string, repoRoot: string): boolean {
   mkdirSync(path.dirname(toAbs), { recursive: true });
   try {
     execFileSync('git', ['mv', fromAbs, toAbs], { cwd: repoRoot, stdio: 'pipe' });
@@ -184,8 +213,8 @@ function moveFile(fromAbs, toAbs, repoRoot) {
  * (only when the dest lists explicit pages without a `...` rest-glob). Never corrupts — returns
  * human-readable notes for anything it declines to touch.
  */
-function updateMeta(fromAbs, toAbs, dryRun) {
-  const notes = [];
+function updateMeta(fromAbs: string, toAbs: string, dryRun: boolean): string[] {
+  const notes: string[] = [];
   const oldBase = path.basename(fromAbs).replace(/\.mdx?$/i, '');
   const newBase = path.basename(toAbs).replace(/\.mdx?$/i, '');
   const fromDir = path.dirname(fromAbs);
@@ -196,16 +225,17 @@ function updateMeta(fromAbs, toAbs, dryRun) {
     return notes;
   }
 
-  const write = (meta) => {
+  const write = (meta: MetaFile): void => {
     if (!dryRun) writeFileSync(meta.path, stringifyMeta(meta.data));
   };
 
   if (fromDir === toDir) {
     const meta = readMeta(fromDir);
-    if (meta && Array.isArray(meta.data.pages)) {
-      const i = meta.data.pages.indexOf(oldBase);
+    const pages = meta && pagesOf(meta);
+    if (meta && pages) {
+      const i = pages.indexOf(oldBase);
       if (i !== -1) {
-        meta.data.pages[i] = newBase;
+        pages[i] = newBase;
         write(meta);
         notes.push(
           `meta.json: renamed '${oldBase}' -> '${newBase}' in ${toPosix(path.basename(path.dirname(meta.path)))}/meta.json`,
@@ -216,47 +246,67 @@ function updateMeta(fromAbs, toAbs, dryRun) {
   }
 
   const srcMeta = readMeta(fromDir);
-  if (srcMeta && Array.isArray(srcMeta.data.pages)) {
-    const i = srcMeta.data.pages.indexOf(oldBase);
+  const srcPages = srcMeta && pagesOf(srcMeta);
+  if (srcMeta && srcPages) {
+    const i = srcPages.indexOf(oldBase);
     if (i !== -1) {
-      srcMeta.data.pages.splice(i, 1);
+      srcPages.splice(i, 1);
       write(srcMeta);
       notes.push(`meta.json: removed '${oldBase}' from source dir`);
     }
   }
 
   const dstMeta = readMeta(toDir);
-  if (!dstMeta || !Array.isArray(dstMeta.data.pages)) {
+  const dstPages = dstMeta && pagesOf(dstMeta);
+  if (!dstMeta || !dstPages) {
     notes.push(
       `meta.json: dest dir has no explicit pages list — '${newBase}' auto-included by file order (verify ordering).`,
     );
-  } else if (pagesHasRest(dstMeta.data.pages)) {
+  } else if (pagesHasRest(dstPages)) {
     notes.push(
       `meta.json: dest dir uses '...' rest-glob — '${newBase}' auto-included (verify ordering).`,
     );
-  } else if (dstMeta.data.pages.includes(newBase)) {
+  } else if (dstPages.includes(newBase)) {
     notes.push(`meta.json: '${newBase}' already listed in dest dir`);
   } else {
-    dstMeta.data.pages.push(newBase);
+    dstPages.push(newBase);
     write(dstMeta);
     notes.push(`meta.json: appended '${newBase}' to dest dir`);
   }
   return notes;
 }
 
-function redirectsTemplate() {
-  return `// Single source of truth for internal doc redirects. Consumed by next.config.mjs.
+/**
+ * A `meta.json`'s `pages` array, the same array object so an edit lands in `meta.data`, or `null`
+ * when the file holds no such array.
+ */
+function pagesOf(meta: MetaFile): unknown[] | null {
+  const { data } = meta;
+  if (typeof data !== 'object' || data === null || !('pages' in data)) return null;
+  return Array.isArray(data.pages) ? data.pages : null;
+}
+
+function redirectsTemplate(): string {
+  return `// Single source of truth for internal doc redirects. Consumed by next.config.ts.
 // Entries between the AUTO-GENERATED markers are maintained by \`pnpm move-doc\`.
-/** @type {{ source: string, destination: string, permanent: boolean }[]} */
-export const redirects = [
+export const redirects: { source: string; destination: string; permanent: boolean }[] = [
   ${REDIRECTS_START}
   ${REDIRECTS_END}
 ];
 `;
 }
 
-/** Append one redirect to redirects.config.mjs (creating it if absent). Idempotent on `source`. */
-function appendRedirect(redirectsPath, source, destination, dryRun) {
+/** Append one redirect to redirects.config.ts (creating it if absent). Idempotent on `source`. */
+//
+// `source` and `destination` are `null` for a partial, which has no URL. Both are null together for
+// a partial-to-partial move, which never reaches here; a move between a partial and a page name
+// writes the literal `null`, exactly as the JavaScript original did.
+function appendRedirect(
+  redirectsPath: string,
+  source: string | null,
+  destination: string | null,
+  dryRun: boolean,
+): 'exists' | 'appended' | 'created' {
   const existed = existsSync(redirectsPath);
   const current = existed ? readFileSync(redirectsPath, 'utf8') : redirectsTemplate();
   if (current.includes(`source: '${source}'`)) return 'exists';
@@ -272,7 +322,7 @@ function appendRedirect(redirectsPath, source, destination, dryRun) {
 }
 
 /** The set of relative links inside partials that can't be auto-resolved (a partial has no fixed URL). */
-function ambiguousPartialLinks(records) {
+function ambiguousPartialLinks(records: LinkRecord[]): LinkRecord[] {
   return records.filter((rec) => {
     if (rec.toAbs !== null || !isPartial(rec.fromAbs)) return false;
     const { pathPart } = splitSuffix(rec.ref.rawUrl);
@@ -282,7 +332,14 @@ function ambiguousPartialLinks(records) {
   });
 }
 
-async function main() {
+/** An indexed file's content; every path this is asked for came out of the index. */
+function contentOf(index: DocIndex, abs: string): string {
+  const file = index.files.find((f) => f.abs === abs);
+  if (!file) throw new Error(`move-doc: not an indexed doc: ${abs}`);
+  return file.content;
+}
+
+async function main(): Promise<void> {
   const { from, to, dryRun } = parseArgs(process.argv.slice(2));
   const repoRoot = process.cwd();
   const docsRoot = path.join(repoRoot, CONTENT_DIR);
@@ -359,15 +416,11 @@ async function main() {
   // Apply inbound edits (every file except the moved one, which is written post-move with its edits).
   for (const [abs, rewrites] of editsByFile) {
     if (abs === fromAbs) continue;
-    const file = index.files.find((f) => f.abs === abs);
-    writeFileSync(abs, applyRewrites(file.content, rewrites));
+    writeFileSync(abs, applyRewrites(contentOf(index, abs), rewrites));
   }
 
   // Move the primary file, then write it with its own re-based links applied.
-  const movedContent = applyRewrites(
-    index.files.find((f) => f.abs === fromAbs).content,
-    editsByFile.get(fromAbs) ?? [],
-  );
+  const movedContent = applyRewrites(contentOf(index, fromAbs), editsByFile.get(fromAbs) ?? []);
   const staged = moveFile(fromAbs, toAbs, repoRoot);
   writeFileSync(toAbs, movedContent);
   if (!staged)
@@ -379,7 +432,7 @@ async function main() {
   const redirectsPath = path.join(repoRoot, REDIRECTS_CONFIG_PATH);
   if (fromMeta.url !== toMeta.url) {
     console.log(
-      `  redirects.config.mjs: ${appendRedirect(redirectsPath, fromMeta.url, toMeta.url, false)} ${fromMeta.url} -> ${toMeta.url}`,
+      `  ${REDIRECTS_CONFIG_PATH}: ${appendRedirect(redirectsPath, fromMeta.url, toMeta.url, false)} ${fromMeta.url} -> ${toMeta.url}`,
     );
   }
 
@@ -397,7 +450,7 @@ async function main() {
   console.log('\nDone. Verify with `pnpm check-links` (or `pnpm restructure` runs it for you).');
 }
 
-function exitErr(msg) {
+function exitErr(msg: string): never {
   console.error(`move-doc: ${msg}`);
   process.exit(1);
 }

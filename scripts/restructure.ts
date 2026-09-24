@@ -9,27 +9,51 @@
  * links broken *by this move* (a regression), not on the tree's pre-existing broken links — so a move
  * is never blocked by unrelated rot. `--dry-run` delegates to `move-doc --dry-run` and skips the gate.
  *
- * There is no separate redirect-sync step: `next.config.mjs` reads `redirects.config.mjs` directly.
+ * There is no separate redirect-sync step: `next.config.ts` reads `redirects.config.ts` directly.
  */
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 
 const repoRoot = process.cwd();
 
-function run(cmd, args) {
+/** The fields `check-links --json` prints per broken link. */
+interface BrokenLinkSummary {
+  rel: string;
+  line: number;
+  url: string;
+}
+
+function isBrokenLinkSummary(value: unknown): value is BrokenLinkSummary {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'rel' in value &&
+    typeof value.rel === 'string' &&
+    'line' in value &&
+    typeof value.line === 'number' &&
+    'url' in value &&
+    typeof value.url === 'string'
+  );
+}
+
+function run(cmd: string, args: string[]): void {
   execFileSync(cmd, args, { stdio: 'inherit' });
 }
 
-function brokenLinks() {
-  const out = execFileSync('node', ['scripts/check-links.mjs', '--json'], { encoding: 'utf8' });
-  return JSON.parse(out.trim() || '[]');
+function brokenLinks(): BrokenLinkSummary[] {
+  const out = execFileSync('node', ['scripts/check-links.ts', '--json'], { encoding: 'utf8' });
+  const parsed: unknown = JSON.parse(out.trim() || '[]');
+  if (!Array.isArray(parsed) || !parsed.every(isBrokenLinkSummary)) {
+    throw new Error('restructure: check-links --json printed something other than its report');
+  }
+  return parsed;
 }
 
-function relOf(arg) {
+function relOf(arg: string): string {
   return path.relative(repoRoot, path.resolve(repoRoot, arg)).split(path.sep).join('/');
 }
 
-function main() {
+function main(): void {
   const argv = process.argv.slice(2);
   const positional = argv.filter((a) => !a.startsWith('--'));
   const dryRun = argv.includes('--dry-run');
@@ -40,7 +64,7 @@ function main() {
   const [from, to] = positional;
 
   if (dryRun) {
-    run('node', ['scripts/move-doc.mjs', from, to, '--dry-run']);
+    run('node', ['scripts/move-doc.ts', from, to, '--dry-run']);
     return;
   }
 
@@ -52,7 +76,7 @@ function main() {
     brokenLinks().map((b) => `${b.rel === fromRel ? toRel : b.rel}|${b.url}`),
   );
 
-  run('node', ['scripts/move-doc.mjs', from, to]);
+  run('node', ['scripts/move-doc.ts', from, to]);
 
   console.log('\n--- verification gate ---');
   let typesOk = true;
@@ -78,7 +102,7 @@ function main() {
     console.error(
       '\nrestructure: verification failed AFTER the move was applied.\n' +
         '  Fix the reported issue, or revert the move:\n' +
-        '    git restore --staged content/docs redirects.config.mjs 2>/dev/null; git checkout -- content/docs redirects.config.mjs',
+        '    git restore --staged content/docs redirects.config.ts 2>/dev/null; git checkout -- content/docs redirects.config.ts',
     );
     process.exit(1);
   }
