@@ -13,16 +13,24 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { after, describe, it } from 'node:test';
+import type { Options as PrettierOptions } from 'prettier';
 
-import { buildContent, cell, table } from './lib/contract-addresses.mjs';
-import { StaleFileError, writeOrCheck } from './lib/generated-partial.mjs';
-import { diffSummary, lineDiff } from './lib/line-diff.mjs';
+import {
+  type Chain,
+  type ContractAddressData,
+  type NetworkAddresses,
+  buildContent,
+  cell,
+  table,
+} from './lib/contract-addresses.ts';
+import { StaleFileError, writeOrCheck } from './lib/generated-partial.ts';
+import { diffSummary, lineDiff } from './lib/line-diff.ts';
 
 /** One chain, so a rendered table has exactly one address column. */
-const CHAINS = [{ key: 'demo', label: 'Demo Chain', childId: 42161, parentId: 1 }];
+const CHAINS: Chain[] = [{ key: 'demo', label: 'Demo Chain', childId: 42161, parentId: 1 }];
 
 /** Minimal stand-in for an `ArbitrumNetwork`, using the fields the renderer reads. */
-const NETWORKS = {
+const NETWORKS: Record<string, NetworkAddresses> = {
   demo: {
     ethBridge: {
       rollup: '0x4dceb440657f21083db8add07665f8ddbe1dcfc0',
@@ -53,7 +61,7 @@ const NETWORKS = {
   },
 };
 
-const DATA = {
+const DATA: ContractAddressData = {
   coreProxyAdmin: { demo: '0x554723262467F125Ac9e1cDFa9Ce15cc53822dbD' },
   fraudProof: { ChallengeManager: { demo: '0xA5565d266c3c3Ee90B16Be8A5b13d587ef559fB0' } },
   // Deliberately empty: the renderer must emit a blank cell rather than fail.
@@ -215,7 +223,12 @@ describe('diffSummary', () => {
 describe('writeOrCheck', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'contract-addresses-'));
   const file = path.join(dir, 'partial.mdx');
-  const overrides = { parser: 'mdx', printWidth: 9999, proseWrap: 'preserve', plugins: [] };
+  const overrides: PrettierOptions = {
+    parser: 'mdx',
+    printWidth: 9999,
+    proseWrap: 'preserve',
+    plugins: [],
+  };
 
   after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
@@ -240,8 +253,10 @@ describe('writeOrCheck', () => {
   it('carries the formatted text on the error, so the caller need not format again', async () => {
     fs.writeFileSync(file, 'Hand-edited body.\n');
     const error = await writeOrCheck(file, 'Generated body.\n', { check: true, overrides }).catch(
-      (e) => e,
+      (e: unknown) => e,
     );
+    assert.ok(error instanceof StaleFileError);
+    assert.ok(error.formatted !== undefined);
     assert.equal(error.formatted, 'Generated body.\n');
     assert.equal(
       diffSummary(fs.readFileSync(file, 'utf-8'), error.formatted),

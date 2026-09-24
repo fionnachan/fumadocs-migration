@@ -1,7 +1,7 @@
 /**
  * Tests for the precompile-table parser and renderer (FS-2730).
  *
- * `scripts/generate-precompile-tables.mjs` cannot be imported for a unit test: it calls
+ * `scripts/generate-precompile-tables.ts` cannot be imported for a unit test: it calls
  * `runScript(main)` at module scope and every path to `writeOrCheck` runs through a `fetch` of a
  * pinned GitHub commit, so its only end-to-end guard used to be `pnpm precompiles:check`, which is
  * network-bound and `continue-on-error` in CI. This exercises the pure parse/render functions the
@@ -17,7 +17,10 @@ import { describe, it } from 'node:test';
 
 import {
   DEPRECATION_NOTICE,
+  type EventOverride,
+  type MethodOverride,
   NODE_INTERFACE_MARKER,
+  type Overrides,
   PRECOMPILE_MARKER,
   assertResolved,
   buildSourceUrls,
@@ -28,7 +31,7 @@ import {
   renderNodeInterfacePartial,
   renderPrecompilePartial,
   toRawUrl,
-} from './precompile-tables.mjs';
+} from './precompile-tables.ts';
 
 const INTERFACE_URL =
   'https://github.com/OffchainLabs/nitro-precompile-interfaces/blob/deadbeef/ArbFixture.sol';
@@ -92,7 +95,7 @@ var neverEmittedNote = "NeverEmitted"
 `;
 
 /** Line number (1-based) of the first line containing `needle` in `source`. */
-function lineOf(source, needle) {
+function lineOf(source: string, needle: string): number {
   const idx = source.split('\n').findIndex((line) => line.includes(needle));
   assert.notEqual(idx, -1, `fixture line not found: ${needle}`);
   return idx + 1;
@@ -147,7 +150,7 @@ describe('assertResolved', () => {
 });
 
 describe('renderMethodsInTable', () => {
-  const render = (overrides) =>
+  const render = (overrides?: Overrides<MethodOverride>) =>
     renderMethodsInTable(
       INTERFACE_SOURCE,
       IMPLEMENTATION_SOURCE,
@@ -236,7 +239,7 @@ describe('renderMethodsInTable', () => {
 });
 
 describe('renderEventsInTable', () => {
-  const render = (overrides) =>
+  const render = (overrides?: Overrides<EventOverride>) =>
     renderEventsInTable(
       INTERFACE_SOURCE,
       IMPLEMENTATION_SOURCE,

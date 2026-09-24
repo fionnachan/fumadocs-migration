@@ -1,6 +1,6 @@
 /**
  * Tests for `generatedMarker`, the shared do-not-edit comment both
- * `generate-contract-addresses.mjs` and `generate-precompile-tables.mjs` prepend to what they
+ * `generate-contract-addresses.ts` and `generate-precompile-tables.ts` prepend to what they
  * write. Pinned here so the two generators cannot drift in wording (FS-2728), and so a change
  * to the shape is a deliberate, reviewed edit rather than something that slips in unnoticed.
  */
@@ -9,8 +9,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 
-import { generatedMarker } from './generated-partial.mjs';
-import { NODE_INTERFACE_MARKER, PRECOMPILE_MARKER } from './precompile-tables.mjs';
+import { generatedMarker } from './generated-partial.ts';
+import { NODE_INTERFACE_MARKER, PRECOMPILE_MARKER } from './precompile-tables.ts';
 
 const PRECOMPILE_DIR = path.join('content', 'partials', 'precompile-tables');
 
@@ -56,11 +56,11 @@ describe('generatedMarker', () => {
 });
 
 /**
- * `generate-precompile-tables.mjs` cannot be imported for a unit test: it calls `runScript(main)`
+ * `generate-precompile-tables.ts` cannot be imported for a unit test: it calls `runScript(main)`
  * at module scope and every path to `writeOrCheck` runs through a `fetch` of a pinned GitHub
  * commit, so its only end-to-end guard is `precompiles:check`, which is network-bound and
  * `continue-on-error` in CI. The parsing and rendering the generator delegates to is exercised
- * offline against fixture source in `scripts/lib/precompile-tables.test.mjs` (FS-2730); that
+ * offline against fixture source in `scripts/lib/precompile-tables.test.ts` (FS-2730); that
  * proves the render step is correct, but says nothing about the 16 *committed* files in
  * `content/partials/precompile-tables/`, since a fixture is not that directory. This block is
  * what's left doing on-disk work, and it now asserts equality against the same `PRECOMPILE_MARKER`

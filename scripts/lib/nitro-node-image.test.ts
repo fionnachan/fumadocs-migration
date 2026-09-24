@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 
-import { optsIntoSync, rewriteImage, syncImageInContent } from './nitro-node-image.mjs';
+import { optsIntoSync, rewriteImage, syncImageInContent } from './nitro-node-image.ts';
 
 const OLD = 'offchainlabs/nitro-node:v3.11.3-beb2108';
 const NEW = 'offchainlabs/nitro-node:v3.12.0-abc1234';
@@ -53,7 +53,7 @@ test('syncImageInContent rewrites only opted-in files and reports what changed',
     'content/docs/a.mdx',
     'content/docs/nested/b.mdx',
   ]);
-  assert.equal(changed.find((c) => c.rel.endsWith('b.mdx')).count, 2);
+  assert.equal(changed.find((c) => c.rel.endsWith('b.mdx'))?.count, 2);
   assert.ok(readFileSync(hit, 'utf8').includes(NEW));
   assert.ok(readFileSync(nested, 'utf8').includes(NEW));
   assert.ok(readFileSync(miss, 'utf8').includes('v3.9.9-6b0af88'));

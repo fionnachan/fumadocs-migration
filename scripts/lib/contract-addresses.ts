@@ -1,20 +1,75 @@
 /**
  * Rendering for the contract-address reference partial.
  *
- * Kept separate from `scripts/generate-contract-addresses.mjs` so the markdown can be exercised
- * against fixture networks in `scripts/generate-contract-addresses.test.mjs` without reaching
+ * Kept separate from `scripts/generate-contract-addresses.ts` so the markdown can be exercised
+ * against fixture networks in `scripts/generate-contract-addresses.test.ts` without reaching
  * into `@arbitrum/sdk`. The runner supplies the real network objects; everything here is pure.
  *
  * Ported from arbitrum-docs `scripts/generate-contract-addresses.ts`.
  */
+import type { ArbitrumNetwork } from '@arbitrum/sdk';
 import { getAddress } from '@ethersproject/address';
 
-import { generatedMarker } from './generated-partial.mjs';
+import { generatedMarker } from './generated-partial.ts';
 
 /**
- * @typedef {{ key: string, label: string, childId: number, parentId: number }} Chain
- * @typedef {{ ethBridge: Record<string, any>, tokenBridge?: Record<string, any> }} Network
+ * One rendered column. `childId` is the Arbitrum chain, `parentId` the chain its protocol
+ * contracts are deployed on. `K` is the key the networks and the hand-maintained data are indexed
+ * by (`ChainKey` in `scripts/data/contract-addresses.data.ts`; tests use their own).
  */
+export interface Chain<K extends string = string> {
+  key: K;
+  label: string;
+  childId: number;
+  parentId: number;
+}
+
+type EthBridge = ArbitrumNetwork['ethBridge'];
+type TokenBridge = NonNullable<ArbitrumNetwork['tokenBridge']>;
+
+/**
+ * The part of an `@arbitrum/sdk` `ArbitrumNetwork` the renderer reads. Narrower than the SDK type
+ * so a test fixture only has to supply these fields; a real `ArbitrumNetwork` satisfies it.
+ */
+export interface NetworkAddresses {
+  ethBridge: Pick<
+    EthBridge,
+    'rollup' | 'sequencerInbox' | 'inbox' | 'bridge' | 'outbox' | 'classicOutboxes'
+  >;
+  tokenBridge?: Pick<
+    TokenBridge,
+    | 'parentGatewayRouter'
+    | 'parentErc20Gateway'
+    | 'parentCustomGateway'
+    | 'parentWethGateway'
+    | 'parentWeth'
+    | 'parentProxyAdmin'
+    | 'childGatewayRouter'
+    | 'childErc20Gateway'
+    | 'childCustomGateway'
+    | 'childWethGateway'
+    | 'childWeth'
+    | 'childProxyAdmin'
+    | 'childMultiCall'
+  >;
+}
+
+/** One address per chain key. A missing key renders an empty cell. */
+export type AddressesByChain<K extends string = string> = Partial<Record<K, string>>;
+
+/** The hand-maintained addresses, the shape of `scripts/data/contract-addresses.data.ts`. */
+export interface ContractAddressData<K extends string = string> {
+  coreProxyAdmin: AddressesByChain<K>;
+  /** Key order is row order. */
+  fraudProof: Record<string, AddressesByChain<K>>;
+  resourceConstraintManager: AddressesByChain<K>;
+  /** Key order is row order. */
+  factories: Record<string, AddressesByChain<K>>;
+  precompiles: ReadonlyArray<readonly [name: string, address: string]>;
+}
+
+/** Which chain id a row's cells link to: the parent chain (L1) or the Arbitrum chain itself. */
+type ChainIdOf = (chain: Chain) => number;
 
 /**
  * Render one `<AEL>` cell, or an empty cell when the address is missing.
@@ -23,12 +78,8 @@ import { generatedMarker } from './generated-partial.mjs';
  * mis-checksummed address, and the SDK returns some addresses fully lowercased (`parentWeth`,
  * for one), so passing them through unchanged would break the page at render time rather than
  * here. `getAddress` also rejects anything that is not a 20-byte hex address.
- *
- * @param {string | undefined} address
- * @param {number} chainId
- * @returns {string}
  */
-export function cell(address, chainId) {
+export function cell(address: string | undefined, chainId: number): string {
   if (!address) return '';
   return `<AEL address="${getAddress(address)}" chainID={${chainId}} shortenAddress={true} />`;
 }
@@ -37,12 +88,9 @@ export function cell(address, chainId) {
  * Render a markdown table. `rows` is `[rowLabel, ...cellsPerChain]`, one cell per chain in
  * `chains` order. Column widths are left to Prettier, which the generator runs over the result.
  *
- * @param {string} cornerLabel text for the top-left header cell, usually empty
- * @param {string[][]} rows
- * @param {ReadonlyArray<Chain>} chains
- * @returns {string}
+ * @param cornerLabel text for the top-left header cell, usually empty
  */
-export function table(cornerLabel, rows, chains) {
+export function table(cornerLabel: string, rows: string[][], chains: ReadonlyArray<Chain>): string {
   const header = `| ${cornerLabel} | ${chains.map((c) => c.label).join(' | ')} |`;
   const divider = `| ${Array(chains.length + 1)
     .fill('---')
@@ -52,31 +100,40 @@ export function table(cornerLabel, rows, chains) {
 }
 
 /** Column chain id for a contract deployed on the parent chain (L1). */
-const onParent = (chain) => chain.parentId;
+const onParent: ChainIdOf = (chain) => chain.parentId;
 
 /** Column chain id for a contract deployed on the Arbitrum chain itself. */
-const onChild = (chain) => chain.childId;
+const onChild: ChainIdOf = (chain) => chain.childId;
+
+/** Input to {@link buildContent}. */
+export interface BuildContentInput<K extends string> {
+  /** Column order. */
+  chains: ReadonlyArray<Chain<K>>;
+  /** `@arbitrum/sdk` network objects, keyed by `chain.key`. */
+  networks: Readonly<Record<string, NetworkAddresses>>;
+  /** The hand-maintained addresses from `scripts/data/contract-addresses.data.ts`. */
+  data: ContractAddressData<K>;
+}
 
 /**
  * Build the full partial body.
- *
- * @param {object} input
- * @param {ReadonlyArray<Chain>} input.chains column order
- * @param {Record<string, Network>} input.networks `@arbitrum/sdk` network objects, keyed by `chain.key`
- * @param {object} input.data the hand-maintained addresses from `scripts/data/contract-addresses.data.mjs`
- * @returns {string}
  */
-export function buildContent({ chains, networks, data }) {
+export function buildContent<K extends string>({
+  chains,
+  networks,
+  data,
+}: BuildContentInput<K>): string {
   const { coreProxyAdmin, fraudProof, resourceConstraintManager, factories, precompiles } = data;
 
   /** A row whose per-chain address is read from the SDK network object. */
-  const sdkRow = (label, pick, chainId) => [
-    label,
-    ...chains.map((c) => cell(pick(networks[c.key]), chainId(c))),
-  ];
+  const sdkRow = (
+    label: string,
+    pick: (network: NetworkAddresses) => string | undefined,
+    chainId: ChainIdOf,
+  ): string[] => [label, ...chains.map((c) => cell(pick(networks[c.key]), chainId(c)))];
 
   /** A row whose per-chain address is read from the hand-maintained data file. */
-  const dataRow = (label, values, chainId) => [
+  const dataRow = (label: string, values: AddressesByChain<K>, chainId: ChainIdOf): string[] => [
     label,
     ...chains.map((c) => cell(values[c.key], chainId(c))),
   ];
@@ -89,7 +146,7 @@ export function buildContent({ chains, networks, data }) {
    * guaranteed rather than incidental: `Array.prototype.sort` has been required to be stable
    * since ES2019.
    */
-  const classicOutboxRow = () => [
+  const classicOutboxRow = (): string[] => [
     'Classic Outbox\\*\\*\\*',
     ...chains.map((c) => {
       const outboxes = networks[c.key].ethBridge.classicOutboxes;
@@ -184,7 +241,7 @@ author: anegg0
 
 ${generatedMarker(
   'pnpm contracts:generate',
-  'bumping @arbitrum/sdk or editing scripts/data/contract-addresses.data.mjs',
+  'bumping @arbitrum/sdk or editing scripts/data/contract-addresses.data.ts',
 )}
 
 The following information may be useful to those building on Arbitrum. We list the addresses of the smart contracts related to the protocol, the token bridge and precompiles of the different Arbitrum chains.

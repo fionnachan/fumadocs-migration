@@ -1,6 +1,6 @@
 /**
  * Addresses that `@arbitrum/sdk` does NOT expose, consumed by
- * `scripts/generate-contract-addresses.mjs` to build the contract-address reference partial.
+ * `scripts/generate-contract-addresses.ts` to build the contract-address reference partial.
  *
  * Everything the SDK DOES expose is read live from it (rollup, inbox, sequencerInbox, bridge,
  * outbox, classic outboxes, and the full token bridge: gateways, WETH, proxy admins, multicall).
@@ -12,41 +12,33 @@
  * are protocol constants and effectively never change.
  *
  * Ported from arbitrum-docs `scripts/contract-addresses.data.ts`.
- *
- * @typedef {'arbOne' | 'nova' | 'sepolia'} ChainKey
  */
+import type { AddressesByChain, Chain } from '../lib/contract-addresses.ts';
+
+/** The chains this partial renders, and the keys every per-chain map below is indexed by. */
+export type ChainKey = 'arbOne' | 'nova' | 'sepolia';
 
 /**
  * The chains rendered as columns, in column order.
  *
  * `childId` is the Arbitrum chain, `parentId` the chain its protocol contracts are deployed on.
  * Both are passed to `<AEL chainID={…} />`, which maps them to an explorer.
- *
- * @type {ReadonlyArray<{ key: ChainKey, label: string, childId: number, parentId: number }>}
  */
-export const chains = [
+export const chains: ReadonlyArray<Chain<ChainKey>> = [
   { key: 'arbOne', label: 'Arbitrum One', childId: 42161, parentId: 1 },
   { key: 'nova', label: 'Arbitrum Nova', childId: 42170, parentId: 1 },
   { key: 'sepolia', label: 'Arbitrum Sepolia', childId: 421614, parentId: 11155111 },
 ];
 
-/**
- * Core proxy admin, deployed on the parent chain (L1).
- *
- * @type {Record<ChainKey, string>}
- */
-export const coreProxyAdmin = {
+/** Core proxy admin, deployed on the parent chain (L1). */
+export const coreProxyAdmin: Record<ChainKey, string> = {
   arbOne: '0x554723262467F125Ac9e1cDFa9Ce15cc53822dbD',
   nova: '0x71D78dC7cCC0e037e12de1E50f5470903ce37148',
   sepolia: '0x1ed74a4e4F4C42b86A7002e9951e98DBcC890686',
 };
 
-/**
- * Fraud-proof contracts, deployed on the parent chain (L1). Key order is row order.
- *
- * @type {Record<string, Record<ChainKey, string>>}
- */
-export const fraudProof = {
+/** Fraud-proof contracts, deployed on the parent chain (L1). Key order is row order. */
+export const fraudProof: Record<string, Record<ChainKey, string>> = {
   ChallengeManager: {
     arbOne: '0xA5565d266c3c3Ee90B16Be8A5b13d587ef559fB0',
     nova: '0xFE66b18Ef1B943F8594A2710376Af4B01AcfA688',
@@ -82,20 +74,14 @@ export const fraudProof = {
 /**
  * Resource constraint manager, deployed on the child chain (L2). Not deployed on every chain,
  * so a missing key renders an empty cell.
- *
- * @type {Partial<Record<ChainKey, string>>}
  */
-export const resourceConstraintManager = {
+export const resourceConstraintManager: AddressesByChain<ChainKey> = {
   arbOne: '0x8F59C7A53b883563B34cbBb6fF021B03973e823a',
   nova: '0x653e31e11769a9c6feE825E4BC822753DE2286B7',
 };
 
-/**
- * Canonical factory contracts, deployed on the child chain (L2). Key order is row order.
- *
- * @type {Record<string, Record<ChainKey, string>>}
- */
-export const factories = {
+/** Canonical factory contracts, deployed on the child chain (L2). Key order is row order. */
+export const factories: Record<string, Record<ChainKey, string>> = {
   RollupCreator: {
     arbOne: '0xB90e53fd945Cd28Ec4728cBfB566981dD571eB8b',
     nova: '0xF916Bfe431B7A7AaE083273F5b862e00a15d60F4',
@@ -111,10 +97,8 @@ export const factories = {
 /**
  * Precompiles: protocol constants deployed at the same address on every Arbitrum chain.
  * Order here is the order rendered in the table.
- *
- * @type {ReadonlyArray<[name: string, address: string]>}
  */
-export const precompiles = [
+export const precompiles: ReadonlyArray<readonly [name: string, address: string]> = [
   ['ArbAddressTable', '0x0000000000000000000000000000000000000066'],
   ['ArbAggregator', '0x000000000000000000000000000000000000006D'],
   ['ArbFunctionTable', '0x0000000000000000000000000000000000000068'],
