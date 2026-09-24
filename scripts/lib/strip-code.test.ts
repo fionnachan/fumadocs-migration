@@ -12,20 +12,29 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { codeRegions, fenceDefects, maskCode, maskRegions, stripCode } from './strip-code.mjs';
+import {
+  type CodeRegionOptions,
+  codeRegions,
+  fenceDefects,
+  maskCode,
+  maskRegions,
+  stripCode,
+} from './strip-code.ts';
 
 /** Strip, asserting the length and line-count invariant on the way through. */
-function strip(source, options) {
+function strip(source: string, options?: CodeRegionOptions): string {
   const out = options === undefined ? stripCode(source) : maskCode(source, options);
   assert.equal(out.length, source.length, 'length must be preserved');
   assert.equal(out.split('\n').length, source.split('\n').length, 'line count must be preserved');
   return out;
 }
 
-const blanked = (source, needle, options) => !strip(source, options).includes(needle);
-const kept = (source, needle, options) => strip(source, options).includes(needle);
+const blanked = (source: string, needle: string, options?: CodeRegionOptions): boolean =>
+  !strip(source, options).includes(needle);
+const kept = (source: string, needle: string, options?: CodeRegionOptions): boolean =>
+  strip(source, options).includes(needle);
 
-const lines = (...rows) => rows.join('\n');
+const lines = (...rows: string[]): string => rows.join('\n');
 
 // --- Fences: run length ------------------------------------------------------------------------
 
@@ -236,7 +245,7 @@ test('a backtick inside a fence never opens a span', () => {
 // mdast-util-from-markdown, which finds zero inlineCode nodes in all of them. The direction matters:
 // pairing here blanks real prose, and `content:lint` then reports nothing on a page that 404s.
 
-const straddles = (middle) =>
+const straddles = (middle: string): string =>
   lines('Prose with a stray ` tick', middle, 'More SHOWN_PROSE with a ` tick', '');
 
 test('a span does not cross an ATX heading that interrupts the paragraph', () => {

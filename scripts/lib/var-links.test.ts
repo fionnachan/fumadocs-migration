@@ -4,16 +4,18 @@ import { test } from 'node:test';
 import {
   MALFORMED_VAR_PLACEHOLDER,
   VAR_PLACEHOLDER,
+  type VarLinksNode,
+  type VarValues,
   expandVarPlaceholders,
   readVars,
   remarkVarLinks,
   varPlaceholderNames,
-} from '../../lib/var-links.mjs';
+} from '../../lib/var-links.ts';
 
 const VARS = { nitroRepositorySlug: 'nitro', nitroVersionTag: 'v3.11.3', arbOneChainId: 42161 };
 
-const link = (url) => ({ type: 'link', url, children: [] });
-const run = (tree, vars = VARS) => {
+const link = (url: string) => ({ type: 'link', url, children: [] });
+const run = <T extends VarLinksNode>(tree: T, vars: VarValues = VARS): T => {
   remarkVarLinks({ vars })(tree);
   return tree;
 };
@@ -60,7 +62,8 @@ test('varPlaceholderNames lists names in source order, duplicates kept', () => {
 });
 
 test('MALFORMED_VAR_PLACEHOLDER matches only a placeholder that can never expand', () => {
-  const malformed = (s) => [...s.matchAll(MALFORMED_VAR_PLACEHOLDER)].map((m) => m[0]);
+  const malformed = (s: string): string[] =>
+    [...s.matchAll(MALFORMED_VAR_PLACEHOLDER)].map((m) => m[0]);
   assert.deepEqual(malformed('{var:} and {var:two words} and {var:9lives}'), [
     '{var:}',
     '{var:two words}',
@@ -124,6 +127,7 @@ test('remarkVarLinks leaves other attributes and expression attributes alone', (
   };
   const [title, href, spread] = run(tree).children[0].attributes;
   assert.equal(title.value, 'v{var:nitroVersionTag}');
+  assert.ok(typeof href.value === 'object', 'the expression attribute value is still an object');
   assert.equal(href.value.value, 'url');
   assert.equal(spread.value, '...rest');
 });
@@ -170,13 +174,11 @@ test('remarkVarLinks rewrites an image destination', () => {
 });
 
 test('remarkVarLinks rewrites a link title, and leaves a link without one untouched', () => {
-  const tree = {
-    type: 'root',
-    children: [
-      { type: 'link', url: 'https://x/y', title: 'Nitro {var:nitroVersionTag}', children: [] },
-      link('https://x/{var:nitroVersionTag}'),
-    ],
-  };
+  const children: VarLinksNode[] = [
+    { type: 'link', url: 'https://x/y', title: 'Nitro {var:nitroVersionTag}', children: [] },
+    link('https://x/{var:nitroVersionTag}'),
+  ];
+  const tree = { type: 'root', children };
   const [titled, plain] = run(tree).children;
   assert.equal(titled.title, 'Nitro v3.11.3');
   assert.equal(plain.title, undefined);

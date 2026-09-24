@@ -10,23 +10,23 @@
  *       FloatingHoverModal, where the server components are illegal)
  *   R4  collection entry ids are unique
  *
- *   node scripts/references-check.mjs
+ *   node scripts/references-check.ts
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { walk } from './lib/partials.mjs';
+import { walk } from './lib/partials.ts';
 
 const repoRoot = process.cwd();
-const rel = (abs) => path.relative(repoRoot, abs);
-const errors = [];
+const rel = (abs: string): string => path.relative(repoRoot, abs);
+const errors: string[] = [];
 
 // Keep in sync with lib/references.ts (the registry the app uses).
-const COLLECTION_DIRS = { glossary: 'content/glossary' };
+const COLLECTION_DIRS: Readonly<Record<string, string>> = { glossary: 'content/glossary' };
 
 /** id → source file for a collection, erroring on duplicates (R4). */
-function collectionIds(name) {
-  const ids = new Map();
+function collectionIds(name: string): Set<string> {
+  const ids = new Map<string, string>();
   for (const abs of walk(path.join(repoRoot, COLLECTION_DIRS[name]), (p) => /\.mdx?$/i.test(p))) {
     const m = /^---\n([\s\S]*?)\n---/.exec(readFileSync(abs, 'utf8'));
     const id =
@@ -49,8 +49,8 @@ function collectionIds(name) {
 }
 
 /** Every <Term id> and <Reference collection id> occurrence in `src`, as {collection, id}. */
-function referencesIn(src) {
-  const out = [];
+function referencesIn(src: string): { collection: string; id: string }[] {
+  const out: { collection: string; id: string }[] = [];
   for (const m of src.matchAll(/<Term\s+id="([^"]+)"/g))
     out.push({ collection: 'glossary', id: m[1] });
   for (const m of src.matchAll(/<Reference\b([^>]*?)>/g)) {
@@ -62,7 +62,7 @@ function referencesIn(src) {
   return out;
 }
 
-function main() {
+function main(): void {
   const ids = Object.fromEntries(
     Object.keys(COLLECTION_DIRS).map((name) => [name, collectionIds(name)]),
   );

@@ -9,10 +9,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 
-import { buildCatalog, parseIncludes, parsePartialImports } from './partials.mjs';
+import { buildCatalog, parseIncludes, parsePartialImports } from './partials.ts';
 
-const targets = (src) => parseIncludes(src).map((i) => i.target);
-const specifiers = (src) => parsePartialImports(src).map((i) => i.specifier);
+const targets = (src: string): string[] => parseIncludes(src).map((i) => i.target);
+const specifiers = (src: string): string[] => parsePartialImports(src).map((i) => i.specifier);
 
 test('an include inside a fenced code block is not a directive', () => {
   assert.deepEqual(targets('```\n<include cwd>content/partials/_x.mdx</include>\n```'), []);

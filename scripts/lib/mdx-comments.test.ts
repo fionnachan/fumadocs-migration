@@ -15,19 +15,23 @@ import {
   isCommentOnlySource,
   isMdxComment,
   remarkStripMdxComments,
-} from '../../lib/mdx-comments.mjs';
+} from '../../lib/mdx-comments.ts';
 
 /** The markdown `getText('processed')` would return for this source, with the plugin applied. */
-async function mirror(source, { strip = true } = {}) {
+async function mirror(source: string, { strip = true } = {}): Promise<string> {
   const processor = createProcessor({
     outputFormat: 'program',
     format: 'mdx',
     remarkPlugins: [...(strip ? [remarkStripMdxComments] : []), [remarkLLMs, { _data: true }]],
   });
   const file = new VFile({ value: source, path: 'test.mdx' });
-  const tree = processor.parse(file);
-  await processor.run(tree, file);
-  return file.data.markdown;
+  // `process` is parse, run and a final stringify. It used to be `parse` then `run`, which is the
+  // same transform chain, but `@mdx-js/mdx` types `run` as taking the estree `Program` it produces
+  // rather than the mdast `Root` it is actually handed, so that shape does not type-check.
+  await processor.process(file);
+  const { markdown } = file.data;
+  assert.equal(typeof markdown, 'string', 'remarkLLMs attached no markdown to the file');
+  return String(markdown);
 }
 
 test('the defect this closes: without the plugin the comment reaches the mirror', async () => {
