@@ -23,7 +23,7 @@ pnpm install      # runs a postinstall that generates .source/
 pnpm dev          # http://localhost:3000
 ```
 
-Node 22 (`>=22 <23`) · pnpm 10. Other Node majors are rejected by `engines`.
+Node 22 (`>=22.18 <23`) · pnpm 10. Other Node majors are rejected by `engines`.
 
 **Browse on `localhost:3000`, not `127.0.0.1`** — on `127.0.0.1` React does not hydrate and every
 component looks broken.
@@ -86,7 +86,7 @@ blocking `pnpm build` that also serves the built site and checks it over HTTP.
 [The gates](INTERNALS.md#the-gates) for the full list.
 
 A Husky pre-commit hook also runs automatically on `git commit`, scoped to staged files only
-([`.lintstagedrc.mjs`](.lintstagedrc.mjs)):
+([`.lintstagedrc.ts`](.lintstagedrc.ts)):
 
 - Prettier formats every staged file it understands, except `meta.json` (generator output;
   formatting it here would fight `pnpm move-doc` on every run).
@@ -289,13 +289,13 @@ page.
 
 Readers are fine either way: a legacy `docs.arbitrum.io` URL still reaches the page through the
 redirect just written, one hop longer. `pnpm redirects:check` is not. It follows one hop only, so
-every entry in `redirects.legacy.mjs` still pointing at the old URL reports `DEAD`. That file is
+every entry in `redirects.legacy.ts` still pointing at the old URL reports `DEAD`. That file is
 hand-maintained, so either retarget those entries or accept the extra hop and the report. If an
-earlier move's redirect in `redirects.config.mjs` pointed at the page you just moved, `move-doc`
+earlier move's redirect in `redirects.config.ts` pointed at the page you just moved, `move-doc`
 prints a second note naming it: it reports `DEAD` for the same reason, so point it at the new URL.
 No such note means there is no such entry.
 
-**Never hand-edit between the `AUTO-GENERATED` markers in `redirects.config.mjs`**, since `move-doc`
+**Never hand-edit between the `AUTO-GENERATED` markers in `redirects.config.ts`**, since `move-doc`
 owns that block. ([Details](INTERNALS.md#redirects).)
 
 ## Commands
@@ -328,7 +328,7 @@ Precompile, CLI and Stylus tooling runs by hand only. See
 - Theme tokens are `--color-fd-*` (Fumadocs). Never `--ifm-*` (legacy Docusaurus).
 - Route constants live in `lib/shared.ts` — reference these rather than hardcoding paths.
 - Never hand-edit generated files: `.source/`, `CATALOG.md`, `manifest.json`, the
-  `AUTO-GENERATED` block in `redirects.config.mjs`, and every page under
+  `AUTO-GENERATED` block in `redirects.config.ts`, and every page under
   `content/docs/stylus/stylus-by-example/` (republished from
   [`offchainlabs/stylus-by-example`](https://github.com/offchainlabs/stylus-by-example) by
   `pnpm stylus:generate` — fix those upstream, or they are overwritten the next Monday).

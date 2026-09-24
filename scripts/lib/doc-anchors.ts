@@ -6,7 +6,7 @@ import path from 'node:path';
 import { visit } from 'unist-util-visit';
 import { VFile } from 'vfile';
 
-import { mdxOptions } from '../../lib/mdx-options.mjs';
+import { mdxOptions } from '../../lib/mdx-options.ts';
 import type { DocIndex } from './doc-links.ts';
 
 /** Where a node was written: the file it came from (a partial, for an included node) and its line. */

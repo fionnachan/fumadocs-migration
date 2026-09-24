@@ -1,7 +1,7 @@
 /**
  * Tripwire for the content tree's links back into this repository (FS-2733).
  *
- * `scripts/check-links.mjs` skips every external destination before resolving it, so a link that
+ * `scripts/check-links.ts` skips every external destination before resolving it, so a link that
  * spells this repository's own GitHub URL out in full is invisible to every gate. When the
  * contribute guide hardcoded six such URLs, a rename would have left six dead links on
  * `/docs/contribute` with nothing turning red, and the only thing standing between the reader and
@@ -25,12 +25,12 @@
  * `OffchainLabs/*` repositories are separate projects and are not checked. The PR template is
  * rendered by GitHub, so its URLs stay literal and the fourth assertion checks them separately.
  *
- * `lib/shared.ts` is imported as `.ts` for the reason `scripts/lib/shared.test.mjs` gives: Node 22
+ * `lib/shared.ts` is imported as `.ts` for the reason `scripts/lib/shared.test.ts` gives: Node 22
  * strips types natively, so this asserts against the exact constant the pages render rather than a
  * copy of it. `lib/var-links.ts` supplies the expansion for the same reason, since a checker has
  * to judge the URL the reader gets, not the one written in the file.
  *
- * The HTTP half lives in `scripts/static-docs-http.test.mjs`, which proves the placeholders really
+ * The HTTP half lives in `scripts/static-docs-http.test.ts`, which proves the placeholders really
  * expanded in the rendered page rather than shipping as literal braces. This half needs no running
  * site, so it runs in `pnpm test` and therefore in CI's blocking `Gates` job.
  */

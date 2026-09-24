@@ -59,7 +59,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { splitFrontmatter } from './partials.mjs';
+import { splitFrontmatter } from './partials.ts';
 
 /**
  * Legacy section -> this site's section: rule 3 of the resolution order above.

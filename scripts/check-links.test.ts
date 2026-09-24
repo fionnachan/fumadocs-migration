@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 
-import { readVars } from '../lib/var-links.mjs';
+import { readVars } from '../lib/var-links.ts';
 import {
   buildIndex,
   expandRefUrl,

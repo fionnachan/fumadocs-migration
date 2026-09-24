@@ -4,8 +4,8 @@ import type { Configuration } from 'lint-staged';
  * Pre-commit checks, scoped to staged files only. Run via `.husky/pre-commit`.
  *
  * - Prettier formats every staged file type it understands, except `meta.json` (see below).
- * - Staged MDX under content/ gets prettier, then scripts/content-lint.mjs, restricted to those
- *   files (see the `files` option on `lintContent` in scripts/lib/content-lint.mjs) so a
+ * - Staged MDX under content/ gets prettier, then scripts/content-lint.ts, restricted to those
+ *   files (see the `files` option on `lintContent` in scripts/lib/content-lint.ts) so a
  *   single-file commit does not pay for a full content-tree walk. The two run as one array entry,
  *   in sequence, because lint-staged runs separate glob entries concurrently by default (see
  *   `runParallelTasks` in lint-staged), and prettier and content-lint would otherwise race on the
@@ -31,14 +31,14 @@ import type { Configuration } from 'lint-staged';
 const config: Configuration = {
   '*.{ts,tsx,md,yml,yaml,css}': 'prettier --write',
   // Every *.json file except meta.json. meta.json is generator output (`stringifyMeta` in
-  // scripts/lib/doc-links.mjs), which writes one array entry per line on purpose; Prettier
+  // scripts/lib/doc-links.ts), which writes one array entry per line on purpose; Prettier
   // collapses a short array onto one line, so formatting it here would fight `pnpm move-doc` on
   // every run, each undoing the other's style. `.prettierignore` excludes them repo-wide for the
   // same reason, so `format:check` does not report them either and nothing is hidden here.
   '!(meta).json': 'prettier --write',
   'content/**/*.mdx': (files: readonly string[]) => [
     `prettier --write ${files.map((f) => `"${f}"`).join(' ')}`,
-    `node scripts/content-lint.mjs ${files.map((f) => `"${f}"`).join(' ')}`,
+    `node scripts/content-lint.ts ${files.map((f) => `"${f}"`).join(' ')}`,
   ],
   '*.{ts,tsx}': () => 'pnpm run types:check',
 };

@@ -15,7 +15,7 @@ pnpm install      # runs a postinstall that generates .source/
 pnpm dev          # http://localhost:3000
 ```
 
-Node `22.x` (`>=22 <23`, enforced by `engines`) and pnpm 10. Other Node majors are rejected.
+Node `22.x` (`>=22.18 <23`, enforced by `engines`; every script is a `.ts` file Node runs directly) and pnpm 10. Other Node majors are rejected.
 
 **Browse on `localhost:3000`, not `127.0.0.1`** — on `127.0.0.1` React does not hydrate and every
 component looks broken, which is a common false alarm when checking a content change.
@@ -49,8 +49,8 @@ had not been ported yet, and the check fires when your page's frontmatter `title
 upstream page's title exactly. Which fix applies depends on whether your page is that upstream page:
 
 - **It is the port.** Move the entry from `SECTION_LANDINGS` into `MANUAL_DESTINATIONS` in
-  `scripts/lib/legacy-redirects.mjs`, pointed at your page, and retarget the matching entry in
-  `redirects.legacy.mjs`. Nothing re-resolves those URLs on its own, so leaving them answers a
+  `scripts/lib/legacy-redirects.ts`, pointed at your page, and retarget the matching entry in
+  `redirects.legacy.ts`. Nothing re-resolves those URLs on its own, so leaving them answers a
   reader who asked for your page with a list of links instead.
 - **It only happens to share the title.** The recorded titles include short generic nouns such as
   "Sequencer", so this is a real possibility. Leave both destinations alone and delete that source's
@@ -196,13 +196,13 @@ pnpm move-doc <from> <to>
 
 This rewrites every internal link that pointed at the old path (in whatever form it was written —
 absolute, relative, `.mdx`-suffixed, `<include>`), moves the file with `git mv`, updates the
-surrounding `meta.json`, and records the redirect in `redirects.config.mjs` for you. **Never
-hand-edit between the `AUTO-GENERATED` markers in `redirects.config.mjs`**, since `move-doc` owns that
+surrounding `meta.json`, and records the redirect in `redirects.config.ts` for you. **Never
+hand-edit between the `AUTO-GENERATED` markers in `redirects.config.ts`**, since `move-doc` owns that
 block. Use `--dry-run` first to preview the changes, and confirm afterward with `pnpm check-links`.
 
-`move-doc` also retargets the two hand-written maps in `scripts/lib/legacy-redirects.mjs` that decide
+`move-doc` also retargets the two hand-written maps in `scripts/lib/legacy-redirects.ts` that decide
 where legacy `docs.arbitrum.io` URLs point, if either names the page, and prints a note when a
-`redirects.legacy.mjs` entry is left one hop long. That file is hand-maintained: add or retarget a
+`redirects.legacy.ts` entry is left one hop long. That file is hand-maintained: add or retarget a
 legacy redirect by editing it directly, then prove the destination with `pnpm redirects:check`
 against a running site.
 
@@ -219,7 +219,7 @@ pnpm check-links       # broken internal doc links and MDX fragments
 ```
 
 These seven are the ones a content change usually trips. `.github/workflows/ci.yml`'s blocking
-`Gates` job runs them alongside `versioned-docs-check.mjs`, `faq:check`, `images:presence`,
+`Gates` job runs them alongside `versioned-docs-check.ts`, `faq:check`, `images:presence`,
 `contracts:check`, `format:check` and `content:lint`.
 
 **A second job blocks too.** `Build` runs `pnpm build`, then serves the result and checks it over

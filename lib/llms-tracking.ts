@@ -5,7 +5,7 @@
  * **This module is deliberately pure and import-free.** It is consumed two ways:
  *
  * - `proxy.ts` imports it as TypeScript, via the bundler.
- * - `scripts/lib/llms-tracking.test.mjs` imports it directly under `node --test`, relying on
+ * - `scripts/lib/llms-tracking.test.ts` imports it directly under `node --test`, relying on
  *   Node 22's native type stripping. That only works while the file stays free of runtime imports
  *   (a bare `./shared` specifier does not resolve in plain ESM, and importing `./shared.ts` would
  *   need `allowImportingTsExtensions` in tsconfig). Keeping it import-free is what lets the tests

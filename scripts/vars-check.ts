@@ -18,7 +18,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { checkAnnouncementLink } from './lib/announcement-link.ts';
-import { buildIndex } from './lib/doc-links.mjs';
+import { buildIndex } from './lib/doc-links.ts';
 import { auditVars, unresolvedSiteCount } from './lib/vars-audit.ts';
 
 /**

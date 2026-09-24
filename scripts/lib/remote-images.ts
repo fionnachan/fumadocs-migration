@@ -20,7 +20,7 @@
  * limit is deliberate rather than an oversight. It is narrow in practice: the syntax that 500s is
  * markdown, and markdown has no expressions. The JSX forms it cannot see are the forms that render.
  */
-import { maskCode } from './strip-code.mjs';
+import { maskCode } from './strip-code.ts';
 
 /**
  * One remote image. `element` is the JSX element's name, or `'markdown'` for markdown syntax;

@@ -29,6 +29,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { Options as PrettierOptions } from 'prettier';
 
 import {
   customFlagTypes,
@@ -41,9 +42,15 @@ import {
 } from './data/nitro-cli-reference.data.ts';
 import type { ExclusionRule } from './data/nitro-cli-reference.data.ts';
 import { renderGeneratedRegion, splicePage } from './lib/cli-reference-page.ts';
-import { StaleFileError, isCheckMode, runScript, writeOrCheck } from './lib/generated-partial.mjs';
+import {
+  StaleFileError,
+  type WriteOrCheckOptions,
+  isCheckMode,
+  runScript,
+  writeOrCheck,
+} from './lib/generated-partial.ts';
 import { indexGoTree } from './lib/go-source.ts';
-import { diffSummary } from './lib/line-diff.mjs';
+import { diffSummary } from './lib/line-diff.ts';
 import { type CliFlag, extractFlags } from './lib/nitro-cli-flags.ts';
 
 const OUTPUT_PATH = path.join('content', 'docs', 'run-a-node', 'nitro', 'cli-flags-reference.mdx');
@@ -54,8 +61,13 @@ const NITRO_URL = 'https://github.com/OffchainLabs/nitro.git';
 const NITRO_MODULE = 'github.com/offchainlabs/nitro';
 const GETH_MODULE = 'github.com/ethereum/go-ethereum';
 
-/** See MDX_FORMAT in generate-precompile-tables.mjs: the generator owns this file's shape. */
-const MDX_FORMAT = { parser: 'mdx', printWidth: 9999, proseWrap: 'preserve', plugins: [] };
+/** See MDX_FORMAT in generate-precompile-tables.ts: the generator owns this file's shape. */
+const MDX_FORMAT: PrettierOptions = {
+  parser: 'mdx',
+  printWidth: 9999,
+  proseWrap: 'preserve',
+  plugins: [],
+};
 
 interface Args {
   check: boolean;

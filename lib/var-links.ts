@@ -28,8 +28,8 @@
  * Throwing here would take the whole site down for one typo, in a module that runs before any page.
  *
  * Deliberately import-free apart from `node:fs`, so `scripts/lib/var-links.test.ts` can import it
- * under `node --test` and exercise the real module rather than a copy. `scripts/lib/doc-links.mjs`
- * imports it for the same reason `scripts/lib/doc-anchors.mjs` imports `lib/mdx-options.ts`: a
+ * under `node --test` and exercise the real module rather than a copy. `scripts/lib/doc-links.ts`
+ * imports it for the same reason `scripts/lib/doc-anchors.ts` imports `lib/mdx-options.ts`: a
  * checker has to resolve the URL the reader gets, not the one written in the file.
  *
  * The node types below are local and structural rather than imported from `mdast` and

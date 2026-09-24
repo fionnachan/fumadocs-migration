@@ -2,7 +2,7 @@
  * Text-parse of the partial-versioning registry (`VERSIONED` in `lib/versions-constants.ts`).
  *
  * Parsing rather than importing. The parser dates from when no plain node script could read
- * TypeScript (the same wall `redirects-check.mjs` hits from the other side, which is why that one
+ * TypeScript (the same wall `redirects-check.ts` hits from the other side, which is why that one
  * reads `/llms.txt` off a running server). Node now runs `.ts` directly, and
  * `scripts/versions-routing.test.ts` imports `lib/versions-constants.ts` itself and compares its
  * `archiveParams()` against this parse, so the two readings of the literal check each other. The registry was moved out of `lib/versions.ts` by

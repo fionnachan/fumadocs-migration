@@ -7,7 +7,7 @@
  *
  * Ported from the content-transformation half of arbitrum-docs `scripts/sync-stylus-content.js`.
  */
-import { extractRefs } from './doc-links.mjs';
+import { extractRefs } from './doc-links.ts';
 
 /** What {@link parseObjectLiteral} can return: JSON's value space, nothing more. */
 export type JsonValue = string | number | boolean | null | JsonValue[] | JsonObject;

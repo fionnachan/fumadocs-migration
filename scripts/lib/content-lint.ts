@@ -17,7 +17,7 @@
  *   A5  Internal link target keeping a `.md`/`.mdx` suffix — 404s at runtime.
  *   A6  `<Var>` inside a fenced code block or inline code span. MDX does not evaluate components
  *       inside code, so the reader sees the literal `<Var name="…" />` tag instead of its value.
- *       Coverage matches the shared scanner in `strip-code.mjs`, which models backtick and tilde
+ *       Coverage matches the shared scanner in `strip-code.ts`, which models backtick and tilde
  *       fences and run-paired inline spans: a `<Var>` inside a four-space-indented block is not
  *       flagged, that being the one code form nothing here models. Widening A6 alone would make it
  *       disagree with A1..A5 about what "code" is, so the two move together or not at all.
@@ -49,7 +49,7 @@
  *       rendered, verified in the built HTML, so that form is not flagged. The generated precompile
  *       partials use it (`content/partials/precompile-tables/_ArbAggregator.mdx`), and flagging it
  *       would make this rule demand an edit to a generated file (written by
- *       generate-precompile-tables.mjs from fetched sources) for markup that renders correctly.
+ *       generate-precompile-tables.ts from fetched sources) for markup that renders correctly.
  *   A10 A `<tr>` sitting directly inside a `<table>`. The parser inserts the `<tbody>` the source
  *       omitted, so the client tree gains an element the server tree does not have. Put every row in
  *       a `<thead>`, `<tbody>` or `<tfoot>`.
@@ -59,7 +59,7 @@
  *       before the first `<Var>` autolinked by GFM. Seventy-three links shipped that way (FS-2725)
  *       with every gate green: `vars:check` only proves the key exists, `check-links` skips external
  *       destinations, and A6 reads code fences and spans, not destinations. The fix is a
- *       `{var:name}` placeholder, which holds no space and so parses; `lib/var-links.mjs` expands
+ *       `{var:name}` placeholder, which holds no space and so parses; `lib/var-links.ts` expands
  *       it. The `href=`/`to=` attribute form is flagged too, where the `<Var>` tag's own quotes end
  *       the attribute value early and truncate the URL, and so is a placeholder whose name is not an
  *       identifier: that one is left unexpanded by design and reaches the reader as literal braces.
@@ -75,7 +75,7 @@
  *       deleting the stray line, or by writing the closer that is missing.
  *   A13 A closer indented more than three columns past its opener. `remark-mdx` turns off indented
  *       code blocks and with them CommonMark's three-column cap on a closing fence, so the site's
- *       parser ends the fence at that line and `strip-code.mjs`, which models the CommonMark
+ *       parser ends the fence at that line and `strip-code.ts`, which models the CommonMark
  *       column, does not. Every gate reading MDX through it (A1 to A11 here, `check-links`,
  *       `partials:check`, `images:presence`) therefore treats the lines between as fence body and
  *       stops checking them. One stray indent switched eighteen lines of a page off from all of
@@ -103,13 +103,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import {
-  MALFORMED_VAR_PLACEHOLDER,
-  expandVarPlaceholders,
-  readVars,
-} from '../../lib/var-links.mjs';
-import { toPosix, walk } from './partials.mjs';
-import { codeRegions, fenceDefects, stripCode } from './strip-code.mjs';
+import { MALFORMED_VAR_PLACEHOLDER, expandVarPlaceholders, readVars } from '../../lib/var-links.ts';
+import { toPosix, walk } from './partials.ts';
+import { codeRegions, fenceDefects, stripCode } from './strip-code.ts';
 
 /** Every rule id this file can report. `scripts/content-lint.ts` keys its title table on it. */
 export type RuleId =
@@ -164,8 +160,8 @@ export const ADMONITION_TYPES: ReadonlySet<string> = new Set([
 const isMdx = (p: string): boolean => /\.mdx?$/i.test(p);
 
 // Re-exported so this file stays the import site every rule and test already uses. The definition
-// moved to `strip-code.mjs` (FS-2723) because the partials tooling needs the same answer to "what
-// counts as code", and `content-lint.ts` imports `partials.mjs`, so it cannot be the shared home.
+// moved to `strip-code.ts` (FS-2723) because the partials tooling needs the same answer to "what
+// counts as code", and `content-lint.ts` imports `partials.ts`, so it cannot be the shared home.
 export { stripCode };
 
 const lineOf = (source: string, index: number): number => source.slice(0, index).split('\n').length;
@@ -240,7 +236,7 @@ export function lintSource(source: string): Finding[] {
   // A5 — internal link targets that keep a .md/.mdx suffix.
   //
   // The destination is judged after `{var:name}` expansion, the way `check-links` judges one
-  // (`expandRefUrl` in `doc-links.mjs`). A destination that opens with a placeholder holding an
+  // (`expandRefUrl` in `doc-links.ts`). A destination that opens with a placeholder holding an
   // absolute URL is external once expanded, and reads as a relative path before: the contribute
   // guide's links to this repository's own `CONTRIBUTE.md` and `STYLE-GUIDE.md` are exactly that
   // shape (FS-2733). Judging the written string would flag a `.md` suffix that is correct, since
@@ -329,7 +325,7 @@ export function lintSource(source: string): Finding[] {
       add(
         'A13',
         defect.closerStart,
-        "fence closer indented more than three columns past its opener. The site's MDX parser ends the fence at this line; CommonMark, and every gate that masks code through strip-code.mjs, does not, so all of them read the lines between as fence body and stop checking them. Align this closer with its opener. If the fence was meant to stay open past this line, read the rendered page before dedenting: MDX has ended it here already, so the real fix is a missing or too-short fence delimiter higher up (the opener as well as the closer, when an outer fence documents an inner one)",
+        "fence closer indented more than three columns past its opener. The site's MDX parser ends the fence at this line; CommonMark, and every gate that masks code through strip-code.ts, does not, so all of them read the lines between as fence body and stop checking them. Align this closer with its opener. If the fence was meant to stay open past this line, read the rendered page before dedenting: MDX has ended it here already, so the real fix is a missing or too-short fence delimiter higher up (the opener as well as the closer, when an outer fence documents an inner one)",
       );
     }
   }

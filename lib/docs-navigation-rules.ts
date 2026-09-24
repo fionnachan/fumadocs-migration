@@ -9,7 +9,7 @@
  * the tested copy are the same copy. It is separate from `lib/docs-navigation.ts` because that file
  * imports `fumadocs-core` types and builds page-tree nodes, none of which the gate needs; this one
  * imports nothing, so the gate loads no more than the rule. Same shape, and for the same reasons,
- * as `lib/site-url.mjs`.
+ * as `lib/site-url.ts`.
  *
  * The manifest types live here rather than in `lib/docs-navigation.ts` for the same reason: both
  * callers need them, and `lib/docs-navigation.ts` importing them from this side keeps the import

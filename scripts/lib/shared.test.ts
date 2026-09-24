@@ -8,7 +8,7 @@
  * means this test exercises the exact object the component renders, not a copy that can drift from
  * it.
  *
- * Nothing else checks these three hrefs. `scripts/check-links.mjs` walks `content/docs/**`
+ * Nothing else checks these three hrefs. `scripts/check-links.ts` walks `content/docs/**`
  * `.md(x)` files only, by its own header comment, and `pnpm move-doc` retargets
  * `redirects.config.ts` and the drift/legacy-destination maps but not a `.tsx` file. Without this
  * test, deleting or renaming one of the three pages would leave a silent 404 in the footer of every

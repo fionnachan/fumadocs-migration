@@ -418,7 +418,7 @@ test('docs page open graph tags', { skip: !baseUrl }, async (t) => {
 
 test('the contribute guide links back into this repository', { skip: !baseUrl }, async (t) => {
   /**
-   * The rendered half of FS-2733. `scripts/lib/contribute-repo-links.test.mjs` asserts the same
+   * The rendered half of FS-2733. `scripts/lib/contribute-repo-links.test.ts` asserts the same
    * rule over the source file and needs no server; this one is what proves the
    * `{var:docsRepositoryUrl}` placeholders actually expanded, rather than reaching the reader as
    * literal braces inside an href. Nothing else would notice: `check-links` skips an external

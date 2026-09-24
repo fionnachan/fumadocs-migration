@@ -5,22 +5,22 @@
  * cases (FS-2729). They are now one scanner with one contract, and each consumer selects the region
  * kinds it needs rather than bringing its own scanner:
  *
- *   - `content-lint.mjs` and `partials.ts` call `stripCode`, which blanks fences, inline code and
+ *   - `content-lint.ts` and `partials.ts` call `stripCode`, which blanks fences, inline code and
  *     MDX `{/* … *\/}` comments. A rule that cannot tell documentation-about-syntax from syntax is
  *     noise, not a gate, and an `<include>` shown as an example is not a dependency.
- *   - `content-lint.mjs` rule A6 calls `codeRegions`, because it needs to look *inside* code rather
+ *   - `content-lint.ts` rule A6 calls `codeRegions`, because it needs to look *inside* code rather
  *     than past it. It used to carry its own copy of two fence regexes, which is exactly the shape
  *     that lets one gate drift away from another.
- *   - `doc-links.mjs` calls `maskRegions`, which blanks fences, inline code, frontmatter and HTML
+ *   - `doc-links.ts` calls `maskRegions`, which blanks fences, inline code, frontmatter and HTML
  *     comments, because a link written in either of those is not a link a reader can follow.
- *   - `remote-images.mjs` calls `maskCode` with the default region set, fences and inline code only.
- *   - `content-lint.mjs` rules A12 and A13 call `fenceDefects`, because they are about the fence
+ *   - `remote-images.ts` calls `maskCode` with the default region set, fences and inline code only.
+ *   - `content-lint.ts` rules A12 and A13 call `fenceDefects`, because they are about the fence
  *     boundary itself rather than about what is inside it. Same scan as everything above, so a rule
  *     about where a fence ends cannot disagree with the masking that acts on it.
  *
- * This module imports nothing, deliberately. `content-lint.mjs` and `partials.ts` are pure string
+ * This module imports nothing, deliberately. `content-lint.ts` and `partials.ts` are pure string
  * tooling and the scanner is the thing they all agree on, so it must not drag `node:fs` or a docs
- * index behind it. That is also why the scanner lives here rather than in `doc-links.mjs`, which
+ * index behind it. That is also why the scanner lives here rather than in `doc-links.ts`, which
  * owns the filesystem walk.
  *
  * ## Contract

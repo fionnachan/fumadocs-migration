@@ -12,7 +12,7 @@
  * committed snapshot; nothing in the build calls this script.
  *
  * No `--check` mode: unlike `generate-contract-addresses.ts` or
- * `generate-cli-reference.mjs`, this has no pinned, deterministic input to compare
+ * `generate-cli-reference.ts`, this has no pinned, deterministic input to compare
  * against. Its source is live chain state that keeps changing as new challenges open
  * and existing ones bisect further, so a second run against the same contract
  * legitimately produces a different (superset) result from the first — there is no

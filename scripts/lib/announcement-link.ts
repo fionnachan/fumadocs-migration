@@ -15,7 +15,7 @@ import {
   resolveRefToFile,
   resolvesToPublicAsset,
   splitSuffix,
-} from './doc-links.mjs';
+} from './doc-links.ts';
 
 /**
  * The docs index an internal target is resolved against: whatever `resolveRefToFile` accepts, so

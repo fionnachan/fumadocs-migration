@@ -11,8 +11,8 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { MALFORMED_VAR_PLACEHOLDER, VAR_PLACEHOLDER } from '../../lib/var-links.mjs';
-import { toPosix, walk } from './partials.mjs';
+import { MALFORMED_VAR_PLACEHOLDER, VAR_PLACEHOLDER } from '../../lib/var-links.ts';
+import { toPosix, walk } from './partials.ts';
 
 export const VARS_TS: string = path.join('content', 'vars.ts');
 export const VARS_JSON: string = path.join('content', 'vars.json');
@@ -84,7 +84,7 @@ export function parseSchemaKeys(source: string): string[] {
  *
  * Two syntaxes, one audit. `<Var name="…" />` is the component. `{var:…}` is the placeholder a link
  * destination needs, because a `<Var>` tag holds a space and a space ends an unbracketed CommonMark
- * destination, so that form never parses as a link at all (FS-2725; `lib/var-links.mjs` expands the
+ * destination, so that form never parses as a link at all (FS-2725; `lib/var-links.ts` expands the
  * placeholder and `content:lint` rule A11 blocks the broken form). Both name a key that has to
  * resolve, and a placeholder naming a key that does not exist leaves literal braces in a URL, so
  * both belong here or the newer syntax would be the one thing this gate cannot see.

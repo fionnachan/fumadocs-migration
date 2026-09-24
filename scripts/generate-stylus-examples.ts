@@ -29,6 +29,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { Options as PrettierOptions } from 'prettier';
 
 import {
   frontmatterDefaults,
@@ -39,23 +40,24 @@ import {
   sections,
   sourceRoot,
 } from './data/stylus-examples.data.ts';
-import { stringifyMeta } from './lib/doc-links.mjs';
-import { StaleFileError, isCheckMode, runScript, writeOrCheck } from './lib/generated-partial.mjs';
-import { diffSummary } from './lib/line-diff.mjs';
+import { stringifyMeta } from './lib/doc-links.ts';
+import {
+  StaleFileError,
+  type WriteOrCheckOptions,
+  isCheckMode,
+  runScript,
+  writeOrCheck,
+} from './lib/generated-partial.ts';
+import { diffSummary } from './lib/line-diff.ts';
 import { buildPage, buildSectionMeta } from './lib/stylus-examples.ts';
 
-/**
- * The options `writeOrCheck` takes. Restated here because `generated-partial.mjs` is still plain
- * JavaScript with no JSDoc on that parameter, so its signature cannot be borrowed.
- */
-interface WriteOptions {
-  check: boolean;
-  overrides?: Record<string, unknown>;
-  format?: boolean;
-}
-
-/** See MDX_FORMAT in generate-precompile-tables.mjs: the generator owns these files' shape. */
-const MDX_FORMAT = { parser: 'mdx', printWidth: 9999, proseWrap: 'preserve', plugins: [] };
+/** See MDX_FORMAT in generate-precompile-tables.ts: the generator owns these files' shape. */
+const MDX_FORMAT: PrettierOptions = {
+  parser: 'mdx',
+  printWidth: 9999,
+  proseWrap: 'preserve',
+  plugins: [],
+};
 
 /** The comment that tells a human editing one of these pages that they are editing the wrong file. */
 const MARKER =
@@ -153,7 +155,11 @@ function reportUnpublished(appDir: string): void {
  * Every generator in this repo does this, for the same reason: "the file is stale" does not tell
  * a reviewer of the weekly refresh PR whether a code sample changed or only whitespace did.
  */
-async function emit(filePath: string, content: string, options: WriteOptions): Promise<boolean> {
+async function emit(
+  filePath: string,
+  content: string,
+  options: WriteOrCheckOptions,
+): Promise<boolean> {
   try {
     return await writeOrCheck(filePath, content, options);
   } catch (error) {

@@ -15,7 +15,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { readVars } from '../lib/var-links.mjs';
+import { readVars } from '../lib/var-links.ts';
 
 const MOVE_DOC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'move-doc.ts');
 
@@ -47,7 +47,7 @@ function fixtureRepo({ legacyDoubleQuoted = false }: { legacyDoubleQuoted?: bool
   toRel: string;
 } {
   const root = mkdtempSync(path.join(tmpdir(), 'move-doc-e2e-'));
-  // move-doc.ts writes legacy-redirects.mjs back through Prettier, which resolves config from the
+  // move-doc.ts writes legacy-redirects.ts back through Prettier, which resolves config from the
   // file's own location. Give the fixture its own, matching the real repo's style, so the assertions
   // below exercise the actual write path instead of Prettier's double-quote default.
   writeFileSync(
@@ -70,7 +70,7 @@ function fixtureRepo({ legacyDoubleQuoted = false }: { legacyDoubleQuoted?: bool
   // `move-doc` retargets these maps from the two exports alone.
   const lq = legacyDoubleQuoted ? '"' : "'";
   writeFileSync(
-    path.join(libDir, 'legacy-redirects.mjs'),
+    path.join(libDir, 'legacy-redirects.ts'),
     `export const SECTION_RENAMES = [[${lq}/legacy-example${lq}, ${lq}/example${lq}]];\n` +
       `\n` +
       `export const MANUAL_DESTINATIONS = new Map([\n` +
@@ -86,7 +86,7 @@ function fixtureRepo({ legacyDoubleQuoted = false }: { legacyDoubleQuoted?: bool
 
   return {
     root,
-    legacyRedirectsPath: path.join(libDir, 'legacy-redirects.mjs'),
+    legacyRedirectsPath: path.join(libDir, 'legacy-redirects.ts'),
     fromRel: 'content/docs/example/old-name.mdx',
     toRel: 'content/docs/example/new-name.mdx',
   };
@@ -120,8 +120,8 @@ test('move-doc retargets MANUAL_DESTINATIONS and SECTION_LANDINGS for the moved 
     'only the destinations naming the moved page changed',
   );
 
-  assert.match(output, /legacy-redirects\.mjs: retargeted 2 MANUAL_DESTINATIONS destination\(s\)/);
-  assert.match(output, /legacy-redirects\.mjs: retargeted 1 SECTION_LANDINGS destination\(s\)/);
+  assert.match(output, /legacy-redirects\.ts: retargeted 2 MANUAL_DESTINATIONS destination\(s\)/);
+  assert.match(output, /legacy-redirects\.ts: retargeted 1 SECTION_LANDINGS destination\(s\)/);
   assert.match(
     output,
     /hand-maintained/,
@@ -140,8 +140,8 @@ test('move-doc --dry-run reports the legacy destination changes without writing 
   });
 
   assert.equal(readFileSync(legacyRedirectsPath, 'utf8'), before, 'dry-run must not write');
-  assert.match(output, /legacy-redirects\.mjs: retargeted 2 MANUAL_DESTINATIONS destination\(s\)/);
-  assert.match(output, /legacy-redirects\.mjs: retargeted 1 SECTION_LANDINGS destination\(s\)/);
+  assert.match(output, /legacy-redirects\.ts: retargeted 2 MANUAL_DESTINATIONS destination\(s\)/);
+  assert.match(output, /legacy-redirects\.ts: retargeted 1 SECTION_LANDINGS destination\(s\)/);
 });
 
 test('move-doc is a no-op on the legacy maps for a page neither map names', (t) => {
@@ -190,7 +190,7 @@ test('an aborted legacy step leaves the move and the redirect behind, and writes
   // Everything before it landed: the move and the redirect.
   assert.ok(existsSync(path.join(root, toRel)), 'the move itself still happened');
   assert.match(
-    readFileSync(path.join(root, 'redirects.config.mjs'), 'utf8'),
+    readFileSync(path.join(root, 'redirects.config.ts'), 'utf8'),
     /source: '\/docs\/example\/old-name', destination: '\/docs\/example\/new-name'/,
   );
 });

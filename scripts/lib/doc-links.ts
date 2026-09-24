@@ -14,9 +14,9 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 
-import { expandVarPlaceholders, readVars } from '../../lib/var-links.mjs';
-import { isPartial } from './partials.mjs';
-import { maskRegions } from './strip-code.mjs';
+import { expandVarPlaceholders, readVars } from '../../lib/var-links.ts';
+import { isPartial } from './partials.ts';
+import { maskRegions } from './strip-code.ts';
 
 const posix = path.posix;
 
@@ -143,8 +143,8 @@ export function isExternalOrFragment(pathPart: string): boolean {
 /**
  * True when a file is a content partial (underscore-prefixed): imported via `<include>`, not routed.
  *
- * Re-exported from `partials.mjs` so there is one definition. This module used to carry a looser
- * copy that matched any `_`-prefixed basename, including `_diagram.png`; `partials.mjs` also
+ * Re-exported from `partials.ts` so there is one definition. This module used to carry a looser
+ * copy that matched any `_`-prefixed basename, including `_diagram.png`; `partials.ts` also
  * requires a `.md`/`.mdx` extension. Both were live — `move-doc` read this one while
  * `partials-check` read the other — so the answer depended on the caller's import.
  */
@@ -297,14 +297,25 @@ export function extractRefs(source: string): LinkRef[] {
   return refs;
 }
 
+/** The three lookups `resolveRefToFile` reads, so a caller can pass a stand-in without the rest. */
+export type RefResolutionIndex = Pick<DocIndex, 'byAbs' | 'urlByAbs' | 'byUrl'>;
+
 /**
  * Resolve a link's raw URL to the absolute doc file it points at, or `null` if external/unresolvable.
+ *
+ * `fromAbs` may be `null` when the link has no page of its own (the announcement banner renders on
+ * every route); only a relative URL needs it, and such a caller has already rejected those.
  */
-export function resolveRefToFile(rawUrl: string, fromAbs: string, index: DocIndex): string | null {
+export function resolveRefToFile(
+  rawUrl: string,
+  fromAbs: string | null,
+  index: RefResolutionIndex,
+): string | null {
   const { pathPart } = splitSuffix(expandRefUrl(rawUrl));
   if (isExternalOrFragment(pathPart)) return null;
 
   if (!pathPart.startsWith('/')) {
+    if (fromAbs === null) return null;
     if (/\.mdx?$/i.test(pathPart)) {
       const abs = path.resolve(path.dirname(fromAbs), pathPart);
       return index.byAbs.has(abs) ? abs : null;

@@ -20,7 +20,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { toPosix, walk } from './partials.mjs';
+import { toPosix, walk } from './partials.ts';
 
 const isMdx = (p: string): boolean => /\.mdx?$/i.test(p);
 

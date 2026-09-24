@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { checkAnnouncementLink } from './announcement-link.ts';
+import { type AnnouncementLinkIndex, checkAnnouncementLink } from './announcement-link.ts';
 
 // Minimal stand-in for buildIndex()'s return value: `/docs/...` resolution reads `byUrl` only.
-const index = {
+const index: AnnouncementLinkIndex = {
   byUrl: new Map([
     ['/docs/stylus/gentle-introduction', '/abs/content/docs/stylus/gentle-introduction.mdx'],
     ['/docs', '/abs/content/docs/index.mdx'],

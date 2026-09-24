@@ -2,7 +2,7 @@
  * svgo configuration for hand-authored brand diagrams in static/img.
  *
  * Applied by .claude/hooks/optimize-svg.sh on every write to static/img/*.svg,
- * and safe to run manually: yarn svgo --config svgo.config.mjs <file>
+ * and safe to run manually: yarn svgo --config svgo.config.ts <file>
  *
  * The overrides below all disable a preset-default plugin. Each one would
  * otherwise break something these diagrams depend on, so do not drop them

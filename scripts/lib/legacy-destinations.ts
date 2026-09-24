@@ -59,8 +59,8 @@ export const LEGACY_REDIRECTS_PATH = path.join('scripts', 'lib', 'legacy-redirec
 
 /**
  * The redirect file `move-doc` appends a moved page's own redirect to, and the two markers bounding
- * the block it maintains there. Declared here rather than in `move-doc.mjs` so the appender and the
- * chained-entry reader below share one definition: `move-doc.mjs` imports these, and it cannot
+ * the block it maintains there. Declared here rather than in `move-doc.ts` so the appender and the
+ * chained-entry reader below share one definition: `move-doc.ts` imports these, and it cannot
  * export them back, because importing it runs its `main()`.
  */
 export const REDIRECTS_CONFIG_PATH = 'redirects.config.ts';

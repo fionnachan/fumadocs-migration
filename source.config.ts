@@ -92,7 +92,7 @@ const arbitrumPageSchema = pageSchema.extend({
 /**
  * Partials live in `content/partials/` — outside the doc collection `dir` entirely — so they can
  * never be routed and need no glob exclusion here. They are inlined via `<include cwd>…</include>`.
- * `scripts/partials-check.mjs` enforces that no `_`-prefixed file reappears under content/docs.
+ * `scripts/partials-check.ts` enforces that no `_`-prefixed file reappears under content/docs.
  */
 export const docs = defineDocs({
   dir: 'content/docs',

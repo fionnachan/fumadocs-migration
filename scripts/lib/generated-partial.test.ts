@@ -45,7 +45,7 @@ describe('generatedMarker', () => {
   });
 
   it('starts with "{" so partial-catalog summary derivation skips it like it skips <table>', () => {
-    // scripts/lib/partials.mjs's deriveSummary skips lines starting with "{" or "<" while looking
+    // scripts/lib/partials.ts's deriveSummary skips lines starting with "{" or "<" while looking
     // for a partial's first sentence, so the marker must keep starting with "{" or every
     // generated partial's catalog summary would be the marker text. deriveTitle reaches the same
     // outcome by a different route: it inspects only the first non-blank line and falls back to

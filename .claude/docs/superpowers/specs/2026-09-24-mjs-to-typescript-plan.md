@@ -107,17 +107,19 @@ Phase 1 (this session, on the branch): infrastructure and proof. `tsconfig.json`
 `svgo.config.ts`, the `postcss` key. Gate: `pnpm types:check`, `pnpm test`, `pnpm build`.
 
 Phase 2 (seven parallel agents, each in its own worktree cut from the phase 1 commit, converting a
-disjoint cluster; a cross-cluster import keeps its `.mjs` specifier until phase 3):
+disjoint cluster; a cross-cluster import keeps its `.mjs` specifier until phase 3, and a renamed
+file that an outside importer still names keeps a one-line `export * from './x.ts'` shim at its
+old path, committed separately, so each worktree stays green; phase 3 deletes the shims):
 
 | Cluster | Files                                                                                                                                                                                                                 |
 | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A1      | `strip-code`, `partials`, `lib/var-links`, `lib/mdx-comments`, `lib/mdx-options`, their tests, `fonts.test`, `contribute-repo-links.test`, `partials-check`, `generate-partials-catalog`, `references-check`          |
-| A2      | `doc-links`, `doc-anchors`, `check-links`, `inventory-links`, `move-doc`, `legacy-destinations`, `restructure`, their tests                                                                                           |
+| A2      | `doc-links`, `doc-anchors`, `check-links`, `inventory-links`, `move-doc`, `restructure`, their tests                                                                                                                  |
 | B       | `content-lint` (lib + script + test), `remote-images` (lib + script + test), `vars-audit`, `announcement-link`, `vars-check`, their tests                                                                             |
 | C       | `generated-partial`, `line-diff`, `contract-addresses` (+ generator, data, test), `precompile-tables` (+ generator, data, test), `nitro-node-image`, `check-nitro-release`, `fetch-edge-challenge-data`, their tests  |
 | D       | `go-source`, `nitro-cli-flags`, `cli-reference-page`, `generate-cli-reference` (+ data, test), `stylus-examples`, `generate-stylus-examples` (+ data, test)                                                           |
 | E1      | `lib/docs-navigation-rules`, `nav`, `nav-check`, `docs-navigation.test`, `versions-registry`, `versioned-docs-comparison`, `versioned-docs-check`, `versions-routing.test`, `faq-data`, `faq-data-check`, their tests |
-| E2      | `redirects-check` (lib + script + test), `legacy-redirects` (+ test), `redirects.config`, `redirects.legacy`, `shared.test`, `llms-tracking.test`, `static-docs-http.test`                                            |
+| E2      | `redirects-check` (lib + script + test), `legacy-redirects` (+ test), `legacy-destinations` (+ test), `shared.test`, `llms-tracking.test`, `static-docs-http.test`                                                    |
 
 Phase 3 (this session): merge the seven branches, flip every remaining `.mjs` import specifier to
 `.ts`, drop `allowJs`, fix cross-cluster type errors, regenerate the three generated outputs,

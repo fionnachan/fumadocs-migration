@@ -11,9 +11,9 @@
  *   2. moves the file (via `git mv`), recomputing the file's *own* relative links so they stay valid;
  *   3. updates the doc's entry in the surrounding `meta.json` navigation;
  *   4. records the old→new URL in `redirects.config.ts`;
- *   5. retargets the moved page's *URL* in `scripts/lib/legacy-redirects.mjs`'s
+ *   5. retargets the moved page's *URL* in `scripts/lib/legacy-redirects.ts`'s
  *      `MANUAL_DESTINATIONS` and `SECTION_LANDINGS`, if either names it (see
- *      `scripts/lib/legacy-destinations.mjs`) — otherwise a move leaves a legacy docs.arbitrum.io
+ *      `scripts/lib/legacy-destinations.ts`) — otherwise a move leaves a legacy docs.arbitrum.io
  *      URL pointing at a 404, which `pnpm test` only catches in whatever unrelated PR happens to
  *      run next.
  *
@@ -23,7 +23,7 @@
  * were deleted with the upstream comparison (FS-2706). One hand-written map is still on the mover:
  * `VERSIONED` in
  * `lib/versions.ts` (keyed by canonical slug), where nothing fails at all —
- * `versioned-docs-check.mjs` always exits 0, so a moved versioned page just loses its version
+ * `versioned-docs-check.ts` always exits 0, so a moved versioned page just loses its version
  * dropdown. Retarget that one by hand.
  *
  * `--dry-run` prints every change without touching the filesystem. Paths are repo-relative files under
@@ -59,7 +59,7 @@ import {
   REDIRECTS_END,
   REDIRECTS_START,
   updateLegacyDestinations,
-} from './lib/legacy-destinations.mjs';
+} from './lib/legacy-destinations.ts';
 
 /** One link occurrence, with the file that holds it and the file it resolves to. */
 interface LinkRecord {

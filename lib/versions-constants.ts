@@ -44,7 +44,7 @@ export interface VersionSource {
  * Only a hand-picked set of pages is versioned; everything else always renders Latest.
  *
  * An archive id becomes a real URL segment under the live page, so it must not collide with a child
- * page of that page — `/docs/run-a-node/start-here/v1` cannot be both. `scripts/versions-routing.test.mjs`
+ * page of that page — `/docs/run-a-node/start-here/v1` cannot be both. `scripts/versions-routing.test.ts`
  * asserts no collision exists, so creating one is a reviewed act rather than a silently shadowed page.
  */
 export const VERSIONED: Record<string, VersionSource[]> = {
@@ -77,7 +77,7 @@ export function canonicalSlug(slug: string[] | undefined): string {
  * not short-circuit, and it throws a `TypeError`: an unhandled HTTP 500 where the answer is a 404.
  * The own-property check is the whole reason this accessor exists, and it lives in this module
  * rather than beside its callers because this module imports nothing, which makes it the only half
- * of the feature `node --test` can exercise directly (`scripts/versions-routing.test.mjs`).
+ * of the feature `node --test` can exercise directly (`scripts/versions-routing.test.ts`).
  */
 export function versionSources(slug: string): VersionSource[] | undefined {
   return Object.hasOwn(VERSIONED, slug) ? VERSIONED[slug] : undefined;
