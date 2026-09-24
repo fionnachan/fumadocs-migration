@@ -17,7 +17,7 @@
  * The finished tree is the authority on a URL sitting on two nodes, and `buildDocsNavigation`
  * checks it there. This gate reads the manifest instead, so it can name the entries rather than
  * tree positions, and so it runs without fumadocs-core. `pnpm test` builds the real tree through
- * the real transformer (`scripts/docs-navigation.test.mjs`), which is where the exhaustive check
+ * the real transformer (`scripts/docs-navigation.test.ts`), which is where the exhaustive check
  * runs in CI.
  *
  * Usage:
@@ -26,10 +26,10 @@
  */
 import path from 'node:path';
 
-import { duplicateManifestPages, sectionLandingClaims } from '../lib/docs-navigation-rules.mjs';
-import { checkSections, checkTree, readSections, readTree } from './lib/nav.mjs';
+import { duplicateManifestPages, sectionLandingClaims } from '../lib/docs-navigation-rules.ts';
+import { checkSections, checkTree, readSections, readTree } from './lib/nav.ts';
 
-function main() {
+function main(): void {
   const json = process.argv.slice(2).includes('--json');
   const root = path.join(process.cwd(), 'content', 'docs');
   const results = checkTree(root);

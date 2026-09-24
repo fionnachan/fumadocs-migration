@@ -1,5 +1,5 @@
 /**
- * The comparison-selection decision behind scripts/versioned-docs-check.mjs, as a pure function so
+ * The comparison-selection decision behind scripts/versioned-docs-check.ts, as a pure function so
  * it can be tested without a git fixture (FS-2747). The script itself owns the git probing and the
  * environment reading, and passes the results in.
  *
@@ -23,23 +23,39 @@
  * and the changes really are uncommitted.
  */
 
-/** @typedef {{ args: string[], label: string, note?: string, annotate?: boolean }} Comparison */
+/**
+ * The comparison a run uses. `args` are the `git diff` positional refs, `label` names the
+ * comparison for the printed output, `note` explains a fallback, and `annotate` asks for a GitHub
+ * Actions warning annotation rather than a plain line.
+ */
+export interface Comparison {
+  args: string[];
+  label: string;
+  note?: string;
+  annotate?: boolean;
+}
+
+/** What the script probes before deciding. */
+export interface ComparisonState {
+  /** Running under GitHub Actions. */
+  ci: boolean;
+  /** A `pull_request`-triggered run (`GITHUB_BASE_REF` set). */
+  pullRequest: boolean;
+  /** `HEAD^1` resolves in this checkout. */
+  firstParentPresent: boolean;
+  /** `HEAD^2` resolves, i.e. `HEAD` is a merge commit. */
+  secondParentPresent: boolean;
+}
 
 const LOCAL_LABEL = 'HEAD (working tree + staged vs HEAD)';
 
-/**
- * Picks the comparison a run should use.
- *
- * @param {object} state
- * @param {boolean} state.ci                  running under GitHub Actions
- * @param {boolean} state.pullRequest         a `pull_request`-triggered run (`GITHUB_BASE_REF` set)
- * @param {boolean} state.firstParentPresent  `HEAD^1` resolves in this checkout
- * @param {boolean} state.secondParentPresent `HEAD^2` resolves, i.e. `HEAD` is a merge commit
- * @returns {Comparison} `args` are the `git diff` positional refs, `label` names the comparison for
- *   the printed output, `note` explains a fallback, and `annotate` asks for a GitHub Actions
- *   warning annotation rather than a plain line.
- */
-export function pickComparison({ ci, pullRequest, firstParentPresent, secondParentPresent }) {
+/** Picks the comparison a run should use. */
+export function pickComparison({
+  ci,
+  pullRequest,
+  firstParentPresent,
+  secondParentPresent,
+}: ComparisonState): Comparison {
   if (!ci) return { args: ['HEAD'], label: LOCAL_LABEL };
 
   if (pullRequest) {

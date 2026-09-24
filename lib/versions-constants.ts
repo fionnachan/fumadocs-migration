@@ -10,8 +10,8 @@
  * need registry facts and neither can afford that import, so the registry lives here and
  * `lib/versions.ts` reads it from this side.
  *
- * `scripts/lib/versions-registry.mjs` text-parses `VERSIONED` out of this file, because no plain
- * node script can resolve the `@/` alias or TypeScript. Keep the literal's shape simple.
+ * `scripts/lib/versions-registry.ts` text-parses `VERSIONED` out of this file (that module says
+ * why). Keep the literal's shape simple.
  */
 
 /** Dropdown label for the live page (the canonical, un-versioned URL). */

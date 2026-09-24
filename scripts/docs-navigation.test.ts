@@ -1,24 +1,78 @@
 import { searchPath } from 'fumadocs-core/breadcrumb';
-import { loader } from 'fumadocs-core/source';
+import type { Folder, Item, Node } from 'fumadocs-core/page-tree';
+import { type MetaData, type PageData, type VirtualFile, loader } from 'fumadocs-core/source';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
+import type { NavigationEntry, NavigationSection } from '../lib/docs-navigation-rules.ts';
 import { buildDocsNavigation, docsNavigationTransformer } from '../lib/docs-navigation.ts';
+import { readSections } from './lib/nav.ts';
+
+/** The virtual files these tests hand `loader()`: pages may carry a `sidebar_label`. */
+type TestFile = VirtualFile<{
+  pageData: PageData & { sidebar_label?: string };
+  metaData: MetaData;
+}>;
+
+const optionalOf = (value: unknown, type: 'string' | 'boolean'): boolean =>
+  value === undefined || typeof value === type;
+
+/** A parsed meta.json that has the shape fumadocs-core's `MetaData` declares. */
+function isMetaData(value: unknown): value is MetaData {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const meta: Record<string, unknown> = { ...value };
+  return (
+    optionalOf(meta.icon, 'string') &&
+    optionalOf(meta.title, 'string') &&
+    (optionalOf(meta.root, 'boolean') || typeof meta.root === 'string') &&
+    (meta.pages === undefined ||
+      (Array.isArray(meta.pages) && meta.pages.every((page) => typeof page === 'string'))) &&
+    optionalOf(meta.pagesIndex, 'string') &&
+    optionalOf(meta.defaultOpen, 'boolean') &&
+    optionalOf(meta.collapsible, 'boolean') &&
+    optionalOf(meta.description, 'string')
+  );
+}
+
+function readMeta(url: URL): MetaData {
+  const value: unknown = JSON.parse(readFileSync(url, 'utf8'));
+  assert.ok(isMetaData(value), `${fileURLToPath(url)} is not a well-formed meta.json`);
+  return value;
+}
+
+const isFolder = (node: Node | undefined): node is Folder => node?.type === 'folder';
+
+/** The child folder of `parent` named `name`; fails the test when there is none. */
+function childFolder(parent: Folder | undefined, name: string): Folder {
+  const found = parent?.children.find((item) => item.name === name);
+  assert.ok(isFolder(found), `no folder named ${name}`);
+  return found;
+}
+
+/** `searchPath`, failing the test instead of returning `null` for a URL with no node. */
+function pathTo(nodes: Node[], url: string): Node[] {
+  const found = searchPath(nodes, url);
+  assert.ok(found, `no tree node for ${url}`);
+  return found;
+}
 
 const contentRoot = new URL('../content/docs/', import.meta.url);
-const { sections } = JSON.parse(
-  readFileSync(new URL('../lib/docs-navigation.json', import.meta.url)),
+const sections = readSections(
+  fileURLToPath(new URL('../lib/docs-navigation.json', import.meta.url)),
 );
-const files = readdirSync(contentRoot, { recursive: true })
+const files: TestFile[] = readdirSync(contentRoot, { recursive: true, encoding: 'utf8' })
   .filter((path) => path.endsWith('.mdx') || path.endsWith('meta.json'))
-  .map((path) => ({
-    type: path.endsWith('.mdx') ? 'page' : 'meta',
-    path,
-    data: path.endsWith('.mdx')
-      ? { title: path, sidebar_label: path === 'oracles/DIA/dia.mdx' ? 'DIA' : undefined }
-      : JSON.parse(readFileSync(new URL(path, contentRoot))),
-  }));
+  .map((path): TestFile =>
+    path.endsWith('.mdx')
+      ? {
+          type: 'page',
+          path,
+          data: { title: path, sidebar_label: path === 'oracles/DIA/dia.mdx' ? 'DIA' : undefined },
+        }
+      : { type: 'meta', path, data: readMeta(new URL(path, contentRoot)) },
+  );
 const source = loader({
   baseUrl: '/docs',
   source: { files },
@@ -27,21 +81,25 @@ const source = loader({
   },
 });
 const tree = source.pageTree;
-const roots = tree.children.filter((item) => item.type === 'folder' && item.root);
-const section = (name) => roots.find((item) => item.name === name);
-const names = (folder) => folder.children.map((item) => item.name);
-const owner = (url) => searchPath(tree.children, url)?.findLast((item) => item.root)?.name;
+const roots = tree.children.filter((item): item is Folder => isFolder(item) && Boolean(item.root));
+const section = (name: string): Folder | undefined => roots.find((item) => item.name === name);
+const names = (folder: Folder | undefined): Node['name'][] => {
+  assert.ok(folder, 'no such section');
+  return folder.children.map((item) => item.name);
+};
+const owner = (url: string): Node['name'] | undefined =>
+  searchPath(tree.children, url)?.findLast((item) => isFolder(item) && Boolean(item.root))?.name;
 
 test('section landing pages belong to the section itself, not Additional guides', () => {
   for (const section of sections) {
-    const path = searchPath(tree.children, `/docs/${section.id}`);
+    const path = pathTo(tree.children, `/docs/${section.id}`);
     assert.equal(path.length, 2, section.id);
     assert.equal(path[0].name, section.name);
     assert.equal(path[1].type, 'page');
   }
 });
 
-function visit(nodes, fn) {
+function visit(nodes: Node[], fn: (node: Node) => void): void {
   for (const node of nodes) {
     fn(node);
     if (node.type === 'folder') {
@@ -52,7 +110,7 @@ function visit(nodes, fn) {
 }
 
 test('all local pages remain navigable and have exactly one section owner', () => {
-  const ownership = new Map();
+  const ownership = new Map<string, Set<Node['name']>>();
   for (const root of roots) {
     visit([root], (node) => {
       if (node.type !== 'page') return;
@@ -89,17 +147,18 @@ test('Get started restores the entry points and nests third-party docs and oracl
     'Prysm docs',
   ]);
   assert.equal(
-    section('Get started').children.find((item) => item.name === 'Third-party docs').children[0]
-      .name,
+    childFolder(section('Get started'), 'Third-party docs').children[0]?.name,
     'Oracles',
   );
   assert.equal(owner('/docs/oracles/chainlink/chainlink'), 'Get started');
   assert.equal(owner('/docs/chain-info'), 'Get started');
-  const thirdParty = section('Get started').children.find(
-    (item) => item.name === 'Third-party docs',
+  const thirdParty = childFolder(section('Get started'), 'Third-party docs');
+  assert.ok(
+    thirdParty.children.some(
+      (item) => isFolder(item) && item.$ref?.folder === 'third-party-docs/MetaMask',
+    ),
   );
-  assert.ok(thirdParty.children.some((item) => item.$ref?.folder === 'third-party-docs/MetaMask'));
-  assert.equal(searchPath(tree.children, '/docs/oracles/DIA/dia').at(-1).name, 'DIA');
+  assert.equal(pathTo(tree.children, '/docs/oracles/DIA/dia').at(-1)?.name, 'DIA');
 });
 
 test('Stylus follows the introduction, quickstart, fundamentals and guides learning sequence', () => {
@@ -134,10 +193,14 @@ test('chain configuration restores the original nested topics despite migrated f
     'Extend the protocol',
     'Run a node for an Arbitrum chain',
   ]);
-  assert.deepEqual(
-    names(chain.children.find((item) => item.name === 'Chain configuration')).slice(0, 6),
-    ['Batch poster', 'Costs', 'Data availability', 'Execution', 'Sequencing', 'Validation'],
-  );
+  assert.deepEqual(names(childFolder(chain, 'Chain configuration')).slice(0, 6), [
+    'Batch poster',
+    'Costs',
+    'Data availability',
+    'Execution',
+    'Sequencing',
+    'Validation',
+  ]);
 });
 
 test('cross-section shortcuts never steal their destination sidebar', () => {
@@ -149,7 +212,13 @@ test('cross-section shortcuts never steal their destination sidebar', () => {
   assert.equal(owner('/docs/arbitrum-essentials/bridging/overview'), 'Arbitrum essentials');
   assert.equal(owner('/docs/run-a-node/run-full-node'), 'Run an Arbitrum node');
   visit(tree.children, (node) => {
-    if (node.type === 'separator' && node.url?.startsWith('/docs')) {
+    // A manifest `href` entry is a separator carrying a `url` (`NavigationReference`).
+    if (
+      node.type === 'separator' &&
+      'url' in node &&
+      typeof node.url === 'string' &&
+      node.url.startsWith('/docs')
+    ) {
       assert.ok(searchPath(tree.children, node.url), `unresolved shortcut ${node.url}`);
     }
   });
@@ -207,7 +276,7 @@ test('the real manifest places every page that was falling into Additional guide
   for (const [url, name] of Object.entries(placed)) {
     const path = searchPath(tree.children, url);
     assert.ok(path, `missing ${url}`);
-    assert.equal(path.at(-1).name, name, url);
+    assert.equal(path.at(-1)?.name, name, url);
     assert.ok(
       !path.some((node) => node.name === 'Additional guides'),
       `${url} is still in Additional guides`,
@@ -218,8 +287,8 @@ test('the real manifest places every page that was falling into Additional guide
 // A page can set its own sidebar_label, and a manifest entry can rename that same page with its
 // own `name`. Build a small synthetic source (rather than reusing the real content tree) so this
 // case is exercised even when no page in content/docs happens to carry both right now.
-function demoSource(children) {
-  const files = [
+function demoSource(children: NavigationEntry[]) {
+  const files: TestFile[] = [
     { type: 'meta', path: 'demo/meta.json', data: { title: 'Demo' } },
     { type: 'page', path: 'demo/index.mdx', data: { title: 'Demo landing' } },
     {
@@ -228,7 +297,9 @@ function demoSource(children) {
       data: { title: 'Sample page', sidebar_label: 'From frontmatter' },
     },
   ];
-  const sections = [{ id: 'demo', name: 'Demo', sourceFolders: ['demo'], children }];
+  const sections: NavigationSection[] = [
+    { id: 'demo', name: 'Demo', sourceFolders: ['demo'], children },
+  ];
   return loader({
     baseUrl: '/docs',
     source: { files },
@@ -238,14 +309,14 @@ function demoSource(children) {
 
 test("a manifest entry name wins over the page's own sidebar_label", () => {
   const tree = demoSource([{ page: '/docs/demo/sample', name: 'From manifest' }]).pageTree;
-  const node = searchPath(tree.children, '/docs/demo/sample').at(-1);
-  assert.equal(node.name, 'From manifest');
+  const node = pathTo(tree.children, '/docs/demo/sample').at(-1);
+  assert.equal(node?.name, 'From manifest');
 });
 
 test('sidebar_label applies when the manifest entry gives the page no explicit name', () => {
   const tree = demoSource([{ page: '/docs/demo/sample' }]).pageTree;
-  const node = searchPath(tree.children, '/docs/demo/sample').at(-1);
-  assert.equal(node.name, 'From frontmatter');
+  const node = pathTo(tree.children, '/docs/demo/sample').at(-1);
+  assert.equal(node?.name, 'From frontmatter');
 });
 
 /**
@@ -256,8 +327,8 @@ test('sidebar_label applies when the manifest entry gives the page no explicit n
  */
 
 test('the real navigation puts every page URL on exactly one tree node', () => {
-  const places = new Map();
-  const walk = (nodes, trail) => {
+  const places = new Map<string, string[]>();
+  const walk = (nodes: Node[], trail: string): void => {
     for (const node of nodes) {
       if (node.type === 'page') places.set(node.url, [...(places.get(node.url) ?? []), trail]);
       if (node.type !== 'folder') continue;
@@ -288,13 +359,13 @@ test('a section landing claimed from another section fails the same way', () => 
   // passed both static rules while the transformer threw on the built tree. The static rule now
   // checks every section's landing against every section's children, so it fires first and names
   // the entry and the section holding it (FS-2749 review).
-  const files = [
+  const files: TestFile[] = [
     { type: 'meta', path: 'demo/meta.json', data: { title: 'Demo' } },
     { type: 'page', path: 'demo/index.mdx', data: { title: 'Demo landing' } },
     { type: 'meta', path: 'other/meta.json', data: { title: 'Other' } },
     { type: 'page', path: 'other/index.mdx', data: { title: 'Other landing' } },
   ];
-  const sections = [
+  const sections: NavigationSection[] = [
     { id: 'demo', name: 'Demo', sourceFolders: ['demo'], children: [] },
     {
       id: 'other',
@@ -314,14 +385,16 @@ test('a section landing claimed from another section fails the same way', () => 
   );
 });
 
-function folderSource(children) {
-  const files = [
+function folderSource(children: NavigationEntry[]) {
+  const files: TestFile[] = [
     { type: 'meta', path: 'demo/meta.json', data: { title: 'Demo' } },
     { type: 'page', path: 'demo/index.mdx', data: { title: 'Demo landing' } },
     { type: 'meta', path: 'demo/guides/meta.json', data: { title: 'Guides' } },
     { type: 'page', path: 'demo/guides/first.mdx', data: { title: 'First guide' } },
   ];
-  const sections = [{ id: 'demo', name: 'Demo', sourceFolders: ['demo'], children }];
+  const sections: NavigationSection[] = [
+    { id: 'demo', name: 'Demo', sourceFolders: ['demo'], children },
+  ];
   return loader({
     baseUrl: '/docs',
     source: { files },

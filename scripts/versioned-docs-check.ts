@@ -37,18 +37,18 @@
  *
  * Warning only: always exits 0 so it never blocks `pnpm build`. The registry invariants that *do*
  * have to hold, every key naming a live page, every archive id free of a colliding child page, are
- * asserted in scripts/versions-routing.test.mjs, which fails.
+ * asserted in scripts/versions-routing.test.ts, which fails.
  *
- *   node scripts/versioned-docs-check.mjs
+ *   node scripts/versioned-docs-check.ts
  */
 import { execFileSync } from 'node:child_process';
 
-import { pickComparison } from './lib/versioned-docs-comparison.mjs';
-import { VERSIONS_FILE, pinnedDocuments } from './lib/versions-registry.mjs';
+import { type Comparison, pickComparison } from './lib/versioned-docs-comparison.ts';
+import { VERSIONS_FILE, pinnedDocuments } from './lib/versions-registry.ts';
 
 const repoRoot = process.cwd();
 
-function git(args) {
+function git(args: string[]): string {
   return execFileSync('git', args, {
     cwd: repoRoot,
     encoding: 'utf8',
@@ -58,7 +58,7 @@ function git(args) {
 }
 
 /** Whether a revision resolves in this checkout. A shallow graft removes a commit's parents. */
-function revExists(rev) {
+function revExists(rev: string): boolean {
   try {
     git(['rev-parse', '--verify', '--quiet', `${rev}^{commit}`]);
     return true;
@@ -68,7 +68,7 @@ function revExists(rev) {
 }
 
 /** Probes the environment and the shape of `HEAD`, then defers the decision to the pure picker. */
-function resolveComparison() {
+function resolveComparison(): Comparison {
   return pickComparison({
     ci: process.env.GITHUB_ACTIONS === 'true',
     // GitHub Actions sets GITHUB_BASE_REF only for a `pull_request`-triggered run.
@@ -82,7 +82,7 @@ function resolveComparison() {
  * Repo-relative paths (from `docs`) that changed under `comparison`, or `null` when git is
  * unavailable, in which case the check is skipped silently.
  */
-function modifiedDocs(docs, comparison) {
+function modifiedDocs(docs: string[], comparison: Comparison): string[] | null {
   if (docs.length === 0) return [];
   try {
     const out = git(['diff', '--name-only', ...comparison.args, '--', ...docs]);
@@ -96,11 +96,11 @@ function modifiedDocs(docs, comparison) {
 }
 
 const useColor = !process.env.NO_COLOR;
-const paint = (codes, s) => (useColor ? `\x1b[${codes}m${s}\x1b[0m` : s);
+const paint = (codes: string, s: string): string => (useColor ? `\x1b[${codes}m${s}\x1b[0m` : s);
 
 /** Greedy word wrap. A word longer than `width` is hard-broken rather than overflowing the box. */
-function wrap(text, width) {
-  const lines = [];
+function wrap(text: string, width: number): string[] {
+  const lines: string[] = [];
   let line = '';
   for (let word of text.split(/\s+/).filter(Boolean)) {
     while (word.length > width) {
@@ -125,12 +125,12 @@ function wrap(text, width) {
 // Inner width of the box, between the '│ ' and ' │' that frame every content row.
 const BOX_WIDTH = 72;
 
-function printWarning(modified, comparison) {
-  const yellow = (s) => paint('33;1', s);
-  const banner = (s) => paint('30;43;1', s); // black text on yellow background
+function printWarning(modified: string[], comparison: Comparison): void {
+  const yellow = (s: string): string => paint('33;1', s);
+  const banner = (s: string): string => paint('30;43;1', s); // black text on yellow background
   const line = '─'.repeat(74);
-  const row = (s) => console.warn(yellow('│ ') + s.padEnd(BOX_WIDTH) + yellow(' │'));
-  const blank = () => console.warn(yellow(`│${' '.repeat(74)}│`));
+  const row = (s: string): void => console.warn(yellow('│ ') + s.padEnd(BOX_WIDTH) + yellow(' │'));
+  const blank = (): void => console.warn(yellow(`│${' '.repeat(74)}│`));
 
   console.warn('');
   console.warn(banner('  ⚠  VERSIONED DOCUMENT MODIFIED, please review before building         '));

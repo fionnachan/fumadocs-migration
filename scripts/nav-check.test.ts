@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { duplicateManifestPages, sectionLandingClaims } from '../lib/docs-navigation-rules.mjs';
+import { duplicateManifestPages, sectionLandingClaims } from '../lib/docs-navigation-rules.ts';
 import {
   checkDir,
   checkSections,
@@ -10,7 +10,7 @@ import {
   readSections,
   readTree,
   resolveRef,
-} from './lib/nav.mjs';
+} from './lib/nav.ts';
 
 test('classifyEntry recognises every meta.json entry form', () => {
   assert.equal(classifyEntry('my-page').kind, 'page');
@@ -254,7 +254,7 @@ test('checkSections flags a link entry that shadows a real page', () => {
 });
 
 test('checkSections flags every link-entry form fumadocs accepts, not only the plain one', () => {
-  // fumadocs-core builds a link node from three shapes (see LINK_ENTRY in scripts/lib/nav.mjs).
+  // fumadocs-core builds a link node from three shapes (see LINK_ENTRY in scripts/lib/nav.ts).
   // All three become a `type: "page"` node with the literal url, so all three shadow a real page.
   for (const entry of [
     '[Chain info](/docs/chain-info)',
