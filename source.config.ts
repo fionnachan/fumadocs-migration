@@ -3,7 +3,7 @@ import { defineCollections, defineConfig, defineDocs } from 'fumadocs-mdx/config
 import { execFileSync } from 'node:child_process';
 import { z } from 'zod';
 
-import { mdxOptions } from './lib/mdx-options.mjs';
+import { mdxOptions } from './lib/mdx-options.ts';
 import { referenceSchema } from './lib/reference-schema';
 
 /**

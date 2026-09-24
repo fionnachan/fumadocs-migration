@@ -15,7 +15,7 @@
  * instruction is not a gate. This is the gate. It costs milliseconds, needs no network and no
  * running site, so it runs in `pnpm test` and therefore in CI's blocking `Gates` job.
  *
- * Modelled on `scripts/lib/contribute-repo-links.test.mjs`, which walks the content tree for the
+ * Modelled on `scripts/lib/contribute-repo-links.test.ts`, which walks the content tree for the
  * same reason: a hand-maintained invariant that no other check can reach.
  *
  * Scope is every source directory that Next can compile into the app, which is where such an import
@@ -37,7 +37,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { walk } from './partials.mjs';
+import { walk } from './partials.ts';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -46,17 +46,17 @@ const SOURCE_DIRS = ['app', 'components', 'lib'];
 
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.css']);
 
-const isSource = (file) => SOURCE_EXTENSIONS.has(path.extname(file));
+const isSource = (file: string): boolean => SOURCE_EXTENSIONS.has(path.extname(file));
 
 /** `from 'next/font/google'`, `import 'next/font/google'`, `require('next/font/google')`. */
 const IMPORTS_GOOGLE_FONT = /(?:from|import|require)\s*\(?\s*['"`]next\/font\/google['"`]/;
 
-function sourceFiles() {
+function sourceFiles(): string[] {
   return SOURCE_DIRS.flatMap((dir) => walk(path.join(repoRoot, dir), isSource)).sort();
 }
 
 test('no source file imports next/font/google', () => {
-  const offenders = [];
+  const offenders: string[] = [];
   for (const file of sourceFiles()) {
     const source = readFileSync(file, 'utf8');
     if (IMPORTS_GOOGLE_FONT.test(source)) offenders.push(path.relative(repoRoot, file));

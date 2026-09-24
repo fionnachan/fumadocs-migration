@@ -15,7 +15,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 
-import { stripCode } from './strip-code.mjs';
+import { stripCode } from './strip-code.ts';
 
 export const DOCS_DIR = path.join('content', 'docs');
 export const PARTIALS_DIR = path.join('content', 'partials');
@@ -23,21 +23,61 @@ export const REGISTRY_FILE = path.join('content', 'partials', 'registry.json');
 export const CATALOG_FILE = path.join('content', 'partials', 'CATALOG.md');
 export const MANIFEST_FILE = path.join('content', 'partials', 'manifest.json');
 
+/** One `<include>` directive. `range` spans the inner path text so it can be rewritten in place. */
+export interface ParsedInclude {
+  cwd: boolean;
+  target: string;
+  range: [number, number];
+}
+
+/** One partial import. `range` spans the specifier text. */
+export interface ParsedPartialImport {
+  specifier: string;
+  range: [number, number];
+}
+
+/** A partial's frontmatter, as far as the catalog reads it. */
+export interface PartialFrontmatter {
+  title?: string;
+}
+
+/** One curated override in `content/partials/registry.json`, keyed by the partial's cwd path. */
+export interface RegistryEntry {
+  title?: string;
+  summary?: string;
+  /** `neutral` or `localized`; any other string is reported by `partials-check` R4. */
+  scope?: string;
+  tags?: string[];
+}
+
+export type PartialsRegistry = Record<string, RegistryEntry>;
+
+/** One partial in the catalog: derived metadata merged with its registry override. */
+export interface CatalogRecord {
+  path: string;
+  title: string;
+  summary: string;
+  scope: string;
+  tags: string[];
+  usedIn: number;
+  snippet: string;
+}
+
 /** Convert an OS path to posix separators (stable across platforms and in generated output). */
-export function toPosix(p) {
+export function toPosix(p: string): string {
   return p.split(path.sep).join('/');
 }
 
 /** True when a file is a partial (underscore-prefixed `.md`/`.mdx`). */
-export function isPartial(p) {
+export function isPartial(p: string): boolean {
   const base = path.basename(p);
   return base.startsWith('_') && /\.mdx?$/i.test(base);
 }
 
 /** Recursively list files under `dir` matching `filter(absPath)`. Returns [] if `dir` is absent. */
-export function walk(dir, filter) {
+export function walk(dir: string, filter: (absPath: string) => boolean): string[] {
   if (!existsSync(dir)) return [];
-  const out = [];
+  const out: string[] = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const abs = path.join(dir, entry.name);
     if (entry.isDirectory()) out.push(...walk(abs, filter));
@@ -47,12 +87,12 @@ export function walk(dir, filter) {
 }
 
 /** Absolute paths of every partial under `content/partials/`. */
-export function listPartials(repoRoot) {
+export function listPartials(repoRoot: string): string[] {
   return walk(path.join(repoRoot, PARTIALS_DIR), isPartial).sort();
 }
 
 /** Absolute paths of every routed doc file under `content/docs/`. */
-export function listDocs(repoRoot) {
+export function listDocs(repoRoot: string): string[] {
   return walk(path.join(repoRoot, DOCS_DIR), (p) => /\.mdx?$/i.test(p)).sort();
 }
 
@@ -66,13 +106,13 @@ export function listDocs(repoRoot) {
  * teaches, and would put a phantom "used in" entry in `CATALOG.md` and `manifest.json` (FS-2723).
  * `stripCode` blanks 1:1, so the ranges below still index the original `source`.
  *
- * @returns {Array<{cwd:boolean, target:string, range:[number,number]}>} where `range` spans the
- * inner path text so it can be rewritten in place.
+ * @returns one entry per directive, where `range` spans the inner path text so it can be rewritten in
+ * place.
  */
-export function parseIncludes(source) {
+export function parseIncludes(source: string): ParsedInclude[] {
   const text = stripCode(source);
   const re = /<include\b([^>]*)>([\s\S]*?)<\/include>/g;
-  const out = [];
+  const out: ParsedInclude[] = [];
   for (let m; (m = re.exec(text));) {
     const attrs = m[1];
     const inner = m[2];
@@ -91,22 +131,26 @@ export function parseIncludes(source) {
  * `cwd` includes resolve from `repoRoot`; file-relative includes from the including file's dir.
  * Strips a trailing `#anchor` (Fumadocs supports section includes).
  */
-export function resolveInclude({ cwd, target }, fromAbs, repoRoot) {
+export function resolveInclude(
+  { cwd, target }: Pick<ParsedInclude, 'cwd' | 'target'>,
+  fromAbs: string,
+  repoRoot: string,
+): string {
   const clean = target.replace(/#.*$/, '');
   return cwd ? path.resolve(repoRoot, clean) : path.resolve(path.dirname(fromAbs), clean);
 }
 
 /** The repo-root-relative posix path used inside a `<include cwd>…</include>` directive. */
-export function cwdIncludePath(repoRoot, targetAbs) {
+export function cwdIncludePath(repoRoot: string, targetAbs: string): string {
   return toPosix(path.relative(repoRoot, targetAbs));
 }
 
 /** Source trees that may import partials as MDX component modules (the second consumption path). */
-export const IMPORTER_ROOTS = ['components', 'app', 'lib', 'content'];
+export const IMPORTER_ROOTS: readonly string[] = ['components', 'app', 'lib', 'content'];
 const IMPORTER_EXT = /\.(?:tsx?|jsx?|mdx?)$/i;
 
 /** Files under IMPORTER_ROOTS that could `import` a partial. */
-export function listImporters(repoRoot) {
+export function listImporters(repoRoot: string): string[] {
   return IMPORTER_ROOTS.flatMap((root) =>
     walk(path.join(repoRoot, root), (p) => IMPORTER_EXT.test(p)),
   ).sort();
@@ -119,12 +163,12 @@ export function listImporters(repoRoot) {
  * example. The blanking also erases a template literal in a `.ts`/`.tsx` importer, which costs
  * nothing, since an import specifier is always a quoted string.
  *
- * @returns {Array<{specifier:string, range:[number,number]}>} `range` spans the specifier text.
+ * @returns one entry per import, where `range` spans the specifier text.
  */
-export function parsePartialImports(source) {
+export function parsePartialImports(source: string): ParsedPartialImport[] {
   const text = stripCode(source);
   const re = /\bfrom\s*(['"])([^'"]+\.mdx?)\1/g;
-  const out = [];
+  const out: ParsedPartialImport[] = [];
   for (let m; (m = re.exec(text));) {
     const specifier = m[2];
     if (!path.basename(specifier).startsWith('_')) continue;
@@ -135,7 +179,11 @@ export function parsePartialImports(source) {
 }
 
 /** Resolve an import specifier to an absolute path (`@/` → repo root, `./` → the importing file). */
-export function resolvePartialImport(specifier, fromAbs, repoRoot) {
+export function resolvePartialImport(
+  specifier: string,
+  fromAbs: string,
+  repoRoot: string,
+): string | null {
   if (specifier.startsWith('@/')) return path.resolve(repoRoot, specifier.slice(2));
   if (specifier.startsWith('.')) return path.resolve(path.dirname(fromAbs), specifier);
   return null;
@@ -146,7 +194,7 @@ export function resolvePartialImport(specifier, fromAbs, repoRoot) {
  * location (`…/content/partials/…/_x.mdx`), preserving any `@/` or `./` prefix. Returns null when the
  * reference is not a legacy content/docs partial (so it is a no-op on already-migrated references).
  */
-export function mapLegacySpecifier(specifier) {
+export function mapLegacySpecifier(specifier: string): string | null {
   const idx = specifier.indexOf('content/docs/');
   if (idx === -1) return null;
   const prefix = specifier.slice(0, idx);
@@ -159,13 +207,14 @@ export function mapLegacySpecifier(specifier) {
  * Split a leading YAML frontmatter block off a partial. Fumadocs `<include>` strips frontmatter, so
  * it never renders — but it may carry a `title` worth reusing in the catalog. `fm` is null when
  * absent.
- *
- * @returns {{fm: {title?: string} | null, body: string}}
  */
-export function splitFrontmatter(content) {
+export function splitFrontmatter(content: string): {
+  fm: PartialFrontmatter | null;
+  body: string;
+} {
   const m = /^---\n([\s\S]*?)\n---\n?/.exec(content);
   if (!m) return { fm: null, body: content };
-  const fm = {};
+  const fm: PartialFrontmatter = {};
   const title = /^title:\s*(.+)$/m.exec(m[1]);
   if (title) fm.title = title[1].trim().replace(/^['"]|['"]$/g, '');
   return { fm, body: content.slice(m[0].length) };
@@ -174,7 +223,7 @@ export function splitFrontmatter(content) {
 const HUMANIZE_STRIP = /(?:-partial|-pc)$/;
 
 /** Turn a partial's basename into a human title, e.g. `_custom-gas-token-note` → "Custom gas token note". */
-export function humanize(absOrBase) {
+export function humanize(absOrBase: string): string {
   let name = path
     .basename(absOrBase)
     .replace(/\.mdx?$/i, '')
@@ -185,7 +234,7 @@ export function humanize(absOrBase) {
 }
 
 /** First meaningful title: frontmatter `title`, else leading ATX heading, else admonition title, else humanized name. */
-export function deriveTitle(content, abs) {
+export function deriveTitle(content: string, abs: string): string {
   const { fm, body } = splitFrontmatter(content);
   if (fm?.title) return fm.title;
   const lines = body.split('\n');
@@ -202,7 +251,7 @@ export function deriveTitle(content, abs) {
 }
 
 /** First prose sentence of a partial, stripped of markdown, for the catalog summary. '' if none. */
-export function deriveSummary(content) {
+export function deriveSummary(content: string): string {
   for (const raw of splitFrontmatter(content).body.split('\n')) {
     const line = raw.trim();
     if (
@@ -230,31 +279,68 @@ export function deriveSummary(content) {
 }
 
 /** Tags derived from a partial's path segments + filename words (dedup, lowercased). */
-export function deriveTags(repoRoot, abs) {
+export function deriveTags(repoRoot: string, abs: string): string[] {
   const rel = toPosix(path.relative(path.join(repoRoot, PARTIALS_DIR), abs));
   const segs = rel.replace(/\.mdx?$/i, '').split('/');
-  const file = segs.pop().replace(/^_/, '').replace(HUMANIZE_STRIP, '');
+  // `split` never returns an empty array, so `pop` always yields a string here.
+  const file = (segs.pop() ?? '').replace(/^_/, '').replace(HUMANIZE_STRIP, '');
   const words = [...segs, ...file.split('-')].map((w) => w.toLowerCase()).filter(Boolean);
   return [...new Set(words)];
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const optionalString = (value: unknown): value is string | undefined =>
+  value === undefined || typeof value === 'string';
+
+/**
+ * Narrow one parsed registry entry to `RegistryEntry`, throwing on a field of the wrong type rather
+ * than letting it reach the catalog as `[object Object]`. A `scope` string that is neither
+ * `neutral` nor `localized` passes here on purpose: that is `partials-check` R4's to report.
+ */
+function toRegistryEntry(key: string, value: unknown): RegistryEntry {
+  const where = `${REGISTRY_FILE}: "${key}"`;
+  if (!isRecord(value)) throw new TypeError(`${where} is not an object.`);
+  const { title, summary, scope, tags } = value;
+  if (!optionalString(title)) throw new TypeError(`${where} has a non-string title.`);
+  if (!optionalString(summary)) throw new TypeError(`${where} has a non-string summary.`);
+  if (!optionalString(scope)) throw new TypeError(`${where} has a non-string scope.`);
+  if (tags !== undefined && !(Array.isArray(tags) && tags.every((t) => typeof t === 'string'))) {
+    throw new TypeError(`${where} has tags that are not an array of strings.`);
+  }
+  const entry: RegistryEntry = {};
+  if (title !== undefined) entry.title = title;
+  if (summary !== undefined) entry.summary = summary;
+  if (scope !== undefined) entry.scope = scope;
+  if (tags !== undefined) entry.tags = tags;
+  return entry;
+}
+
 /** Load the optional curated override registry; {} when absent. */
-export function loadRegistry(repoRoot) {
+export function loadRegistry(repoRoot: string): PartialsRegistry {
   const file = path.join(repoRoot, REGISTRY_FILE);
   if (!existsSync(file)) return {};
-  return JSON.parse(readFileSync(file, 'utf8'));
+  const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'));
+  if (!isRecord(parsed)) throw new TypeError(`${REGISTRY_FILE} is not a JSON object.`);
+  const registry: PartialsRegistry = {};
+  for (const [key, value] of Object.entries(parsed)) registry[key] = toRegistryEntry(key, value);
+  return registry;
 }
 
 /**
  * Build the full catalog model: one record per partial with merged (derived + override) metadata and
  * a usage count of how many pages/partials include it.
  */
-export function buildCatalog(repoRoot) {
+export function buildCatalog(repoRoot: string): CatalogRecord[] {
   const registry = loadRegistry(repoRoot);
   const partials = listPartials(repoRoot);
 
   const usage = new Map(partials.map((abs) => [abs, 0]));
-  const bump = (abs) => usage.has(abs) && usage.set(abs, usage.get(abs) + 1);
+  const bump = (abs: string | null): void => {
+    const count = abs === null ? undefined : usage.get(abs);
+    if (abs !== null && count !== undefined) usage.set(abs, count + 1);
+  };
 
   // Consumption path 1: `<include>` directives in docs and partials.
   for (const abs of [...listDocs(repoRoot), ...partials]) {
@@ -278,7 +364,8 @@ export function buildCatalog(repoRoot) {
       summary: override.summary ?? deriveSummary(content),
       scope: override.scope ?? 'neutral',
       tags: override.tags ?? deriveTags(repoRoot, abs),
-      usedIn: usage.get(abs),
+      // Every partial was seeded into `usage` above, so the fallback never applies.
+      usedIn: usage.get(abs) ?? 0,
       snippet: `<include cwd>${rel}</include>`,
     };
   });

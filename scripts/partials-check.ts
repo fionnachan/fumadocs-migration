@@ -10,7 +10,7 @@
  *   R3  a partial defines a top-level H1, or uses a JSX component that is neither globally
  *       registered (components/mdx.tsx) nor imported in the file
  *
- *   node scripts/partials-check.mjs
+ *   node scripts/partials-check.ts
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
@@ -30,27 +30,27 @@ import {
   resolvePartialImport,
   splitFrontmatter,
   walk,
-} from './lib/partials.mjs';
+} from './lib/partials.ts';
 
 const repoRoot = process.cwd();
-const errors = [];
-const warnings = [];
-const rel = (abs) => path.relative(repoRoot, abs);
+const errors: string[] = [];
+const warnings: string[] = [];
+const rel = (abs: string): string => path.relative(repoRoot, abs);
 
 /** Uppercase component names registered globally in components/mdx.tsx. */
-function globalComponents() {
+function globalComponents(): Set<string> {
   const file = path.join(repoRoot, 'components', 'mdx.tsx');
   if (!existsSync(file)) return new Set();
   const src = readFileSync(file, 'utf8');
   const body = /return\s*\{([\s\S]*?)\}\s*satisfies/.exec(src);
   const scope = body ? body[1] : src;
-  const names = new Set();
+  const names = new Set<string>();
   for (const m of scope.matchAll(/\b([A-Z][A-Za-z0-9]*)\b\s*[,:]/g)) names.add(m[1]);
   return names;
 }
 
 // R1: every reference to a partial resolves — both `<include>` directives and ESM imports.
-function checkIncludes() {
+function checkIncludes(): void {
   for (const abs of [...listDocs(repoRoot), ...listPartials(repoRoot)]) {
     const src = readFileSync(abs, 'utf8');
     for (const inc of parseIncludes(src)) {
@@ -85,7 +85,7 @@ function checkIncludes() {
 }
 
 // R2: no partials left in the routed tree.
-function checkNoRoutedPartials() {
+function checkNoRoutedPartials(): void {
   for (const abs of walk(path.join(repoRoot, DOCS_DIR), isPartial)) {
     errors.push(
       `R2 ${rel(abs)}: partial under content/docs — move it to content/partials/ (routing leak).`,
@@ -94,7 +94,7 @@ function checkNoRoutedPartials() {
 }
 
 // R3: self-containment (warnings).
-function checkSelfContained(globals) {
+function checkSelfContained(globals: ReadonlySet<string>): void {
   for (const abs of listPartials(repoRoot)) {
     const src = readFileSync(abs, 'utf8');
     if (/^---\n/.test(src)) {
@@ -126,7 +126,7 @@ function checkSelfContained(globals) {
 }
 
 // R4: registry integrity.
-function checkRegistry() {
+function checkRegistry(): void {
   const registry = loadRegistry(repoRoot);
   const known = new Set(listPartials(repoRoot).map((abs) => cwdIncludePath(repoRoot, abs)));
   for (const [key, entry] of Object.entries(registry)) {
@@ -140,18 +140,30 @@ function checkRegistry() {
 }
 
 // R6: catalog freshness (delegate to the generator's --check).
-function checkCatalogFresh() {
+function checkCatalogFresh(): void {
   try {
-    execFileSync('node', ['scripts/generate-partials-catalog.mjs', '--check'], {
+    execFileSync('node', ['scripts/generate-partials-catalog.ts', '--check'], {
       cwd: repoRoot,
       stdio: 'pipe',
     });
   } catch (e) {
-    errors.push(`R6 ${(e.stderr?.toString() || e.message).trim()}`);
+    errors.push(`R6 ${failureText(e).trim()}`);
   }
 }
 
-function main() {
+/**
+ * What a failed `execFileSync` said: its captured stderr when it wrote any, else the error message.
+ * `execFileSync` throws an `Error` carrying a `stderr` Buffer when the child exits non-zero, and a
+ * plain `Error` when the child could not be spawned at all.
+ */
+function failureText(e: unknown): string {
+  const stderr = typeof e === 'object' && e !== null && 'stderr' in e ? e.stderr : undefined;
+  const text = stderr === undefined || stderr === null ? '' : String(stderr);
+  if (text) return text;
+  return e instanceof Error ? e.message : String(e);
+}
+
+function main(): void {
   checkIncludes();
   checkNoRoutedPartials();
   checkSelfContained(globalComponents());

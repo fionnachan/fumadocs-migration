@@ -1,13 +1,16 @@
 import { rehypeCodeDefaultOptions } from 'fumadocs-core/mdx-plugins';
+import type { DefaultMDXOptions } from 'fumadocs-mdx/config';
 import { transformerTwoslash } from 'fumadocs-twoslash';
 import rehypeKatex from 'rehype-katex';
 import remarkMath from 'remark-math';
 
-import { remarkStripMdxComments } from './mdx-comments.mjs';
-import { remarkVarLinks } from './var-links.mjs';
+import { remarkStripMdxComments } from './mdx-comments.ts';
+import { remarkVarLinks } from './var-links.ts';
 
-// Shared by the site and check-links: anchor validation must use the same MDX transforms.
-export const mdxOptions = {
+// Shared by the site and check-links: anchor validation must use the same MDX transforms. Typed as
+// fumadocs-mdx's own option type, the one `defineConfig` and `applyMdxPreset` accept, so a key that
+// fumadocs-mdx does not know fails `types:check` here rather than being ignored silently.
+export const mdxOptions: DefaultMDXOptions = {
   // Fumadocs-mdx already wires `remark-include` internally (verified in
   // dist/build-mdx-*.js). The `<include>` MDX directive works out of the box
   // — no additional remark plugins required for partial inclusion.
@@ -20,11 +23,11 @@ export const mdxOptions = {
   // way a global variable can reach a URL: `<Var name="…" />` holds a space, and a space ends an
   // unbracketed CommonMark link destination, so that form does not parse as a link at all and ships
   // as literal `[text](…)` brackets (FS-2725). It lives here rather than in the site alone so
-  // `check-links` resolves the same destinations the reader gets; see `lib/var-links.mjs`.
+  // `check-links` resolves the same destinations the reader gets; see `lib/var-links.ts`.
   //
   // remarkStripMdxComments deletes `{/* … */}` comments from the tree. They never reached the HTML,
   // but they did reach the markdown mirrors and `llms-full.txt`, because those are stringified from
-  // this same tree (FS-2732). See `lib/mdx-comments.mjs`.
+  // this same tree (FS-2732). See `lib/mdx-comments.ts`.
   remarkPlugins: [remarkMath, remarkVarLinks, remarkStripMdxComments],
   // Never reach out to the network to measure a third-party image.
   //

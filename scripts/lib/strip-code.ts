@@ -5,7 +5,7 @@
  * cases (FS-2729). They are now one scanner with one contract, and each consumer selects the region
  * kinds it needs rather than bringing its own scanner:
  *
- *   - `content-lint.mjs` and `partials.mjs` call `stripCode`, which blanks fences, inline code and
+ *   - `content-lint.mjs` and `partials.ts` call `stripCode`, which blanks fences, inline code and
  *     MDX `{/* … *\/}` comments. A rule that cannot tell documentation-about-syntax from syntax is
  *     noise, not a gate, and an `<include>` shown as an example is not a dependency.
  *   - `content-lint.mjs` rule A6 calls `codeRegions`, because it needs to look *inside* code rather
@@ -18,7 +18,7 @@
  *     boundary itself rather than about what is inside it. Same scan as everything above, so a rule
  *     about where a fence ends cannot disagree with the masking that acts on it.
  *
- * This module imports nothing, deliberately. `content-lint.mjs` and `partials.mjs` are pure string
+ * This module imports nothing, deliberately. `content-lint.mjs` and `partials.ts` are pure string
  * tooling and the scanner is the thing they all agree on, so it must not drag `node:fs` or a docs
  * index behind it. That is also why the scanner lives here rather than in `doc-links.mjs`, which
  * owns the filesystem walk.
@@ -96,12 +96,56 @@ const FRONTMATTER = /^---\r?\n[\s\S]*?\n---[ \t]*(?:\r?\n|$)/;
 /** A line that opens a fence: any indentation, then three or more backticks or tildes. */
 const FENCE_OPEN = /^[ \t]*(`{3,}|~{3,})/;
 
-const COMMENTS = [
+/** Every kind of region `codeRegions` can report. */
+export type CodeRegionKind = 'frontmatter' | 'fence' | 'inlineCode' | 'mdxComment' | 'htmlComment';
+
+/** A half-open `[start, end)` range into the source, tagged with what it is. */
+export interface CodeRegion {
+  kind: CodeRegionKind;
+  start: number;
+  end: number;
+}
+
+/**
+ * Which region kinds `codeRegions` finds. Fences and inline code are on by default; the other three
+ * are off, because a linter must keep seeing frontmatter and a link checker must keep seeing a
+ * commented-out link.
+ */
+export interface CodeRegionOptions {
+  fences?: boolean;
+  inlineCode?: boolean;
+  frontmatter?: boolean;
+  htmlComments?: boolean;
+  mdxComments?: boolean;
+}
+
+/** A fence closer the two parsers do not agree on. See `fenceDefects`. */
+export interface FenceDefect {
+  kind: 'unclosed' | 'indentedCloser';
+  start: number;
+  closerStart: number;
+}
+
+interface Fence {
+  start: number;
+  end: number;
+  closerStart: number;
+  looseCloserStart: number;
+}
+
+interface CommentForm {
+  kind: 'mdxComment' | 'htmlComment';
+  option: 'mdxComments' | 'htmlComments';
+  open: string;
+  close: string;
+}
+
+const COMMENTS: readonly CommentForm[] = [
   { kind: 'mdxComment', option: 'mdxComments', open: '{/*', close: '*/}' },
   { kind: 'htmlComment', option: 'htmlComments', open: '<!--', close: '-->' },
 ];
 
-const lineEndFrom = (source, start) => {
+const lineEndFrom = (source: string, start: number): number => {
   const nl = source.indexOf('\n', start);
   return nl === -1 ? source.length : nl;
 };
@@ -135,11 +179,10 @@ const lineEndFrom = (source, start) => {
  * Both offsets are -1 when no such closer exists, in which case `end` is the end of the file, which
  * is what the page itself renders.
  *
- * @param {string} source raw MDX
- * @param {number} bodyStart offset to start scanning at, past frontmatter when it was consumed
- * @returns {Generator<{start: number, end: number, closerStart: number, looseCloserStart: number}>}
+ * @param source raw MDX
+ * @param bodyStart offset to start scanning at, past frontmatter when it was consumed
  */
-function* scanFences(source, bodyStart) {
+function* scanFences(source: string, bodyStart: number): Generator<Fence> {
   let cursor = bodyStart;
   while (cursor < source.length) {
     const lineEnd = lineEndFrom(source, cursor);
@@ -192,11 +235,10 @@ function* scanFences(source, bodyStart) {
  *   this module's CommonMark masking treats the lines between as fence body and stops checking
  *   them. `closerStart` points at that closer, which is where the fix goes.
  *
- * @param {string} source raw MDX
- * @returns {{kind: 'unclosed'|'indentedCloser', start: number, closerStart: number}[]}
+ * @param source raw MDX
  */
-export function fenceDefects(source) {
-  const defects = [];
+export function fenceDefects(source: string): FenceDefect[] {
+  const defects: FenceDefect[] = [];
   for (const { start, closerStart, looseCloserStart } of scanFences(source, 0)) {
     // The overwhelmingly common case: one line is both readings' closer.
     if (closerStart !== -1 && closerStart === looseCloserStart) continue;
@@ -213,15 +255,13 @@ export function fenceDefects(source) {
  * Every code (and, on request, comment or frontmatter) region in one source, in source order and
  * non-overlapping.
  *
- * @param {string} source raw MDX
- * @param {{fences?: boolean, inlineCode?: boolean, frontmatter?: boolean, htmlComments?: boolean,
- *          mdxComments?: boolean}} [options] which region kinds to find. Fences and inline code are
- *          on by default; the other three are off, because a linter must keep seeing frontmatter and
- *          a link checker must keep seeing a commented-out link.
- * @returns {{kind: 'frontmatter'|'fence'|'inlineCode'|'mdxComment'|'htmlComment', start: number,
- *            end: number}[]} half-open `[start, end)` ranges into `source`
+ * @param source raw MDX
+ * @param options which region kinds to find. Fences and inline code are on by default; the other
+ *        three are off, because a linter must keep seeing frontmatter and a link checker must keep
+ *        seeing a commented-out link.
+ * @returns half-open `[start, end)` ranges into `source`
  */
-export function codeRegions(source, options = {}) {
+export function codeRegions(source: string, options: CodeRegionOptions = {}): CodeRegion[] {
   const {
     fences = true,
     inlineCode = true,
@@ -230,7 +270,7 @@ export function codeRegions(source, options = {}) {
     mdxComments = false,
   } = options;
 
-  const regions = [];
+  const regions: CodeRegion[] = [];
   let bodyStart = 0;
 
   if (frontmatter) {
@@ -254,7 +294,7 @@ export function codeRegions(source, options = {}) {
   // Phase 2 reads the text with phase 1 already blanked, so no delimiter inside a fence or inside
   // frontmatter can open anything, and every offset still indexes `source`.
   const masked = blank(source, regions);
-  const inline = [];
+  const inline: CodeRegion[] = [];
 
   let i = bodyStart;
   while (i < masked.length) {
@@ -332,7 +372,7 @@ const BLANK_LINE = /^[ \t\r]*$/;
  * thematic-break alternative already matches, so a backtick in a frontmatter value cannot pair with
  * one in the body even under `stripCode`, where frontmatter is left visible on purpose.
  */
-function endsParagraph(line) {
+function endsParagraph(line: string): boolean {
   if (BLANK_LINE.test(line)) return true;
   if (INLINE_ELEMENT.test(line)) return false;
   return BLOCK_START.test(line);
@@ -348,7 +388,7 @@ function endsParagraph(line) {
  * line between, which is how a linter silently stops reading real prose. A blanked fence is a run
  * of all-space lines, which read as blank here, so a span cannot reach across one of those either.
  */
-function closingRun(source, from, length) {
+function closingRun(source: string, from: number, length: number): number {
   let i = from;
   while (i < source.length) {
     if (source[i] === '\n') {
@@ -370,7 +410,7 @@ function closingRun(source, from, length) {
 }
 
 /** Replace every non-newline character inside `regions` with a space. */
-function blank(source, regions) {
+function blank(source: string, regions: readonly CodeRegion[]): string {
   if (regions.length === 0) return source;
 
   // Spread by UTF-16 code unit, not by code point: regex indexes and string slices count both
@@ -385,10 +425,9 @@ function blank(source, regions) {
 /**
  * Blank every region `codeRegions` finds, preserving length, offsets and line count.
  *
- * @param {string} source raw MDX
- * @param {Parameters<typeof codeRegions>[1]} [options]
+ * @param source raw MDX
  */
-export function maskCode(source, options) {
+export function maskCode(source: string, options?: CodeRegionOptions): string {
   return blank(source, codeRegions(source, options));
 }
 
@@ -399,7 +438,7 @@ export function maskCode(source, options) {
  * Frontmatter is deliberately left visible: a `.md` suffix or a `<Var>` in a `description` is a real
  * defect and A5 and A11 should keep reporting it.
  */
-export function stripCode(source) {
+export function stripCode(source: string): string {
   return maskCode(source, { mdxComments: true });
 }
 
@@ -410,6 +449,6 @@ export function stripCode(source) {
  * MDX comments are deliberately left visible: `check-links` reports a commented-out link today and
  * `move-doc` rewrites one, and hiding them would silently drop a rewrite target.
  */
-export function maskRegions(source) {
+export function maskRegions(source: string): string {
   return maskCode(source, { frontmatter: true, htmlComments: true });
 }

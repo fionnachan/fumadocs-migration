@@ -27,7 +27,7 @@
  *
  * `lib/shared.ts` is imported as `.ts` for the reason `scripts/lib/shared.test.mjs` gives: Node 22
  * strips types natively, so this asserts against the exact constant the pages render rather than a
- * copy of it. `lib/var-links.mjs` supplies the expansion for the same reason, since a checker has
+ * copy of it. `lib/var-links.ts` supplies the expansion for the same reason, since a checker has
  * to judge the URL the reader gets, not the one written in the file.
  *
  * The HTTP half lives in `scripts/static-docs-http.test.mjs`, which proves the placeholders really
@@ -41,9 +41,9 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { gitConfig } from '../../lib/shared.ts';
-import { expandVarPlaceholders, readVars } from '../../lib/var-links.mjs';
-import { walk } from './partials.mjs';
-import { stripCode } from './strip-code.mjs';
+import { expandVarPlaceholders, readVars } from '../../lib/var-links.ts';
+import { walk } from './partials.ts';
+import { stripCode } from './strip-code.ts';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const contentDir = path.join(repoRoot, 'content');
@@ -58,12 +58,12 @@ const partialPath = path.join(repoRoot, 'content/partials/_contribute-docs-parti
 const ALLOWED = new Set(['https://github.com/handle']);
 
 /** Whether `url` addresses the repository at `base`, rather than one whose name merely starts alike. */
-function isUnder(url, base) {
+function isUnder(url: string, base: string): boolean {
   return url === base || url.startsWith(`${base}/`);
 }
 
 /** Every GitHub URL in `source`, outside code, with trailing sentence punctuation dropped. */
-function githubUrls(source) {
+function githubUrls(source: string): string[] {
   return [...stripCode(source).matchAll(/https:\/\/github\.com\/[^\s)"'`<>\]]+/g)].map((m) =>
     m[0].replace(/[.,;:]+$/, ''),
   );
@@ -89,7 +89,7 @@ test('no content file writes a docs-repository URL out in full', () => {
   const files = walk(contentDir, (p) => p.endsWith('.mdx'));
   assert.ok(files.length > 0, 'no .mdx files found under content/, so this test proved nothing');
 
-  const offenders = [];
+  const offenders: string[] = [];
   let placeholderUses = 0;
   for (const abs of files) {
     const rel = path.relative(repoRoot, abs);
