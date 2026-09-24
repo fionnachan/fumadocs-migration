@@ -43,6 +43,24 @@ sidebar, but only if the page has no explicit `name` in `lib/docs-navigation.jso
 `name` always wins over `sidebar_label`, and a page the manifest never names renders its
 `sidebar_label`.
 
+**If `pnpm test` fails on your new page naming a legacy redirect, that is the gate working.** A
+couple of legacy `docs.arbitrum.io` URLs point at a section landing because the page they asked for
+had not been ported yet, and the check fires when your page's frontmatter `title` matches the
+upstream page's title exactly. Which fix applies depends on whether your page is that upstream page:
+
+- **It is the port.** Move the entry from `SECTION_LANDINGS` into `MANUAL_DESTINATIONS` in
+  `scripts/lib/legacy-redirects.mjs`, pointed at your page, and retarget the matching entry in
+  `redirects.legacy.mjs`. Nothing re-resolves those URLs on its own, so leaving them answers a
+  reader who asked for your page with a list of links instead.
+- **It only happens to share the title.** The recorded titles include short generic nouns such as
+  "Sequencer", so this is a real possibility. Leave both destinations alone and delete that source's
+  entry from `UPSTREAM_TITLES` in the same module, with a comment saying why. Retargeting would send
+  readers to a page that is not the one they asked for, which is worse than the landing page they
+  reach today.
+
+The failure message says both, and quotes the title and the page, so you do not have to read the
+test to tell which case you are in.
+
 ### Place your page in the sidebar
 
 **Two files decide where a page appears, and you may need only one of them.**

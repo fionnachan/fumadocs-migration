@@ -37,13 +37,29 @@
  *     unique upstream too. Where the legacy path was doing the disambiguating, the basename could
  *     not, so it declined.
  *  6. `SECTION_LANDINGS`: the nearest live section landing, for a page this site never ported.
- *     Last on purpose, so it never masked a page that does exist here, and so it goes inert on its
- *     own the day that page lands.
+ *     Last on purpose, so it never masked a page that does exist here.
  *
  * Anything no rule resolved was parked rather than pointed at a plausible page.
+ *
+ * ## Why rule 6 does not expire on its own (FS-2748)
+ *
+ * Rule 6 was written to be self-correcting: re-resolve the legacy URL once the page is ported and
+ * rule 2 matches first, so the landing entry stops being consulted. That only ever worked on a
+ * re-resolution, and there has never been one. Nine `SECTION_LANDINGS` entries were already wrong
+ * in the commit that introduced them: all nine pages were ported on 2026-09-11 and all nine were in
+ * the tree at `27f7660`, the commit that seeded `redirects.legacy.mjs` on 2026-09-15, where rule 2
+ * would have claimed them had the generator been re-run against that tree rather than the older one
+ * its output was computed from. FS-2706 then deleted the generator, so no run will ever happen and
+ * a committed landing destination is now permanent by construction.
+ *
+ * Those nine sit in `MANUAL_DESTINATIONS` now. `UPSTREAM_TITLES` below is the replacement for the
+ * self-correction: it makes rule 4 a test that runs on every `pnpm test`, rather than a property of
+ * a program nobody runs.
  */
-import { readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { splitFrontmatter } from './partials.mjs';
 
 /**
  * Legacy section -> this site's section: rule 3 of the resolution order above.
@@ -340,6 +356,46 @@ export const MANUAL_DESTINATIONS = new Map([
   // = "Contribute third-party docs". The basename alone is ambiguous with `/docs/contribute`,
   // which is the general "Contribute docs" page, so the fallback rightly declined.
   ['/for-devs/third-party-docs/contribute', '/docs/third-party-docs/contribute'],
+
+  // --- rule 6 claimed these while the page already existed here (FS-2748) ---
+  // Each of these nine was a `SECTION_LANDINGS` entry: upstream had the page, this site was
+  // recorded as not having it, and the legacy URL was pointed at the nearest section landing. All
+  // nine were ported on 2026-09-11, carrying the upstream title verbatim and the same basename, so
+  // all nine were already in the tree when the map was committed four days later, and each went on
+  // answering a reader who asked for the page with a list of links to the section holding it.
+  // They belong here rather than in `SECTION_LANDINGS`, which is defined as pages this site has not
+  // ported. Rules 2 and 3 would reach the same destinations unaided, but keeping the entries is
+  // what makes `move-doc` retarget them, and what makes it print the note that
+  // `redirects.legacy.mjs` names these pages too.
+  ['/how-arbitrum-works/bold/bold-faq', '/docs/how-arbitrum-works/bold/bold-faq'],
+  [
+    '/launch-arbitrum-chain/chain-config/sequencer/sequencer-config-reference',
+    '/docs/launch-arbitrum-chain/configuration/sequencer/sequencer-config-reference',
+  ],
+  [
+    '/launch-arbitrum-chain/chain-config/costs/parent-chain-data-fee-pricing',
+    '/docs/launch-arbitrum-chain/configuration/costs/parent-chain-data-fee-pricing',
+  ],
+  [
+    '/launch-arbitrum-chain/chain-config/costs/priority-fees',
+    '/docs/launch-arbitrum-chain/configuration/costs/priority-fees',
+  ],
+  [
+    '/launch-arbitrum-chain/chain-config/validation/test-chain-configuration',
+    '/docs/launch-arbitrum-chain/configuration/validation/test-chain-configuration',
+  ],
+  [
+    '/launch-arbitrum-chain/deploy/token-bridge-troubleshooting',
+    '/docs/launch-arbitrum-chain/deploy/token-bridge-troubleshooting',
+  ],
+  ['/launch-arbitrum-chain/operate/error-index', '/docs/launch-arbitrum-chain/operate/error-index'],
+  [
+    '/launch-arbitrum-chain/operate/sequencer-troubleshooting',
+    '/docs/launch-arbitrum-chain/operate/sequencer-troubleshooting',
+  ],
+  // The only one of the nine the `/docs` prefix alone would not have reached: the section was
+  // renamed as well (`/run-arbitrum-node` -> `/run-a-node`, rule 3).
+  ['/run-arbitrum-node/arbos-releases/arbos61', '/docs/run-a-node/arbos-releases/arbos61'],
 ]);
 
 /**
@@ -347,63 +403,127 @@ export const MANUAL_DESTINATIONS = new Map([
  * has not ported.
  *
  * These are not equivalences and must never be treated as such. Each names a page that exists
- * upstream and nowhere here. Almost all were added upstream after the port window closed, so
- * the upstream comparison reported them as work still to do before it was retired (FS-2706).
- * Sending the reader to the section they were heading for is better than a 404 at cutover, and it
- * is the same judgement already recorded for `/stylus/overview` in `MANUAL_DESTINATIONS`.
+ * upstream and nowhere here, and the two are here for different reasons: `config-batch-poster` was
+ * added upstream after the port window closed, so the upstream comparison reported it as work still
+ * to do before it was retired (FS-2706), while `sequencer-content-map` is a navigation page with no
+ * equivalent here by design, which that comparison recorded as a standing non-item. Each entry's own
+ * comment says which. Sending the reader to the section they were heading for is better than a 404
+ * at cutover, and it is the same judgement already recorded for `/stylus/overview` in
+ * `MANUAL_DESTINATIONS`.
  *
  * Consulted only after every mechanical rule has declined, and *after* the self-URL rule in
- * particular. So the day one of these pages is ported, the self-URL rule matches first and the
- * entry below goes inert on its own rather than pinning readers to a landing page forever.
+ * particular, so an entry here never masks a page that exists.
  *
- * Each comment records the upstream frontmatter title and the date the page appeared upstream.
+ * **An entry here does not expire on its own.** It was meant to: re-resolving the legacy URL once
+ * the page landed would have let rule 2 match first. But that needed a run of the generator, and
+ * the generator was deleted in FS-2706, leaving `redirects.legacy.mjs` a committed file that
+ * nothing recomputes. Nine entries were wrong the day they were committed for want of that one
+ * re-run (FS-2748), each sending a reader who asked for a page here to a list of links. Porting a
+ * page named here is therefore a two-file edit: move its entry into `MANUAL_DESTINATIONS`
+ * retargeted at the page, and retarget the matching `redirects.legacy.mjs` entry. `UPSTREAM_TITLES`
+ * below is what fails the suite if you forget.
+ *
+ * Each entry's comment records what is known about the upstream page, including the date it appeared
+ * there where that is known; the upstream title is data, in `UPSTREAM_TITLES`.
  */
 export const SECTION_LANDINGS = new Map([
-  // "BoLD FAQ", upstream 2026-08-26.
-  ['/how-arbitrum-works/bold/bold-faq', '/docs/how-arbitrum-works/bold'],
-  // "Batch Poster", upstream 2026-06-05. Batch-poster configuration lives under this landing here.
+  // Upstream 2026-06-05. Batch-poster configuration lives under this landing here.
   [
     '/launch-arbitrum-chain/chain-config/batch-poster/config-batch-poster',
     '/docs/launch-arbitrum-chain/configuration/sequencer',
   ],
-  // "Sequencer configuration reference", upstream 2026-08-17.
+  // A Docusaurus <Card> grid. The upstream comparison recorded it as a standing non-item before it
+  // was retired (FS-2706): the sequencer nav lives in meta.json here, so the section landing is all
+  // there is to point at.
+  ['/node-running/sequencer-content-map', '/docs/run-a-node'],
+]);
+
+/**
+ * The upstream frontmatter title behind a legacy source, for every entry in the two maps above
+ * whose title was verified against upstream while that repo was still readable.
+ *
+ * Data, not prose, so `legacy-redirects.test.mjs` can enforce rule 4 continuously: if exactly one
+ * page here carries the title verbatim, the entry's destination has to be that page. That is the
+ * rule that decides these entries in the first place, and until FS-2748 nothing checked it after
+ * the fact. `redirects:check` never could, because the destination it was checking, a section
+ * landing, exists.
+ *
+ * Keyed by legacy source rather than by title, because a source is unique across both maps and a
+ * title need not be. An entry whose title matches no page today is not an error: the rule is
+ * vacuous until the page lands, which is exactly when it should start to bite.
+ *
+ * Titles are recorded only where upstream was actually consulted. An unlisted source is not a
+ * claim that it has no title, it is a claim that nobody verified one, and inventing a plausible
+ * title here would turn a test into a guess.
+ *
+ * **A title match is evidence, not proof, and deleting an entry here is a supported answer.** Two of
+ * these titles are short generic nouns, "Batch Poster" and "Sequencer". A page that takes such a
+ * title for reasons of its own is not thereby the port of the upstream page, and retargeting the
+ * destination at it would write the plausible-but-wrong redirect the resolution order exists to
+ * avoid. So when the test fires and the page only shares the title, delete that source's entry from
+ * this map with a comment saying why, and leave the destination where it is. Nothing requires a map
+ * entry to have a recorded title: the map keeps working and only the claim nobody can verify any
+ * more goes away. Retarget only when the page really is the port.
+ */
+export const UPSTREAM_TITLES = new Map([
+  // Still in SECTION_LANDINGS: no page here carries either title, or either basename.
+  ['/launch-arbitrum-chain/chain-config/batch-poster/config-batch-poster', 'Batch Poster'],
+  ['/node-running/sequencer-content-map', 'Sequencer'],
+
+  // The nine FS-2748 retargeted out of SECTION_LANDINGS.
+  ['/how-arbitrum-works/bold/bold-faq', 'BoLD FAQ'],
   [
     '/launch-arbitrum-chain/chain-config/sequencer/sequencer-config-reference',
-    '/docs/launch-arbitrum-chain/configuration/sequencer',
+    'Sequencer configuration reference',
   ],
-  // "Tune parent chain data fee pricing", upstream 2026-08-20.
   [
     '/launch-arbitrum-chain/chain-config/costs/parent-chain-data-fee-pricing',
-    '/docs/launch-arbitrum-chain/configuration/costs',
+    'Tune parent chain data fee pricing',
   ],
-  // "Priority fees collection", upstream 2026-08-04.
-  [
-    '/launch-arbitrum-chain/chain-config/costs/priority-fees',
-    '/docs/launch-arbitrum-chain/configuration/costs',
-  ],
-  // "Configure a test Arbitrum chain", upstream 2026-08-03.
+  ['/launch-arbitrum-chain/chain-config/costs/priority-fees', 'Priority fees collection'],
   [
     '/launch-arbitrum-chain/chain-config/validation/test-chain-configuration',
-    '/docs/launch-arbitrum-chain/configuration/validation',
+    'Configure a test Arbitrum chain',
   ],
-  // "Token bridge troubleshooting", upstream 2026-07-29.
+  ['/launch-arbitrum-chain/deploy/token-bridge-troubleshooting', 'Token bridge troubleshooting'],
+  ['/launch-arbitrum-chain/operate/error-index', 'Common error messages'],
+  ['/launch-arbitrum-chain/operate/sequencer-troubleshooting', 'Sequencer troubleshooting'],
+  ['/run-arbitrum-node/arbos-releases/arbos61', 'ArbOS 61 Elara'],
+
+  // The MANUAL_DESTINATIONS entries whose comments already recorded a verbatim-identical title.
+  // All of them already name the page carrying it; listing them is what keeps that true.
   [
-    '/launch-arbitrum-chain/deploy/token-bridge-troubleshooting',
-    '/docs/launch-arbitrum-chain/deploy',
+    '/launch-arbitrum-chain/extend-the-protocol/precompiles',
+    "How to customize your Arbitrum chain's precompiles",
   ],
-  // "Common error messages", upstream 2026-08-03.
-  ['/launch-arbitrum-chain/operate/error-index', '/docs/launch-arbitrum-chain/operate'],
-  // "Sequencer troubleshooting", upstream 2026-08-17.
   [
-    '/launch-arbitrum-chain/operate/sequencer-troubleshooting',
-    '/docs/launch-arbitrum-chain/operate',
+    '/launch-arbitrum-chain/extend-the-protocol/arbos',
+    'How to customize ArbOS on your Arbitrum chain',
   ],
-  // "ArbOS 61 Elara", upstream 2026-07-16. The releases index here is `overview`, not an `index`.
-  ['/run-arbitrum-node/arbos-releases/arbos61', '/docs/run-a-node/arbos-releases/overview'],
-  // "Sequencer", a Docusaurus <Card> grid. The upstream comparison recorded it as a standing
-  // non-item before it was retired (FS-2706): the sequencer nav lives in meta.json here, so the
-  // section landing is all there is to point at.
-  ['/node-running/sequencer-content-map', '/docs/run-a-node'],
+  ['/launch-arbitrum-chain/chain-config/sequencer/timeboost', 'Timeboost for Arbitrum chains'],
+  ['//launch-arbitrum-chain/chain-config/sequencer/timeboost', 'Timeboost for Arbitrum chains'],
+  [
+    '/launch-arbitrum-chain/deploy/configure-node',
+    "How to configure your Arbitrum chain's node using the Chain SDK",
+  ],
+  [
+    '/launch-arbitrum-chain/deploy/deploy-chain',
+    'How to deploy an Arbitrum chain using the Chain SDK',
+  ],
+  ['/launch-arbitrum-chain/quickstart/l3-rollup-from-scratch', 'Run an L3 rollup from scratch'],
+  [
+    '/launch-arbitrum-chain/quickstart/l3-rollup-testnet',
+    'Run testnet infrastructure on your first rollup (product-level testnet)',
+  ],
+  ['/launch-arbitrum-chain/operate/ownership-and-access', 'Ownership structure and access control'],
+  ['/launch-arbitrum-chain/overview/introduction', 'Overview of Arbitrum chains'],
+  ['/stylus/how-tos/verifying-contracts', 'How to verify Stylus contracts'],
+  ['/for-devs/oracles/supra/supras-price-feed', 'Supra, price feed oracle'],
+  ['/for-devs/oracles/supra/supras-vrf', 'Supra, VRF'],
+  // No page here carries this title: `/docs/oracles` is titled "Oracles". The entry points at the
+  // provider index anyway, which is what the upstream page was.
+  ['/for-devs/oracles/oracles-content-map', 'Oracles providers'],
+  ['/for-devs/third-party-docs/contribute', 'Contribute third-party docs'],
 ]);
 
 /**
@@ -431,13 +551,37 @@ export function collectValidUrls(contentDir) {
 }
 
 /**
+ * Every routable page on this site grouped by its exact frontmatter `title`, as `title -> URL[]`.
+ *
+ * Rule 4 of the resolution order reads this: a legacy URL resolves to the local page carrying the
+ * upstream title verbatim, and declines when two pages share it, because there the title cannot
+ * disambiguate. The array is what lets the caller tell those two cases apart.
+ *
+ * Titles come from `splitFrontmatter`, the repo's one frontmatter-title reader, rather than a
+ * second regex written here. It strips the surrounding quotes, which matters: this tree writes
+ * `title: 'BoLD FAQ'` and `title: Sequencer configuration reference` in roughly equal measure, and
+ * a reader that kept the quotes would match neither form against the other.
+ */
+export function collectPagesByTitle(contentDir) {
+  const byTitle = new Map();
+  for (const { url, file } of collectLocalPages(contentDir)) {
+    const { fm } = splitFrontmatter(readFileSync(file, 'utf8'));
+    if (!fm?.title) continue;
+    const urls = byTitle.get(fm.title);
+    if (urls) urls.push(url);
+    else byTitle.set(fm.title, [url]);
+  }
+  return byTitle;
+}
+
+/**
  * Every routable page on this site as `{ url, file }`.
  *
- * The walk `collectValidUrls` is built from. Module-internal: nothing outside this file needs the
- * file paths today, and the tripwire test reads URLs through `collectValidUrls`. Export it again if
- * a caller ever needs to go from a URL back to the file that serves it.
+ * The walk `collectValidUrls` is built from, and exported because `collectPagesByTitle` needs the
+ * file behind each URL to read its frontmatter. One walk serves both, so the URL a title resolves
+ * to and the URL the tripwire resolves against can never come from different inventories.
  */
-function collectLocalPages(contentDir) {
+export function collectLocalPages(contentDir) {
   const pages = [];
   const walk = (dir, prefix) => {
     for (const entry of readdirSync(dir)) {
