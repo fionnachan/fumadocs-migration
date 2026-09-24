@@ -7,7 +7,7 @@ export interface FAQ {
 /**
  * Every `faqsId` value used across `content/docs` (see `<FAQStructuredDataJsonLd faqsId="...">`)
  * must have a matching entry in this union and a matching `./data/<id>-faqs.json` file.
- * `scripts/faq-data-check.mjs` enforces that pairing at test time; the component enforces it at
+ * `scripts/faq-data-check.ts` enforces that pairing at test time; the component enforces it at
  * render time.
  */
 export type FaqsId =

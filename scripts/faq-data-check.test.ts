@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { extractFaqsIdUnion, extractFaqsIdUsages, validateFaqEntries } from './lib/faq-data.mjs';
+import { extractFaqsIdUnion, extractFaqsIdUsages, validateFaqEntries } from './lib/faq-data.ts';
 
 test('extractFaqsIdUsages finds a double-quoted faqsId with its line number', () => {
   const source = 'line one\n<FAQStructuredDataJsonLd faqsId="bridging" />\n';

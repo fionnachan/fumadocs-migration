@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { pickComparison } from './versioned-docs-comparison.mjs';
+import { pickComparison } from './versioned-docs-comparison.ts';
 
 const LOCAL = 'HEAD (working tree + staged vs HEAD)';
 const merged = { firstParentPresent: true, secondParentPresent: true };
@@ -37,7 +37,7 @@ test('on a pull request run whose HEAD has no parent, falls back and asks for fe
   });
   assert.deepEqual(got.args, ['HEAD']);
   assert.equal(got.label, LOCAL);
-  assert.match(got.note, /fetch-depth: 2/);
+  assert.match(got.note ?? '', /fetch-depth: 2/);
   assert.equal(got.annotate, true);
 });
 
@@ -60,6 +60,6 @@ test('on a CI run that is not a pull request, falls back quietly and says why', 
   const got = pickComparison({ ci: true, pullRequest: false, ...merged });
   assert.deepEqual(got.args, ['HEAD']);
   assert.equal(got.label, LOCAL);
-  assert.match(got.note, /not a pull request run/);
+  assert.match(got.note ?? '', /not a pull request run/);
   assert.equal(got.annotate, undefined);
 });

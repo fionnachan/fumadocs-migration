@@ -25,7 +25,7 @@ import {
   DOCS_ROOT,
   VERSIONS_FILE,
   parseVersionedRegistry,
-} from './lib/versions-registry.mjs';
+} from './lib/versions-registry.ts';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const registry = parseVersionedRegistry(repoRoot);
@@ -69,7 +69,7 @@ test('static params enumerate every archive without Latest or duplicate paths', 
 });
 
 /** Absolute path of the file serving `<slug>`, or `null` when no page does. */
-function livePageFile(slug) {
+function livePageFile(slug: string): string | null {
   for (const candidate of [`${slug}.mdx`, path.posix.join(slug, 'index.mdx')]) {
     const file = path.join(repoRoot, DOCS_ROOT, candidate);
     if (existsSync(file)) return file;

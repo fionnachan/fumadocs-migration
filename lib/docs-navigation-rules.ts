@@ -1,19 +1,67 @@
 /**
- * Navigation-manifest rules, in one place, in plain JavaScript.
+ * Navigation-manifest rules, in one place, and the manifest's types.
  *
- * **Why this is `.mjs` and not `.ts`, next to the TypeScript it serves.** Two things have to apply
+ * **Why this is a module of its own, next to the transformer it serves.** Two things have to apply
  * this rule and they run in different worlds. `lib/docs-navigation.ts` is app code compiled by
  * Next, and it throws so that a dev server fails loudly instead of rendering a wrong sidebar.
- * `scripts/lib/nav.mjs` is plain Node behind `pnpm nav:check`, the blocking gate. One module
- * imported by both means the enforcing copy and the tested copy are the same copy. Plain `.mjs`
- * rather than importing the `.ts` directly, because Node's type stripping prints a
- * `MODULE_TYPELESS_PACKAGE_JSON` warning onto the gate's stderr for every such import. Same shape,
- * and for the same reasons, as `lib/site-url.mjs`. `tsconfig.json` sets `allowJs`, so
- * `lib/docs-navigation.ts` imports this with inferred types and no `.d.ts`.
+ * `scripts/lib/nav.ts` is run by Node directly, with its own type stripping, behind
+ * `pnpm nav:check`, the blocking gate. One module imported by both means the enforcing copy and
+ * the tested copy are the same copy. It is separate from `lib/docs-navigation.ts` because that file
+ * imports `fumadocs-core` types and builds page-tree nodes, none of which the gate needs; this one
+ * imports nothing, so the gate loads no more than the rule. Same shape, and for the same reasons,
+ * as `lib/site-url.mjs`.
+ *
+ * The manifest types live here rather than in `lib/docs-navigation.ts` for the same reason: both
+ * callers need them, and `lib/docs-navigation.ts` importing them from this side keeps the import
+ * one-way.
  *
  * Takes the manifest sections as an argument rather than reading the JSON, so both callers and the
  * tests pass their own.
  */
+
+/** One entry in a section's `children`, as written in `lib/docs-navigation.json`. */
+export interface NavigationEntry {
+  name?: string;
+  page?: string;
+  href?: string;
+  folder?: string;
+  flatten?: boolean;
+  defaultOpen?: boolean;
+  children?: NavigationEntry[];
+}
+
+/** One top-level section of `lib/docs-navigation.json`. */
+export interface NavigationSection {
+  id: string;
+  name: string;
+  sourceFolders: string[];
+  children: NavigationEntry[];
+}
+
+/** A URL `duplicateManifestPages` found claimed more than once, with every claiming entry's name. */
+export interface DuplicateManifestPage {
+  url: string;
+  names: string[];
+}
+
+/** One `page` entry claiming a section landing, and the section that entry sits in. */
+export interface LandingClaim {
+  section: string;
+  name: string;
+}
+
+/** A section landing URL claimed by at least one `page` entry. */
+export interface SectionLandingClaim {
+  url: string;
+  section: string;
+  claims: LandingClaim[];
+}
+
+/**
+ * A section as the two rules accept it. Every field is optional because the rules read only `id`
+ * and `children` and tolerate either being absent, so a caller can pass a partial fixture.
+ */
+export type ManifestSection = Partial<NavigationSection>;
 
 /**
  * Every `page` URL the manifest claims more than once, with the entry names that claim it.
@@ -31,14 +79,15 @@
  * - `folder`, which expands against the real content tree. A static read of the manifest cannot
  *   say which pages a repeat would duplicate, so that question belongs to the transformer.
  *
- * @param {{ children?: unknown[] }[]} sections Manifest sections, as in `lib/docs-navigation.json`.
- * @returns {{ url: string, names: string[] }[]} One entry per over-claimed URL, in manifest order.
+ * @param sections Manifest sections, as in `lib/docs-navigation.json`.
+ * @returns One entry per over-claimed URL, in manifest order.
  */
-export function duplicateManifestPages(sections) {
-  /** @type {Map<string, string[]>} */
-  const claims = new Map();
+export function duplicateManifestPages(
+  sections: readonly ManifestSection[],
+): DuplicateManifestPage[] {
+  const claims = new Map<string, string[]>();
 
-  const walk = (items) => {
+  const walk = (items: readonly NavigationEntry[] | undefined): void => {
     for (const item of items ?? []) {
       if (typeof item?.page === 'string') {
         claims.set(item.page, [...(claims.get(item.page) ?? []), item.name ?? '(unnamed)']);
@@ -74,21 +123,19 @@ export function duplicateManifestPages(sections) {
  * all: this rule runs ahead of the build, so it fires first and a contributor reads a
  * landing-flavoured message for what is really a nonexistent page. The build fails either way.
  *
- * @param {{ id?: string, children?: unknown[] }[]} sections Manifest sections.
- * @returns {{ url: string, section: string, claims: { section: string, name: string }[] }[]} One
- *   entry per over-claimed landing: the URL, the section it is the landing of, and every entry
- *   claiming it with the section that entry sits in.
+ * @param sections Manifest sections.
+ * @returns One entry per over-claimed landing: the URL, the section it is the landing of, and every
+ *   entry claiming it with the section that entry sits in.
  */
-export function sectionLandingClaims(sections) {
-  const landings = new Map();
+export function sectionLandingClaims(sections: readonly ManifestSection[]): SectionLandingClaim[] {
+  const landings = new Map<string, string>();
   for (const section of sections ?? []) {
     if (typeof section?.id === 'string') landings.set(`/docs/${section.id}`, section.id);
   }
 
-  /** @type {Map<string, { section: string, name: string }[]>} */
-  const claims = new Map();
+  const claims = new Map<string, LandingClaim[]>();
   for (const section of sections ?? []) {
-    const walk = (items) => {
+    const walk = (items: readonly NavigationEntry[] | undefined): void => {
       for (const item of items ?? []) {
         if (typeof item?.page === 'string' && landings.has(item.page)) {
           claims.set(item.page, [
@@ -102,7 +149,8 @@ export function sectionLandingClaims(sections) {
     walk(section?.children);
   }
 
-  return [...landings]
-    .filter(([url]) => claims.has(url))
-    .map(([url, section]) => ({ url, section, claims: claims.get(url) }));
+  return [...landings].flatMap(([url, section]) => {
+    const found = claims.get(url);
+    return found ? [{ url, section, claims: found }] : [];
+  });
 }

@@ -5,14 +5,14 @@
  * a warning, not a failure.
  *
  * Usage:
- *   node scripts/faq-data-check.mjs          # human report; exits 1 on a missing/malformed entry
- *   node scripts/faq-data-check.mjs --json   # JSON report to stdout; exits 0 (for tooling)
+ *   node scripts/faq-data-check.ts          # human report; exits 1 on a missing/malformed entry
+ *   node scripts/faq-data-check.ts --json   # JSON report to stdout; exits 0 (for tooling)
  */
 import path from 'node:path';
 
-import { checkFaqData } from './lib/faq-data.mjs';
+import { checkFaqData } from './lib/faq-data.ts';
 
-function main() {
+function main(): void {
   const json = process.argv.slice(2).includes('--json');
   const docsRoot = path.join(process.cwd(), 'content', 'docs');
   const faqDir = path.join(process.cwd(), 'components', 'mdx', 'FAQStructuredData');
