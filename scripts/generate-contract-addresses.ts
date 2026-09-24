@@ -10,11 +10,11 @@
  *   bridge, outbox, classic outboxes, gateways, WETH, proxy admins, multicall). These follow
  *   automatically when the SDK devDependency is bumped, which is the whole point of the port:
  *   the partial used to be a static file that nothing kept honest.
- * - `scripts/data/contract-addresses.data.mjs` for what the SDK does not expose (core proxy
+ * - `scripts/data/contract-addresses.data.ts` for what the SDK does not expose (core proxy
  *   admin, fraud-proof contracts, resource constraint manager, canonical factories) and for the
  *   constant precompile addresses.
  *
- * Unlike `generate-precompile-tables.mjs` this makes no network calls: the SDK ships its network
+ * Unlike `generate-precompile-tables.ts` this makes no network calls: the SDK ships its network
  * registry as data, so a run is offline and deterministic.
  *
  * Ported from arbitrum-docs `scripts/generate-contract-addresses.ts`.
@@ -22,11 +22,12 @@
 import { getArbitrumNetwork } from '@arbitrum/sdk';
 import fs from 'node:fs';
 import path from 'node:path';
+import type { Options as PrettierOptions } from 'prettier';
 
-import * as data from './data/contract-addresses.data.mjs';
-import { buildContent } from './lib/contract-addresses.mjs';
-import { StaleFileError, isCheckMode, runScript, writeOrCheck } from './lib/generated-partial.mjs';
-import { diffSummary } from './lib/line-diff.mjs';
+import * as data from './data/contract-addresses.data.ts';
+import { buildContent } from './lib/contract-addresses.ts';
+import { StaleFileError, isCheckMode, runScript, writeOrCheck } from './lib/generated-partial.ts';
+import { diffSummary } from './lib/line-diff.ts';
 
 const OUTPUT_PATH = path.join(
   'content',
@@ -35,7 +36,7 @@ const OUTPUT_PATH = path.join(
 );
 
 /**
- * Prettier options for the generated `.mdx` partial, matching `generate-precompile-tables.mjs`.
+ * Prettier options for the generated `.mdx` partial, matching `generate-precompile-tables.ts`.
  *
  * `.prettierignore` excludes `**\/*.mdx` from `pnpm format`, so nothing else reformats this file
  * and the generator owns its shape. `printWidth: 9999` keeps each `<AEL>` tag on one line, which
@@ -43,9 +44,14 @@ const OUTPUT_PATH = path.join(
  * Prettier is also what aligns the table columns, so the generator emits loose pipes and lets the
  * formatter settle on one canonical width.
  */
-const MDX_FORMAT = { parser: 'mdx', printWidth: 9999, proseWrap: 'preserve', plugins: [] };
+const MDX_FORMAT: PrettierOptions = {
+  parser: 'mdx',
+  printWidth: 9999,
+  proseWrap: 'preserve',
+  plugins: [],
+};
 
-async function main() {
+async function main(): Promise<void> {
   const check = isCheckMode();
 
   const { chains } = data;
@@ -58,7 +64,7 @@ async function main() {
     // "The file is stale" does not say whether an address moved or only whitespace did, which is
     // exactly what a reviewer of the weekly upstream-refresh PR needs to know. `writeOrCheck`
     // hands back the text it formatted, so this prints the diff without formatting it again.
-    if (error instanceof StaleFileError) {
+    if (error instanceof StaleFileError && error.formatted !== undefined) {
       const current = fs.existsSync(OUTPUT_PATH) ? fs.readFileSync(OUTPUT_PATH, 'utf-8') : '';
       console.error(diffSummary(current, error.formatted));
     }

@@ -22,7 +22,7 @@ import path from 'node:path';
 
 import { toPosix, walk } from './partials.mjs';
 
-const isMdx = (p) => /\.mdx?$/i.test(p);
+const isMdx = (p: string): boolean => /\.mdx?$/i.test(p);
 
 /**
  * The opt-in marker, an MDX comment that renders as nothing:
@@ -39,7 +39,7 @@ export const SYNC_MARKER = 'sync-with-var: latestNitroNodeImage';
 const markerRe = /\{\s*\/\*\s*sync-with-var:\s*latestNitroNodeImage\s*\*\/\s*\}/;
 
 /** Whether `source` opts in to having its hardcoded image tag rewritten. */
-export function optsIntoSync(source) {
+export function optsIntoSync(source: string): boolean {
   return markerRe.test(source);
 }
 
@@ -47,7 +47,11 @@ export function optsIntoSync(source) {
  * Replace every occurrence of `from` with `to` in `source`.
  * Returns the new text and the number of replacements, so a caller can report what it changed.
  */
-export function rewriteImage(source, from, to) {
+export function rewriteImage(
+  source: string,
+  from: string | undefined,
+  to: string,
+): { text: string; count: number } {
   if (!from || from === to) return { text: source, count: 0 };
 
   const parts = source.split(from);
@@ -62,6 +66,12 @@ export function rewriteImage(source, from, to) {
  */
 const ARCHIVE_DIR = '_versions';
 
+/** One file {@link syncImageInContent} changed, repo-relative, and how many copies it rewrote. */
+export interface SyncedFile {
+  rel: string;
+  count: number;
+}
+
 /**
  * Rewrite the outgoing image tag in every opted-in file, skipping the frozen archive.
  *
@@ -69,13 +79,19 @@ const ARCHIVE_DIR = '_versions';
  * caller's log reads the same on every platform. Pass `write: false` to report without touching
  * disk.
  */
-export function syncImageInContent(repoRoot, from, to, { dir = 'content', write = true } = {}) {
-  const changed = [];
+export function syncImageInContent(
+  repoRoot: string,
+  from: string | undefined,
+  to: string,
+  { dir = 'content', write = true }: { dir?: string; write?: boolean } = {},
+): SyncedFile[] {
+  const changed: SyncedFile[] = [];
   if (!from || from === to) return changed;
 
   const root = path.join(repoRoot, dir);
   const archive = path.join(root, ARCHIVE_DIR) + path.sep;
-  for (const abs of walk(root, isMdx)) {
+  const files: string[] = walk(root, isMdx);
+  for (const abs of files) {
     if (abs.startsWith(archive)) continue;
     const source = readFileSync(abs, 'utf8');
     if (!optsIntoSync(source)) continue;

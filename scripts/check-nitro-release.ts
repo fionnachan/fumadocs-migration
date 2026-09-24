@@ -17,7 +17,7 @@
  * It then rewrites hardcoded copies of the **outgoing** image tag, but only in the files that opt in
  * with a `sync-with-var: latestNitroNodeImage` marker. Those copies exist because `<Var>` does not
  * evaluate inside a code fence (content-lint rule A6), so a copy-pasteable `docker run` command has
- * to spell the tag out. See scripts/lib/nitro-node-image.mjs for why matching the outgoing value is
+ * to spell the tag out. See scripts/lib/nitro-node-image.ts for why matching the outgoing value is
  * not safe on its own: the ArbOS release notes pin the same string as a fact about the past.
  *
  * Callers must regenerate the precompile tables afterwards — their implementation links
@@ -31,26 +31,41 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { runScript, setOutput, writeOrCheck } from './lib/generated-partial.mjs';
-import { syncImageInContent } from './lib/nitro-node-image.mjs';
+import { runScript, setOutput, writeOrCheck } from './lib/generated-partial.ts';
+import { syncImageInContent } from './lib/nitro-node-image.ts';
 
 const VARS_PATH = path.join('content', 'vars.json');
 const NITRO_REPO = 'OffchainLabs/nitro';
 
-function githubHeaders() {
-  const headers = { 'User-Agent': 'fumadocs-docs-bot', 'Accept': 'application/vnd.github+json' };
+/** Narrows a parsed JSON value (vars.json, an API response) to an object whose fields can be read. */
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+/** A string field of a parsed JSON object, or `undefined` when it is absent or not a string. */
+const stringField = (record: Record<string, unknown>, key: string): string | undefined => {
+  const value = record[key];
+  return typeof value === 'string' ? value : undefined;
+};
+
+function githubHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {
+    'User-Agent': 'fumadocs-docs-bot',
+    'Accept': 'application/vnd.github+json',
+  };
   if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
   return headers;
 }
 
-async function githubJson(endpoint) {
+async function githubJson(endpoint: string): Promise<Record<string, unknown>> {
   const response = await fetch(`https://api.github.com/repos/${NITRO_REPO}/${endpoint}`, {
     headers: githubHeaders(),
   });
   if (!response.ok) {
     throw new Error(`GitHub API ${endpoint} failed with status ${response.status}`);
   }
-  return response.json();
+  const body: unknown = await response.json();
+  if (!isRecord(body)) throw new Error(`GitHub API ${endpoint} returned a non-object body`);
+  return body;
 }
 
 /**
@@ -58,8 +73,8 @@ async function githubJson(endpoint) {
  * three-part compare is enough and avoids taking on a semver dependency. Returns true when
  * `candidate` is strictly newer, so a deleted release can never trigger a downgrade.
  */
-function isNewer(candidate, current) {
-  const parse = (tag) => {
+function isNewer(candidate: string, current: string): boolean {
+  const parse = (tag: string): number[] | null => {
     const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(tag);
     return match ? match.slice(1, 4).map(Number) : null;
   };
@@ -84,17 +99,24 @@ function isNewer(candidate, current) {
  * Matches `<tag>-<7 hex>` exactly, excluding the -arm64/-amd64/-slim/-validator/-dev/
  * -stripped variants of the same build.
  */
-async function resolvePublishedNodeImage(tag) {
+async function resolvePublishedNodeImage(tag: string): Promise<string> {
   const url = `https://hub.docker.com/v2/repositories/offchainlabs/nitro-node/tags?name=${tag}&page_size=100`;
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Docker Hub tag lookup failed with status ${response.status}`);
   }
 
-  const { results = [] } = await response.json();
+  const body: unknown = await response.json();
+  const results = isRecord(body) && Array.isArray(body.results) ? body.results : [];
   const exact = new RegExp(`^${tag.replace(/[.]/g, '\\.')}-[0-9a-f]{7}$`);
   const matches = results
-    .filter((result) => exact.test(result.name))
+    .filter(isRecord)
+    .flatMap((result) => {
+      const name = stringField(result, 'name');
+      return name !== undefined && exact.test(name)
+        ? [{ name, last_updated: result.last_updated }]
+        : [];
+    })
     .sort((a, b) => String(b.last_updated).localeCompare(String(a.last_updated)));
 
   if (matches.length === 0) {
@@ -110,26 +132,39 @@ async function resolvePublishedNodeImage(tag) {
   return `offchainlabs/nitro-node:${matches[0].name}`;
 }
 
-async function main() {
-  const vars = JSON.parse(fs.readFileSync(VARS_PATH, 'utf-8'));
+async function main(): Promise<void> {
+  const vars: unknown = JSON.parse(fs.readFileSync(VARS_PATH, 'utf-8'));
+  if (!isRecord(vars)) throw new Error(`${VARS_PATH} is not a JSON object`);
+  // Every key is spread back into the rewritten file below, so only the ones read here are
+  // narrowed. content/vars.ts requires both to be strings; a missing one fails here by name.
+  const pinnedTag = stringField(vars, 'nitroVersionTag');
+  const pinnedImage = stringField(vars, 'latestNitroNodeImage');
+  if (pinnedTag === undefined || pinnedImage === undefined) {
+    throw new Error(`${VARS_PATH} needs string nitroVersionTag and latestNitroNodeImage values`);
+  }
+
   const release = await githubJson('releases/latest');
-  const latest = release.tag_name;
+  const latest = stringField(release, 'tag_name');
+  if (latest === undefined) throw new Error('GitHub API releases/latest returned no tag_name');
+  const publishedAt = stringField(release, 'published_at');
 
-  console.log(`pinned:  ${vars.nitroVersionTag}`);
-  console.log(`latest:  ${latest} (published ${release.published_at?.slice(0, 10) ?? 'unknown'})`);
+  console.log(`pinned:  ${pinnedTag}`);
+  console.log(`latest:  ${latest} (published ${publishedAt?.slice(0, 10) ?? 'unknown'})`);
 
-  const bumpRelease = isNewer(latest, vars.nitroVersionTag);
-  const targetTag = bumpRelease ? latest : vars.nitroVersionTag;
+  const bumpRelease = isNewer(latest, pinnedTag);
+  const targetTag = bumpRelease ? latest : pinnedTag;
   const submodule = await githubJson(`contents/go-ethereum?ref=${encodeURIComponent(targetTag)}`);
+  const submoduleSha = stringField(submodule, 'sha');
   if (
     submodule.type !== 'submodule' ||
     submodule.submodule_git_url !== 'https://github.com/OffchainLabs/go-ethereum.git' ||
-    !/^[0-9a-f]{40}$/.test(submodule.sha ?? '')
+    submoduleSha === undefined ||
+    !/^[0-9a-f]{40}$/.test(submoduleSha)
   ) {
     throw new Error(`Invalid go-ethereum submodule at Nitro ${targetTag}`);
   }
 
-  if (!bumpRelease && vars.goEthereumCommit === submodule.sha) {
+  if (!bumpRelease && vars.goEthereumCommit === submoduleSha) {
     console.log('nitro and go-ethereum pins are up to date.');
     setOutput('updates_made', 'false');
     return;
@@ -138,10 +173,8 @@ async function main() {
   const updated = {
     ...vars,
     nitroVersionTag: targetTag,
-    latestNitroNodeImage: bumpRelease
-      ? await resolvePublishedNodeImage(targetTag)
-      : vars.latestNitroNodeImage,
-    goEthereumCommit: submodule.sha,
+    latestNitroNodeImage: bumpRelease ? await resolvePublishedNodeImage(targetTag) : pinnedImage,
+    goEthereumCommit: submoduleSha,
   };
 
   await writeOrCheck(VARS_PATH, JSON.stringify(updated, null, 2), { check: false });
@@ -154,11 +187,7 @@ async function main() {
   // not evaluate inside a code fence (content-lint A6). Those copies would otherwise keep the old
   // tag while the prose beside them advertises the new one, with no gate to catch it. Only files
   // that opted in are rewritten; a page stating a Nitro version historically carries no marker.
-  const synced = syncImageInContent(
-    process.cwd(),
-    vars.latestNitroNodeImage,
-    updated.latestNitroNodeImage,
-  );
+  const synced = syncImageInContent(process.cwd(), pinnedImage, updated.latestNitroNodeImage);
   const total = synced.reduce((n, f) => n + f.count, 0);
   console.log(
     total === 0

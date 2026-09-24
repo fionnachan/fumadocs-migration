@@ -1,35 +1,118 @@
 /**
  * Parsing and rendering for the precompile-table partials.
  *
- * Kept separate from `scripts/generate-precompile-tables.mjs` (FS-2730) so this can be exercised
- * against fixture Solidity/Go source in `scripts/lib/precompile-tables.test.mjs` without reaching
+ * Kept separate from `scripts/generate-precompile-tables.ts` (FS-2730) so this can be exercised
+ * against fixture Solidity/Go source in `scripts/lib/precompile-tables.test.ts` without reaching
  * the network: the runner fetches every source from a pinned commit over `raw.githubusercontent.com`,
  * which is what makes `pnpm precompiles:check` `continue-on-error` in CI. Everything here is pure
  * (no `fetch`, no `fs`); the runner supplies the fetched source text and does the writing.
  *
- * Ported from `scripts/generate-precompile-tables.mjs`, unchanged in behavior. See that file's
+ * Ported from `scripts/generate-precompile-tables.ts`, unchanged in behavior. See that file's
  * history for the original arbitrum-docs source (`scripts/precompile-reference-generator.ts`).
  */
-import { generatedMarker } from './generated-partial.mjs';
+import { generatedMarker } from './generated-partial.ts';
+
+/**
+ * Hand-curated fields for one method, from `scripts/data/precompiles-information.ts`. Every field
+ * is spread over the parsed entry, so an override can also replace the parsed signature or
+ * description.
+ */
+export interface MethodOverride {
+  signature?: string;
+  description?: string;
+  deprecated?: boolean;
+  availableSinceArbOS?: number;
+}
+
+/** Hand-curated fields for one event, spread over the parsed entry like {@link MethodOverride}. */
+export interface EventOverride {
+  description?: string;
+}
+
+/** Overrides keyed by method or event name, matched case-insensitively. */
+export type Overrides<T> = Record<string, T>;
+
+/** One precompile's entry in `scripts/data/precompiles-information.ts`. */
+export interface PrecompileInformation {
+  methodOverrides?: Overrides<MethodOverride>;
+  eventOverrides?: Overrides<EventOverride>;
+}
+
+/** What the parser reads off a Solidity `function` and the Go method implementing it. */
+interface ParsedMethod {
+  signature: string;
+  interfaceLine: number;
+  implementationLine: number;
+  description: string;
+}
+
+/** What the parser reads off a Solidity `event` and the Go line emitting or naming it. */
+interface ParsedEvent {
+  name: string;
+  interfaceLine: number;
+  implementationLine: number;
+  description: string;
+}
+
+/**
+ * An entry after overrides are applied. Every parsed field is optional here because an override
+ * naming a method or event the interface does not declare becomes an entry made of the override
+ * alone, with no line numbers; {@link assertResolved} is what rejects it.
+ */
+type MethodEntry = Partial<ParsedMethod> & MethodOverride;
+type EventEntry = Partial<ParsedEvent> & EventOverride;
+
+/** The fields {@link assertResolved} reads, common to both entry kinds. */
+export interface ResolvableEntry {
+  signature?: string;
+  name?: string;
+  interfaceLine?: number;
+  implementationLine?: number;
+}
+
+/** The `content/vars.json` pins the precompile source URLs are built from. */
+export interface PrecompileSourceVars {
+  nitroPrecompilesRepositorySlug: string;
+  nitroPrecompilesCommit: string;
+  nitroRepositorySlug: string;
+  nitroVersionTag: string;
+  nitroPathToPrecompiles: string;
+}
+
+/** The runner's `NODE_INTERFACE_PINS`. */
+export interface NodeInterfacePins {
+  nitroContractsRepositorySlug: string;
+  nitroContractsCommit: string;
+  nitroContractsPathToPrecompilesInterface: string;
+  nitroPrecompilesPathToInterfaces: string;
+}
+
+/** The four GitHub blob base URLs returned by {@link buildSourceUrls}. */
+export interface SourceUrls {
+  interfaceBaseUrl: string;
+  implementationBaseUrl: string;
+  nodeInterfaceInterfaceBaseUrl: string;
+  nodeInterfaceImplementationBaseUrl: string;
+}
 
 /**
  * Opens every `_<Precompile>.mdx` partial. These files take every link they emit from six pins
  * across two files: `nitroPrecompilesRepositorySlug` and `nitroPrecompilesCommit` (the Solidity
  * interface), `nitroRepositorySlug`, `nitroVersionTag` and `nitroPathToPrecompiles` (the Go
  * implementation), all in `content/vars.json`, plus `NODE_INTERFACE_PINS
- * .nitroPrecompilesPathToInterfaces` in `scripts/generate-precompile-tables.mjs`. The marker names
+ * .nitroPrecompilesPathToInterfaces` in `scripts/generate-precompile-tables.ts`. The marker names
  * the two files rather than the six pins so that it cannot go stale as pins are added, and so it
  * fits on one line in the fifteen partials that carry it.
  */
 export const PRECOMPILE_MARKER = generatedMarker(
   'pnpm precompiles:generate',
-  'bumping any pin in content/vars.json or scripts/generate-precompile-tables.mjs',
+  'bumping any pin in content/vars.json or scripts/generate-precompile-tables.ts',
 );
 
 /**
  * Opens `_NodeInterface.mdx`. That partial's Solidity interface comes from `nitro-contracts`,
  * not `nitro-precompile-interfaces`, so it reads `NODE_INTERFACE_PINS` (in
- * `scripts/generate-precompile-tables.mjs`) instead of the `nitroPrecompiles*` vars.json pins;
+ * `scripts/generate-precompile-tables.ts`) instead of the `nitroPrecompiles*` vars.json pins;
  * its Go implementation still follows `nitroVersionTag` and `nitroRepositorySlug`. That is a
  * short enough list to name in full, so this marker does, and naming it is the only thing telling
  * a `_NodeInterface.mdx` editor that `nitroPrecompilesCommit` is not their lever. Both markers
@@ -39,14 +122,14 @@ export const PRECOMPILE_MARKER = generatedMarker(
 export const NODE_INTERFACE_MARKER = generatedMarker(
   'pnpm precompiles:generate',
   'bumping nitroVersionTag or nitroRepositorySlug in content/vars.json, or NODE_INTERFACE_PINS ' +
-    'in scripts/generate-precompile-tables.mjs',
+    'in scripts/generate-precompile-tables.ts',
 );
 
-export const DEPRECATION_NOTICE =
+export const DEPRECATION_NOTICE: string =
   '<p>Note: methods marked with ⚠️ are deprecated and their use is not supported.</p>';
 
 /** GitHub blob URL → raw URL for the same ref. */
-export const toRawUrl = (url) =>
+export const toRawUrl = (url: string): string =>
   url.replace('github.com', 'raw.githubusercontent.com').replace('blob/', '');
 
 /**
@@ -58,7 +141,7 @@ export const toRawUrl = (url) =>
  * `vars` is the parsed `content/vars.json`; `pins` is the runner's `NODE_INTERFACE_PINS`. Each
  * result ends in `/` so the caller appends `<Name>.sol` or `<Name>.go` directly.
  */
-export function buildSourceUrls(vars, pins) {
+export function buildSourceUrls(vars: PrecompileSourceVars, pins: NodeInterfacePins): SourceUrls {
   const interfacePath = pins.nitroPrecompilesPathToInterfaces
     ? `/${pins.nitroPrecompilesPathToInterfaces}`
     : '';
@@ -75,8 +158,8 @@ export function buildSourceUrls(vars, pins) {
  * description. Handles multi-line doc comments in both Go and Solidity. Returns '' when
  * no comment directly precedes the declaration.
  */
-export function extractDocComment(lines, lineIdx) {
-  const commentLines = [];
+export function extractDocComment(lines: string[], lineIdx: number): string {
+  const commentLines: string[] = [];
   for (let j = lineIdx - 1; j >= 0; j--) {
     const trimmed = lines[j].trim();
     if (!trimmed.startsWith('//')) break;
@@ -86,7 +169,7 @@ export function extractDocComment(lines, lineIdx) {
 }
 
 /** Lowercase every key so overrides match regardless of how they were written. */
-export function lowercaseKeys(overrides) {
+export function lowercaseKeys<T>(overrides: Overrides<T>): Overrides<T> {
   return Object.fromEntries(
     Object.entries(overrides).map(([key, value]) => [key.toLowerCase(), value]),
   );
@@ -96,26 +179,29 @@ export function lowercaseKeys(overrides) {
  * A declaration with no resolved source line would render a broken `#L0` link. Fail loudly
  * so the writer either fixes the parser or pins an override.
  */
-export function assertResolved(entries, kind) {
+export function assertResolved(
+  entries: Record<string, ResolvableEntry>,
+  kind: 'method' | 'event',
+): void {
   for (const info of Object.values(entries)) {
     if (!info.implementationLine) {
       throw new Error(
         `generate-precompile-tables: no Go reference found for ${kind} ` +
           `"${info.signature ?? info.name}" (interface line ${info.interfaceLine}). ` +
-          `Add an override in scripts/data/precompiles-information.mjs or update the parser.`,
+          `Add an override in scripts/data/precompiles-information.ts or update the parser.`,
       );
     }
   }
 }
 
 export function renderMethodsInTable(
-  interfaceCode,
-  implementationCode,
-  interfaceUrl,
-  implementationUrl,
-  methodOverrides,
-) {
-  const methods = {};
+  interfaceCode: string,
+  implementationCode: string,
+  interfaceUrl: string,
+  implementationUrl: string,
+  methodOverrides?: Overrides<MethodOverride>,
+): string {
+  const methods: Record<string, ParsedMethod> = {};
 
   // Solidity function signatures may span several lines; concatenate forward until the
   // parameter list closes.
@@ -155,16 +241,18 @@ export function renderMethodsInTable(
     }
   }
 
+  // The same object, widened: from here on an entry may come from an override alone.
+  const entries: Record<string, MethodEntry> = methods;
   if (methodOverrides) {
     for (const [name, override] of Object.entries(lowercaseKeys(methodOverrides))) {
-      methods[name] = { ...methods[name], ...override };
+      entries[name] = { ...entries[name], ...override };
     }
   }
 
-  assertResolved(methods, 'method');
+  assertResolved(entries, 'method');
 
   let showDeprecationFlag = false;
-  const rows = Object.values(methods)
+  const rows = Object.values(entries)
     .map((method) => {
       if (method.deprecated) showDeprecationFlag = true;
       const description = method.availableSinceArbOS
@@ -198,13 +286,13 @@ export function renderMethodsInTable(
 }
 
 export function renderEventsInTable(
-  interfaceCode,
-  implementationCode,
-  interfaceUrl,
-  implementationUrl,
-  eventOverrides,
-) {
-  const events = {};
+  interfaceCode: string,
+  implementationCode: string,
+  interfaceUrl: string,
+  implementationUrl: string,
+  eventOverrides?: Overrides<EventOverride>,
+): string {
+  const events: Record<string, ParsedEvent> = {};
 
   const interfaceLines = interfaceCode.split('\n');
   for (let i = 0; i < interfaceLines.length; i++) {
@@ -242,17 +330,19 @@ export function renderEventsInTable(
     }
   }
 
+  // The same object, widened: from here on an entry may come from an override alone.
+  const entries: Record<string, EventEntry> = events;
   if (eventOverrides) {
     for (const [name, override] of Object.entries(lowercaseKeys(eventOverrides))) {
-      events[name] = { ...events[name], ...override };
+      entries[name] = { ...entries[name], ...override };
     }
   }
 
-  assertResolved(events, 'event');
+  assertResolved(entries, 'event');
 
-  if (Object.keys(events).length === 0) return '';
+  if (Object.keys(entries).length === 0) return '';
 
-  const rows = Object.values(events)
+  const rows = Object.values(entries)
     .map(
       (event) => `<tr>
               <td><code>${event.name}</code></td>
@@ -278,11 +368,26 @@ export function renderEventsInTable(
     </table>`;
 }
 
+/** Input to {@link renderNodeInterfacePartial}. */
+export interface NodeInterfacePartialInput {
+  marker: string;
+  interfaceCode: string;
+  implementationCode: string;
+  interfaceUrl: string;
+  implementationUrl: string;
+  methodOverrides?: Overrides<MethodOverride>;
+}
+
+/** Input to {@link renderPrecompilePartial}: the NodeInterface input plus event overrides. */
+export interface PrecompilePartialInput extends NodeInterfacePartialInput {
+  eventOverrides?: Overrides<EventOverride>;
+}
+
 /**
  * Assemble one `_<Precompile>.mdx` partial's body: marker, methods table, events table.
  *
  * Pure: the caller fetches `interfaceCode`/`implementationCode` and passes them in. Mirrors
- * `generatePrecompile` in `scripts/generate-precompile-tables.mjs` minus the fetch and the write.
+ * `generatePrecompile` in `scripts/generate-precompile-tables.ts` minus the fetch and the write.
  */
 export function renderPrecompilePartial({
   marker,
@@ -292,7 +397,7 @@ export function renderPrecompilePartial({
   implementationUrl,
   methodOverrides,
   eventOverrides,
-}) {
+}: PrecompilePartialInput): string {
   const methodsTable = renderMethodsInTable(
     interfaceCode,
     implementationCode,
@@ -313,7 +418,7 @@ export function renderPrecompilePartial({
 
 /**
  * Assemble `_NodeInterface.mdx`'s body: marker, methods table only (NodeInterface has no
- * events). Mirrors `generateNodeInterface` in `scripts/generate-precompile-tables.mjs` minus the
+ * events). Mirrors `generateNodeInterface` in `scripts/generate-precompile-tables.ts` minus the
  * fetch and the write.
  */
 export function renderNodeInterfacePartial({
@@ -323,7 +428,7 @@ export function renderNodeInterfacePartial({
   interfaceUrl,
   implementationUrl,
   methodOverrides,
-}) {
+}: NodeInterfacePartialInput): string {
   const methodsTable = renderMethodsInTable(
     interfaceCode,
     implementationCode,

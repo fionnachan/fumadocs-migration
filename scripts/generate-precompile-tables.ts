@@ -5,7 +5,7 @@
  *   pnpm precompiles:generate          # write the tables
  *   pnpm precompiles:check             # fail if any table on disk is stale
  *
- * For every precompile in scripts/data/precompiles-information.mjs, fetches the Solidity
+ * For every precompile in scripts/data/precompiles-information.ts, fetches the Solidity
  * interface and the Go implementation from the commits pinned in content/vars.json, pairs
  * each method and event with its source line, and emits an HTML table partial.
  *
@@ -14,28 +14,34 @@
  * happens to be in a working tree.
  *
  * This file is I/O only (fetch the pinned sources, write the result). Parsing and rendering
- * live in `scripts/lib/precompile-tables.mjs` (FS-2730) as pure functions, so
- * `scripts/lib/precompile-tables.test.mjs` can exercise them offline against fixture source,
+ * live in `scripts/lib/precompile-tables.ts` (FS-2730) as pure functions, so
+ * `scripts/lib/precompile-tables.test.ts` can exercise them offline against fixture source,
  * without the network round trip that makes `pnpm precompiles:check` `continue-on-error` in CI.
  *
  * Ported from arbitrum-docs `scripts/precompile-reference-generator.ts`.
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import type { Options as PrettierOptions } from 'prettier';
 
 import {
   nodeInterfaceInformation,
   precompilesInformation,
-} from './data/precompiles-information.mjs';
-import { isCheckMode, runScript, writeOrCheck } from './lib/generated-partial.mjs';
+} from './data/precompiles-information.ts';
+import { isCheckMode, runScript, writeOrCheck } from './lib/generated-partial.ts';
 import {
+  type EventOverride,
+  type MethodOverride,
   NODE_INTERFACE_MARKER,
+  type NodeInterfacePins,
+  type Overrides,
   PRECOMPILE_MARKER,
+  type PrecompileSourceVars,
   buildSourceUrls,
   renderNodeInterfacePartial,
   renderPrecompilePartial,
   toRawUrl,
-} from './lib/precompile-tables.mjs';
+} from './lib/precompile-tables.ts';
 
 const OUTPUT_DIR = path.join('content', 'partials', 'precompile-tables');
 
@@ -45,14 +51,40 @@ const OUTPUT_DIR = path.join('content', 'partials', 'precompile-tables');
  * to a reader. The shared pins (nitroVersionTag, nitroPrecompilesCommit, …) do live in
  * vars.json and are read from it below, so no value is duplicated across the two.
  */
-const NODE_INTERFACE_PINS = {
+const NODE_INTERFACE_PINS: NodeInterfacePins = {
   nitroContractsRepositorySlug: 'nitro-contracts',
   nitroContractsCommit: '4341b132cfbdcc980ead03765ca5224ff6cb5d97',
   nitroContractsPathToPrecompilesInterface: 'src/node-interface',
   nitroPrecompilesPathToInterfaces: '',
 };
 
-const vars = JSON.parse(fs.readFileSync(path.join('content', 'vars.json'), 'utf-8'));
+/**
+ * Read the five pins {@link buildSourceUrls} needs out of the parsed `content/vars.json`. The
+ * schema in `content/vars.ts` already requires each to be a string; this only narrows the
+ * `JSON.parse` result, and throws naming the key rather than rendering `undefined` into a URL.
+ */
+function readSourceVars(parsed: unknown): PrecompileSourceVars {
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null;
+  const read = (key: keyof PrecompileSourceVars): string => {
+    const value = isRecord(parsed) ? parsed[key] : undefined;
+    if (typeof value !== 'string') {
+      throw new Error(`generate-precompile-tables: content/vars.json has no string "${key}"`);
+    }
+    return value;
+  };
+  return {
+    nitroPrecompilesRepositorySlug: read('nitroPrecompilesRepositorySlug'),
+    nitroPrecompilesCommit: read('nitroPrecompilesCommit'),
+    nitroRepositorySlug: read('nitroRepositorySlug'),
+    nitroVersionTag: read('nitroVersionTag'),
+    nitroPathToPrecompiles: read('nitroPathToPrecompiles'),
+  };
+}
+
+const vars = readSourceVars(
+  JSON.parse(fs.readFileSync(path.join('content', 'vars.json'), 'utf-8')),
+);
 
 const {
   interfaceBaseUrl,
@@ -79,9 +111,14 @@ const {
  * marker line byte-identical and is idempotent on the result, including for a marker carrying a
  * literal `*\/`. `generatedMarker` rejects that input anyway, so the case cannot reach here.
  */
-const MDX_FORMAT = { parser: 'mdx', printWidth: 9999, proseWrap: 'preserve', plugins: [] };
+const MDX_FORMAT: PrettierOptions = {
+  parser: 'mdx',
+  printWidth: 9999,
+  proseWrap: 'preserve',
+  plugins: [],
+};
 
-async function fetchSource(url, label) {
+async function fetchSource(url: string, label: string): Promise<string> {
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Failed fetching ${label} with status ${response.status}: ${url}`);
@@ -89,7 +126,12 @@ async function fetchSource(url, label) {
   return response.text();
 }
 
-async function generatePrecompile(name, check, methodOverrides, eventOverrides) {
+async function generatePrecompile(
+  name: string,
+  check: boolean,
+  methodOverrides: Overrides<MethodOverride> | undefined,
+  eventOverrides: Overrides<EventOverride> | undefined,
+): Promise<void> {
   const interfaceUrl = `${interfaceBaseUrl}${name}.sol`;
   const implementationUrl = `${implementationBaseUrl}${name}.go`;
 
@@ -115,7 +157,10 @@ async function generatePrecompile(name, check, methodOverrides, eventOverrides) 
   });
 }
 
-async function generateNodeInterface(check, methodOverrides) {
+async function generateNodeInterface(
+  check: boolean,
+  methodOverrides: Overrides<MethodOverride>,
+): Promise<void> {
   const interfaceUrl = `${nodeInterfaceInterfaceBaseUrl}NodeInterface.sol`;
   const implementationUrl = `${nodeInterfaceImplementationBaseUrl}node_interface.go`;
 
@@ -140,7 +185,7 @@ async function generateNodeInterface(check, methodOverrides) {
   });
 }
 
-async function main() {
+async function main(): Promise<void> {
   const check = isCheckMode();
 
   await Promise.all(

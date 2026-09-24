@@ -15,11 +15,9 @@
 /**
  * Longest common subsequence of two line arrays, as a list of index pairs.
  *
- * @param {string[]} a
- * @param {string[]} b
- * @returns {Array<[number, number]>} matched `[indexInA, indexInB]` pairs, in order
+ * @returns matched `[indexInA, indexInB]` pairs, in order
  */
-function commonSubsequence(a, b) {
+function commonSubsequence(a: string[], b: string[]): Array<[number, number]> {
   // lengths[i][j] is the LCS length of a.slice(i) and b.slice(j); the extra row and column of
   // zeroes let the recurrence run without bounds checks.
   const lengths = Array.from({ length: a.length + 1 }, () => new Uint32Array(b.length + 1));
@@ -31,7 +29,7 @@ function commonSubsequence(a, b) {
     }
   }
 
-  const pairs = [];
+  const pairs: Array<[number, number]> = [];
   let i = 0;
   let j = 0;
   while (i < a.length && j < b.length) {
@@ -48,26 +46,32 @@ function commonSubsequence(a, b) {
   return pairs;
 }
 
+/** The result of {@link lineDiff}. */
+export interface LineDiff {
+  changed: number;
+  lines: string[];
+}
+
 /**
  * Diff two texts by line.
  *
- * @param {string} current the text on disk
- * @param {string} expected the text the generator would write
- * @returns {{ changed: number, lines: string[] }} `changed` counts removed plus added lines;
- *   `lines` holds them as `- removed` / `+ added`, each run of removals printed before its
- *   corresponding additions so a substitution reads as a pair.
+ * @param current the text on disk
+ * @param expected the text the generator would write
+ * @returns `changed` counts removed plus added lines; `lines` holds them as `- removed` /
+ *   `+ added`, each run of removals printed before its corresponding additions so a substitution
+ *   reads as a pair.
  */
-export function lineDiff(current, expected) {
+export function lineDiff(current: string, expected: string): LineDiff {
   const a = current.split('\n');
   const b = expected.split('\n');
   const pairs = commonSubsequence(a, b);
 
-  const lines = [];
+  const lines: string[] = [];
   let i = 0;
   let j = 0;
 
   /** Emit everything before the next anchor: removals from `a`, then additions from `b`. */
-  const flush = (untilA, untilB) => {
+  const flush = (untilA: number, untilB: number): void => {
     for (; i < untilA; i++) lines.push(`  - ${a[i]}`);
     for (; j < untilB; j++) lines.push(`  + ${b[j]}`);
   };
@@ -84,12 +88,8 @@ export function lineDiff(current, expected) {
 
 /**
  * Render {@link lineDiff} as the block the generators print to stderr in check mode.
- *
- * @param {string} current
- * @param {string} expected
- * @returns {string}
  */
-export function diffSummary(current, expected) {
+export function diffSummary(current: string, expected: string): string {
   const { changed, lines } = lineDiff(current, expected);
   return [`${changed} line(s) differ (- committed, + generated):`, ...lines].join('\n');
 }

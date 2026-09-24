@@ -12,8 +12,9 @@
  *
  * Ported from arbitrum-docs `src/resources/precompilesInformation.js`.
  */
+import type { MethodOverride, Overrides, PrecompileInformation } from '../lib/precompile-tables.ts';
 
-export const precompilesInformation = {
+export const precompilesInformation: Record<string, PrecompileInformation> = {
   ArbAddressTable: {},
   ArbAggregator: {
     methodOverrides: {
@@ -127,7 +128,7 @@ export const precompilesInformation = {
  * NodeInterface is not a real precompile — it lives in nitro-contracts and is implemented
  * in `execution/nodeinterface`, so it gets its own entry and its own generator pass.
  */
-export const nodeInterfaceInformation = {
+export const nodeInterfaceInformation: { methodOverrides: Overrides<MethodOverride> } = {
   methodOverrides: {
     estimateretryableticket: {
       signature:

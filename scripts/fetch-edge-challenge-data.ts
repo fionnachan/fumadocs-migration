@@ -11,7 +11,7 @@
  * writes the result as static JSON. `components/mdx/EdgeChallengeFlow` renders the
  * committed snapshot; nothing in the build calls this script.
  *
- * No `--check` mode: unlike `generate-contract-addresses.mjs` or
+ * No `--check` mode: unlike `generate-contract-addresses.ts` or
  * `generate-cli-reference.mjs`, this has no pinned, deterministic input to compare
  * against. Its source is live chain state that keeps changing as new challenges open
  * and existing ones bisect further, so a second run against the same contract
@@ -26,7 +26,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { runScript } from './lib/generated-partial.mjs';
+import { runScript } from './lib/generated-partial.ts';
 
 const OUTPUT_PATH = path.join('public', 'data', 'edge-challenge-flow.json');
 
@@ -37,15 +37,90 @@ const EDGE_ADDED_TOPIC = '0xaa4b66b1ce938c06e2a3f8466bae10ef62e747630e3859889f47
 const EDGE_BISECTED_TOPIC = '0x7340510d24b7ec9b5c100f5500d93429d80d00d46f0d18e4e85d0c4cc22b9924';
 const EDGE_OSP_TOPIC = '0xe11db4b27bc8c6ea5943ecbb205ae1ca8d56c42c719717aaf8a53d43d0cee7c2';
 
-const normalizeHex = (value) =>
+/** A log as `eth_getLogs` returns it, reduced to the fields this script reads. */
+interface RpcLog {
+  topics?: string[];
+  data?: string;
+  blockNumber: string;
+  logIndex: string;
+  transactionHash?: string;
+}
+
+interface EventBase {
+  blockNumber: number;
+  logIndex: number;
+  txHash: string;
+}
+
+interface UnknownEvent extends EventBase {
+  type: 'Unknown';
+}
+
+interface EdgeAddedEvent extends EventBase {
+  type: 'EdgeAdded';
+  edgeId: string;
+  mutualId: string;
+  originId: string;
+  claimId: string;
+  length: string;
+  level: number;
+  hasRival: boolean;
+  isLayerZero: boolean;
+}
+
+interface EdgeBisectedEvent extends EventBase {
+  type: 'EdgeBisected';
+  edgeId: string;
+  lowerChildId: string;
+  upperChildId: string;
+  lowerChildAlreadyExists: boolean;
+}
+
+interface EdgeConfirmedByOneStepProofEvent extends EventBase {
+  type: 'EdgeConfirmedByOneStepProof';
+  edgeId: string;
+  mutualId: string;
+}
+
+type DecodedEvent =
+  UnknownEvent | EdgeAddedEvent | EdgeBisectedEvent | EdgeConfirmedByOneStepProofEvent;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const isOptionalString = (value: unknown): boolean =>
+  value === undefined || typeof value === 'string';
+
+/** Narrow one entry of an `eth_getLogs` result, checking every field {@link RpcLog} declares. */
+function isRpcLog(value: unknown): value is RpcLog {
+  return (
+    isRecord(value) &&
+    typeof value.blockNumber === 'string' &&
+    typeof value.logIndex === 'string' &&
+    isOptionalString(value.data) &&
+    isOptionalString(value.transactionHash) &&
+    (value.topics === undefined ||
+      (Array.isArray(value.topics) && value.topics.every((t) => typeof t === 'string')))
+  );
+}
+
+/** Narrow an `eth_getLogs` result, throwing on a shape the decoder cannot read. */
+function asLogs(result: unknown): RpcLog[] {
+  if (!Array.isArray(result) || !result.every(isRpcLog)) {
+    throw new Error('eth_getLogs returned an unexpected result shape');
+  }
+  return result;
+}
+
+const normalizeHex = (value: unknown): string =>
   `0x${String(value || '')
     .replace(/^0x/, '')
     .toLowerCase()}`;
-const strip0x = (value) => String(value || '').replace(/^0x/, '');
+const strip0x = (value: unknown): string => String(value || '').replace(/^0x/, '');
 
-function chunks32(data) {
+function chunks32(data: unknown): string[] {
   const hex = strip0x(data);
-  const result = [];
+  const result: string[] = [];
   for (let i = 0; i < hex.length; i += 64) {
     const part = hex.slice(i, i + 64);
     if (part) result.push(part);
@@ -53,23 +128,29 @@ function chunks32(data) {
   return result;
 }
 
-const decodeUint = (word) => (word ? BigInt(`0x${word}`).toString() : '0');
-const decodeBool = (word) => (word ? BigInt(`0x${word}`) !== 0n : false);
+const decodeUint = (word: string | undefined): string =>
+  word ? BigInt(`0x${word}`).toString() : '0';
+const decodeBool = (word: string | undefined): boolean =>
+  word ? BigInt(`0x${word}`) !== 0n : false;
 
-async function rpcCall(method, params) {
+async function rpcCall(method: string, params: unknown[]): Promise<unknown> {
   const response = await fetch(RPC_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
   });
-  const payload = await response.json();
-  if (payload.error) throw new Error(payload.error.message || 'RPC error');
+  const payload: unknown = await response.json();
+  if (!isRecord(payload)) throw new Error('RPC error');
+  if (payload.error) {
+    const message = isRecord(payload.error) ? payload.error.message : undefined;
+    throw new Error((typeof message === 'string' && message) || 'RPC error');
+  }
   return payload.result;
 }
 
-function decodeLog(log) {
+function decodeLog(log: RpcLog): DecodedEvent {
   const topic0 = normalizeHex(log.topics?.[0]);
-  const base = {
+  const base: UnknownEvent = {
     type: 'Unknown',
     blockNumber: parseInt(log.blockNumber, 16),
     logIndex: parseInt(log.logIndex, 16),
@@ -113,9 +194,9 @@ function decodeLog(log) {
   return base;
 }
 
-async function fetchEdgeAddedLog(edgeId) {
+async function fetchEdgeAddedLog(edgeId: string): Promise<EdgeAddedEvent | null> {
   const id = normalizeHex(edgeId);
-  const logs = await rpcCall('eth_getLogs', [
+  const result = await rpcCall('eth_getLogs', [
     {
       fromBlock: '0x0',
       toBlock: 'latest',
@@ -123,7 +204,9 @@ async function fetchEdgeAddedLog(edgeId) {
       topics: [EDGE_ADDED_TOPIC, id],
     },
   ]);
-  if (!logs || logs.length === 0) return null;
+  if (!result) return null;
+  const logs = asLogs(result);
+  if (logs.length === 0) return null;
   logs.sort(
     (a, b) =>
       parseInt(a.blockNumber, 16) - parseInt(b.blockNumber, 16) ||
@@ -133,16 +216,20 @@ async function fetchEdgeAddedLog(edgeId) {
   return decoded?.type === 'EdgeAdded' ? decoded : null;
 }
 
-async function fetchTxFrom(txHash) {
+async function fetchTxFrom(txHash: string): Promise<string | null> {
   const result = await rpcCall('eth_getTransactionByHash', [normalizeHex(txHash)]);
-  if (!result || !result.from) return null;
+  if (!isRecord(result) || !result.from) return null;
   return normalizeHex(result.from);
 }
 
 /** Run `count` copies of `worker` concurrently against a shared cursor into `items`. */
-async function runPool(items, count, worker) {
+async function runPool<T>(
+  items: readonly T[],
+  count: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
   let cursor = 0;
-  async function pull() {
+  async function pull(): Promise<void> {
     while (cursor < items.length) {
       const item = items[cursor];
       cursor += 1;
@@ -152,12 +239,14 @@ async function runPool(items, count, worker) {
   await Promise.all(Array.from({ length: count }, pull));
 }
 
-async function main() {
+async function main(): Promise<void> {
   console.log(`Fetching logs from ${CHALLENGE_MANAGER} on ${RPC_URL}...`);
 
-  const logs = await rpcCall('eth_getLogs', [
-    { fromBlock: '0x0', toBlock: 'latest', address: CHALLENGE_MANAGER },
-  ]);
+  const logs = asLogs(
+    await rpcCall('eth_getLogs', [
+      { fromBlock: '0x0', toBlock: 'latest', address: CHALLENGE_MANAGER },
+    ]),
+  );
 
   const filtered = logs.filter((log) => {
     const topic0 = normalizeHex(log.topics?.[0]);
@@ -176,7 +265,7 @@ async function main() {
   console.log(`Decoded ${events.length} events`);
 
   // Build edgeAddedById map
-  const edgeAddedById = new Map();
+  const edgeAddedById = new Map<string, EdgeAddedEvent>();
   events.forEach((ev) => {
     if (ev.type === 'EdgeAdded' && ev.edgeId) {
       edgeAddedById.set(normalizeHex(ev.edgeId), ev);
@@ -188,9 +277,11 @@ async function main() {
   // been added before the fromBlock window this scan happened to cover, or whose
   // EdgeAdded log this pass filtered out for an unrelated reason — so those need their
   // own direct lookup rather than being left absent from the map.
-  const referenced = new Set();
+  const referenced = new Set<string>();
   events.forEach((ev) => {
+    if (ev.type === 'Unknown') return;
     if (ev.edgeId) referenced.add(normalizeHex(ev.edgeId));
+    if (ev.type !== 'EdgeBisected') return;
     if (ev.lowerChildId) referenced.add(normalizeHex(ev.lowerChildId));
     if (ev.upperChildId) referenced.add(normalizeHex(ev.upperChildId));
   });
@@ -202,19 +293,19 @@ async function main() {
       const ev = await fetchEdgeAddedLog(id);
       if (ev) edgeAddedById.set(normalizeHex(ev.edgeId), ev);
     } catch (err) {
-      console.warn(`Failed to backfill ${id}: ${err.message}`);
+      console.warn(`Failed to backfill ${id}: ${err instanceof Error ? err.message : err}`);
     }
   });
 
   // Fetch tx.from (staker) for all EdgeAdded events
-  const txHashes = new Set();
+  const txHashes = new Set<string>();
   edgeAddedById.forEach((ev) => {
     if (ev?.txHash) txHashes.add(normalizeHex(ev.txHash));
   });
   const txHashList = Array.from(txHashes);
   console.log(`Fetching staker addresses for ${txHashList.length} transactions...`);
 
-  const txFromByHash = new Map();
+  const txFromByHash = new Map<string, string | null>();
   await runPool(txHashList, 6, async (hash) => {
     try {
       txFromByHash.set(hash, await fetchTxFrom(hash));
@@ -224,7 +315,7 @@ async function main() {
   });
 
   // Attach staker to edgeAddedById
-  const edgeAddedByIdObj = {};
+  const edgeAddedByIdObj: Record<string, EdgeAddedEvent & { staker: string | null }> = {};
   edgeAddedById.forEach((ev, id) => {
     const txHash = ev?.txHash ? normalizeHex(ev.txHash) : null;
     const staker = txHash ? txFromByHash.get(txHash) || null : null;
