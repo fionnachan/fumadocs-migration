@@ -3,16 +3,18 @@
  * the sidebar footer on every docs page (`components/sidebar-resource-links.tsx`).
  *
  * `lib/shared.ts` is imported as `.ts` directly: Node 22 strips types natively, and this module
- * imports only `./site-url.mjs` (plain JS), so it loads under `node --test` the same way
- * `lib/llms-tracking.ts` does for `llms-tracking.test.mjs`. That means this test exercises the
- * exact object the component renders, not a copy that can drift from it.
+ * imports only `./site-url.ts` (itself TypeScript that Node strips the same way), so it loads
+ * under `node --test` the same way `lib/llms-tracking.ts` does for `llms-tracking.test.ts`. That
+ * means this test exercises the exact object the component renders, not a copy that can drift from
+ * it.
  *
  * Nothing else checks these three hrefs. `scripts/check-links.mjs` walks `content/docs/**`
- * `.md(x)` files only, by its own header comment, and `pnpm move-doc` retargets `redirects.config.mjs`
- * and the drift/legacy-destination maps but not a `.tsx` file. Without this test, deleting or
- * renaming one of the three pages would leave a silent 404 in the footer of every section sidebar.
+ * `.md(x)` files only, by its own header comment, and `pnpm move-doc` retargets
+ * `redirects.config.ts` and the drift/legacy-destination maps but not a `.tsx` file. Without this
+ * test, deleting or renaming one of the three pages would leave a silent 404 in the footer of every
+ * section sidebar.
  * Same ungated shape `announcementLinkHref` has, which is why `collectValidUrls`/`resolveUrl` (the
- * content-tree walk `legacy-redirects.test.mjs` pins its own hand-written maps against) is reused
+ * content-tree walk `legacy-redirects.test.ts` pins its own hand-written maps against) is reused
  * here rather than writing a third copy of "map a /docs/... URL to a file".
  */
 import assert from 'node:assert/strict';
@@ -21,7 +23,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { sidebarResourceLinks } from '../../lib/shared.ts';
-import { collectValidUrls, resolveUrl } from './legacy-redirects.mjs';
+import { collectValidUrls, resolveUrl } from './legacy-redirects.ts';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { parseArgs } from './lib/redirects-check.mjs';
+import { parseArgs } from './lib/redirects-check.ts';
 
 const defaults = { defaultBaseUrl: 'http://localhost:3000' };
 

@@ -1,11 +1,11 @@
 /**
- * legacy-destinations — keep `scripts/lib/legacy-redirects.mjs`'s `MANUAL_DESTINATIONS` and
+ * legacy-destinations — keep `scripts/lib/legacy-redirects.ts`'s `MANUAL_DESTINATIONS` and
  * `SECTION_LANDINGS` in sync with `move-doc`.
  *
  * Both maps are hand-written overlays from a legacy docs.arbitrum.io URL to a page on this site.
  * Their *values* are site URLs (`/docs/...`, optionally with an `#anchor`) that `move-doc` otherwise
  * has no idea exist, so moving one of those pages leaves a legacy URL pointing at a 404.
- * `scripts/lib/legacy-redirects.test.mjs` catches it ("every hand-written destination still names
+ * `scripts/lib/legacy-redirects.test.ts` catches it ("every hand-written destination still names
  * a live page in the content tree"), but only in whatever PR happens to run `pnpm test` next,
  * which is rarely the move itself, so it fails Gates in an unrelated PR. This module makes
  * `move-doc` fix it in the same commit as the move.
@@ -14,7 +14,7 @@
  * code that read a sibling arbitrum-docs checkout to derive upstream's URL corpus) was deleted in
  * FS-2706 when that repo was archived. The two maps were not: docs.arbitrum.io URLs have to keep
  * resolving forever, so the hand-maintained overlay is permanent. This module reads nothing but the
- * two named exports and `redirects.config.mjs` (read-only, and itself permanent), and rewrites
+ * two named exports and `redirects.config.ts` (read-only, and itself permanent), and rewrites
  * nothing but the two object literals that declare those exports, which is why the generator's
  * deletion cost it no change at all.
  *
@@ -34,15 +34,15 @@
  *    against the real parsed maps, so a miss throws instead of passing silently.
  *  - **Nothing is written until every rewrite, and its Prettier pass, has succeeded.**
  *
- * What this module does *not* do is retarget `redirects.legacy.mjs` itself, the committed map of
+ * What this module does *not* do is retarget `redirects.legacy.ts` itself, the committed map of
  * 853 legacy URLs. Readers do not need it: `move-doc` appends `oldUrl -> newUrl` to
- * `redirects.config.mjs`, and Next serves one redirect per request, so a legacy URL still reaches the
+ * `redirects.config.ts`, and Next serves one redirect per request, so a legacy URL still reaches the
  * moved page in two hops. `pnpm redirects:check` does care. It compares a destination against
  * the routable pages and never follows a second hop, so every legacy source still naming the moved
  * page reports DEAD. The note printed on the CLI says so, and says the file is hand-maintained, so
  * the fix is to retarget those entries or accept the extra hop.
  *
- * The same one-hop reading reaches `redirects.config.mjs`'s own `AUTO-GENERATED` block, where an
+ * The same one-hop reading reaches `redirects.config.ts`'s own `AUTO-GENERATED` block, where an
  * earlier move's redirect whose destination is the page now being moved becomes a two-hop chain that
  * regenerating cannot fix. That is a **second, conditional note**: `findChainedAutoRedirects` looks
  * for such an entry and names its source URL(s), so the CLI asserts a chain only when one exists.
@@ -55,7 +55,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { format, resolveConfig } from 'prettier';
 
-export const LEGACY_REDIRECTS_PATH = path.join('scripts', 'lib', 'legacy-redirects.mjs');
+export const LEGACY_REDIRECTS_PATH = path.join('scripts', 'lib', 'legacy-redirects.ts');
 
 /**
  * The redirect file `move-doc` appends a moved page's own redirect to, and the two markers bounding
@@ -63,19 +63,44 @@ export const LEGACY_REDIRECTS_PATH = path.join('scripts', 'lib', 'legacy-redirec
  * chained-entry reader below share one definition: `move-doc.mjs` imports these, and it cannot
  * export them back, because importing it runs its `main()`.
  */
-export const REDIRECTS_CONFIG_PATH = 'redirects.config.mjs';
+export const REDIRECTS_CONFIG_PATH = 'redirects.config.ts';
 export const REDIRECTS_START = '// AUTO-GENERATED REDIRECTS START';
 export const REDIRECTS_END = '// AUTO-GENERATED REDIRECTS END';
 
 /** The maps this module maintains, in the order their notes are reported. */
-export const DESTINATION_MAPS = ['MANUAL_DESTINATIONS', 'SECTION_LANDINGS'];
+export const DESTINATION_MAPS = ['MANUAL_DESTINATIONS', 'SECTION_LANDINGS'] as const;
 
-function escapeRegExp(s) {
+/** One of the two map names in {@link DESTINATION_MAPS}. */
+export type DestinationMapName = (typeof DESTINATION_MAPS)[number];
+
+/** Textual substitution count per map, as `rewriteDestinationMap` reported it. */
+export type ChangeCounts = Partial<Record<DestinationMapName, number>>;
+
+/** What `rewriteDestinationMap` returns: the rewritten source and how many values changed. */
+export interface RewriteResult {
+  source: string;
+  changed: number;
+}
+
+/**
+ * The string values of the map exported as `name` from a dynamically imported module, or `[]` when
+ * the module has no such export. The import is typed `unknown`, so this narrows it structurally
+ * rather than trusting the shape: a missing export is the "maps moved to another file" case the
+ * cross-check below exists to make loud, and it reaches that check as a zero count, as before.
+ */
+function destinationValues(mod: unknown, name: string): string[] {
+  if (typeof mod !== 'object' || mod === null || !(name in mod)) return [];
+  const map: unknown = Reflect.get(mod, name);
+  if (!(map instanceof Map)) return [];
+  return [...map.values()].filter((value): value is string => typeof value === 'string');
+}
+
+function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /** The page part of a destination, dropping any `#anchor` (mirrors the generator and its test). */
-export function pageOf(destination) {
+export function pageOf(destination: string): string {
   return destination.split('#')[0];
 }
 
@@ -88,8 +113,13 @@ export function pageOf(destination) {
  * in the file out of reach. Finding nothing here is not an error on its own: it means zero textual
  * changes, which `assertLegacyDestinationsRewrite` then compares against the parsed map and rejects
  * if the map really did name the moved page.
+ *
+ * The line matched is the bare `export const NAME = new Map([`, which is why the two declarations in
+ * `legacy-redirects.ts` carry no type annotation: a literal of string pairs already infers
+ * `Map<string, string>`, and writing `: Map<string, string>` or `new Map<string, string>(` there
+ * would stop this regex matching, which the cross-check would then report as a reformat.
  */
-function mapRange(source, name) {
+function mapRange(source: string, name: string): [number, number] | null {
   const start = new RegExp(`^export const ${name} = new Map\\(\\[$`, 'm').exec(source);
   if (!start) return null;
   const from = start.index + start[0].length;
@@ -113,17 +143,20 @@ function mapRange(source, name) {
  * upstream frontmatter title and why the entry exists; rewriting one turns a record of what happened
  * into a false statement, and it also inflates `changed`, which then trips
  * `assertLegacyDestinationsRewrite` into blaming a reformat and aborting an otherwise fine move.
- *
- * @returns {{ source: string, changed: number }}
  */
-export function rewriteDestinationMap(source, name, oldUrl, newUrl) {
+export function rewriteDestinationMap(
+  source: string,
+  name: string,
+  oldUrl: string,
+  newUrl: string,
+): RewriteResult {
   const range = mapRange(source, name);
   if (!range) return { source, changed: 0 };
   const [from, to] = range;
   let changed = 0;
   const re = new RegExp(`'${escapeRegExp(oldUrl)}(#[^']*)?'(?=\\s*,?\\s*\\])`, 'g');
   const original = source.slice(from, to);
-  const body = original.replace(re, (match, anchor, offset) => {
+  const body = original.replace(re, (match: string, anchor: string | undefined, offset: number) => {
     if (inLineComment(original, offset)) return match;
     changed++;
     return `'${newUrl}${anchor ?? ''}'`;
@@ -148,7 +181,7 @@ export function rewriteDestinationMap(source, name, oldUrl, newUrl) {
  * makes the rewrite match nothing, which `assertLegacyDestinationsRewrite` turns into a loud abort
  * rather than a silent miss.
  */
-function inLineComment(body, offset) {
+function inLineComment(body: string, offset: number): boolean {
   const lineStart = body.lastIndexOf('\n', offset) + 1;
   let inString = false;
   for (let i = lineStart; i < offset; i++) {
@@ -173,30 +206,30 @@ function inLineComment(body, offset) {
  * textual substitutions in that map, the regex missed an entry it should have hit, or hit one it
  * should not have, and the whole move is aborted rather than left with a half-retargeted map.
  *
- * This import is the module's only coupling to `legacy-redirects.mjs` beyond the two literals, and
+ * This import is the module's only coupling to `legacy-redirects.ts` beyond the two literals, and
  * it is deliberately by export name: should the maps ever move to another file, the rewrite finds
  * nothing and this throws, rather than the move silently skipping the step.
  *
- * @param {string} legacyRedirectsPath Absolute path to the module declaring both maps.
- * @param {Record<string, number>} changed Textual substitution count per map name.
+ * `legacyRedirectsPath` is the absolute path to the module declaring both maps; `changed` is the
+ * textual substitution count per map name.
  */
 export async function assertLegacyDestinationsRewrite(
-  legacyRedirectsPath,
-  oldUrl,
-  newUrl,
-  changed,
-) {
-  let mod;
+  legacyRedirectsPath: string,
+  oldUrl: string,
+  newUrl: string,
+  changed: ChangeCounts,
+): Promise<void> {
+  let mod: unknown;
   try {
     mod = await import(pathToFileURL(legacyRedirectsPath).href);
   } catch (err) {
     throw new Error(
       `legacy-destinations: could not import ${LEGACY_REDIRECTS_PATH} to verify the destination ` +
-        `rewrite: ${err.message}`,
+        `rewrite: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
   for (const name of DESTINATION_MAPS) {
-    const expected = [...(mod[name] ?? new Map()).values()].filter(
+    const expected = destinationValues(mod, name).filter(
       (destination) => pageOf(destination) === oldUrl,
     ).length;
     if (expected !== (changed[name] ?? 0)) {
@@ -219,13 +252,13 @@ export async function assertLegacyDestinationsRewrite(
  * wrap. Writing the raw substitution would leave the file failing `pnpm format:check`, which is a
  * blocking gate. Formatting is deliberately separate from writing.
  */
-async function formatFor(filePath, contents) {
+async function formatFor(filePath: string, contents: string): Promise<string> {
   const config = await resolveConfig(filePath);
   return format(contents, { ...config, filepath: filePath });
 }
 
 /**
- * The source URLs of every `AUTO-GENERATED` redirect in `redirects.config.mjs` whose destination is
+ * The source URLs of every `AUTO-GENERATED` redirect in `redirects.config.ts` whose destination is
  * `url`: the entries an earlier `move-doc` run wrote, which moving `url` turns into a two-hop chain.
  * Read-only, and the reason the CLI can say something true about that block instead of asserting a
  * chain that usually is not there (the block holds four entries today).
@@ -242,7 +275,7 @@ async function formatFor(filePath, contents) {
  *  - **The moved page's own redirect cannot match itself.** `move-doc` appends `oldUrl -> newUrl`
  *    before this runs, and that entry's destination is the *new* URL.
  */
-export function findChainedAutoRedirects(repoRoot, url) {
+export function findChainedAutoRedirects(repoRoot: string, url: string | null): string[] {
   if (!url) return [];
   const configPath = path.join(repoRoot, REDIRECTS_CONFIG_PATH);
   if (!existsSync(configPath)) return [];
@@ -259,11 +292,11 @@ export function findChainedAutoRedirects(repoRoot, url) {
 
 /**
  * The CLI note for those chained entries, or null when there are none. Separate from the
- * `redirects.legacy.mjs` note because the two are independent: this one is about an earlier move's
+ * `redirects.legacy.ts` note because the two are independent: this one is about an earlier move's
  * own redirect, so it holds whether or not either legacy map names the page, and it lives in a
  * different file from the legacy map, so the two are retargeted separately.
  */
-function chainedRedirectNote(repoRoot, oldUrl, newUrl) {
+function chainedRedirectNote(repoRoot: string, oldUrl: string, newUrl: string): string | null {
   const sources = findChainedAutoRedirects(repoRoot, oldUrl);
   if (!sources.length) return null;
   const list = sources.map((s) => `'${s}'`).join(', ');
@@ -271,7 +304,7 @@ function chainedRedirectNote(repoRoot, oldUrl, newUrl) {
     `NOTE: the AUTO-GENERATED block in ${REDIRECTS_CONFIG_PATH} has ${sources.length} redirect(s) ` +
     `pointing at '${oldUrl}' (from ${list}), so each of them now chains on to '${newUrl}', ` +
     `correct for readers, but one hop longer, and \`pnpm redirects:check\` follows only one hop, ` +
-    `so it reports each of them DEAD. They live in this file, not redirects.legacy.mjs: retarget ` +
+    `so it reports each of them DEAD. They live in this file, not redirects.legacy.ts: retarget ` +
     `them to '${newUrl}'.`
   );
 }
@@ -284,13 +317,16 @@ function chainedRedirectNote(repoRoot, oldUrl, newUrl) {
  *
  * Every read, rewrite, verification and Prettier pass happens before the single `writeFileSync`.
  *
- * @param {string} repoRoot Absolute repo root (move-doc always runs with `process.cwd()` as this).
- * @param {string|null} oldUrl The moved page's old site URL (`/docs/...`), or null for a partial.
- * @param {string|null} newUrl Its new site URL, or null.
- * @param {boolean} dryRun
- * @returns {Promise<string[]>}
+ * `repoRoot` is the absolute repo root (move-doc always runs with `process.cwd()` as this).
+ * `oldUrl` is the moved page's old site URL (`/docs/...`), or null for a partial; `newUrl` is its
+ * new site URL, or null.
  */
-export async function updateLegacyDestinations(repoRoot, oldUrl, newUrl, dryRun) {
+export async function updateLegacyDestinations(
+  repoRoot: string,
+  oldUrl: string | null,
+  newUrl: string | null,
+  dryRun: boolean,
+): Promise<string[]> {
   // A partial has no URL, and a move that does not change the URL cannot orphan a destination.
   if (!oldUrl || !newUrl || oldUrl === newUrl) return [];
 
@@ -302,8 +338,8 @@ export async function updateLegacyDestinations(repoRoot, oldUrl, newUrl, dryRun)
   const legacyRedirectsPath = path.join(repoRoot, LEGACY_REDIRECTS_PATH);
   if (!existsSync(legacyRedirectsPath)) return chained ? [chained] : [];
 
-  const notes = [];
-  const changed = {};
+  const notes: string[] = [];
+  const changed: ChangeCounts = {};
   let source = readFileSync(legacyRedirectsPath, 'utf8');
   for (const name of DESTINATION_MAPS) {
     const result = rewriteDestinationMap(source, name, oldUrl, newUrl);
@@ -314,7 +350,7 @@ export async function updateLegacyDestinations(repoRoot, oldUrl, newUrl, dryRun)
   // Throws when a textual count and the parsed map disagree, before anything is written.
   await assertLegacyDestinationsRewrite(legacyRedirectsPath, oldUrl, newUrl, changed);
 
-  const total = DESTINATION_MAPS.reduce((n, name) => n + changed[name], 0);
+  const total = DESTINATION_MAPS.reduce((n, name) => n + (changed[name] ?? 0), 0);
   if (!total) {
     if (chained) notes.push(chained);
     return notes;
@@ -329,7 +365,7 @@ export async function updateLegacyDestinations(repoRoot, oldUrl, newUrl, dryRun)
     }
   }
   notes.push(
-    `NOTE: redirects.legacy.mjs still sends those legacy URLs to '${oldUrl}', which now redirects on ` +
+    `NOTE: redirects.legacy.ts still sends those legacy URLs to '${oldUrl}', which now redirects on ` +
       `to '${newUrl}', correct for readers, but one hop longer, and \`pnpm redirects:check\` follows ` +
       `only one hop, so it reports each of them DEAD. That file is hand-maintained now: retarget ` +
       `those entries to '${newUrl}', or accept the extra hop and the DEAD report.`,

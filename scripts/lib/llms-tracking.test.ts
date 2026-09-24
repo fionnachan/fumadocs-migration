@@ -3,8 +3,8 @@
  * this site's path shapes (`/docs/...`, `/llms.mdx/docs/.../content.md`).
  *
  * The module under test is imported as `.ts` directly: Node 22 strips types natively, so
- * `pnpm test` (`node --test "scripts/**\/*.test.mjs"`) exercises the exact file `proxy.ts` imports
- * rather than a copy that can drift from it. This is why `lib/llms-tracking.ts` has no runtime
+ * `pnpm test` (`node --test` over `scripts/**\/*.test.{mjs,ts}`) exercises the exact file
+ * `proxy.ts` imports rather than a copy that can drift from it. This is why `lib/llms-tracking.ts` has no runtime
  * imports of its own.
  */
 import { strict as assert } from 'node:assert';
@@ -13,6 +13,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import {
+  type BuildPayloadInput,
   buildTrackingPayload,
   classifyUA,
   dailySalt,
@@ -22,7 +23,7 @@ import {
 
 const ignored = { kind: 'ignored', trackedPath: null, fileType: null };
 
-const repoFile = (name) =>
+const repoFile = (name: string): string =>
   readFileSync(fileURLToPath(new URL(`../../${name}`, import.meta.url)), 'utf8');
 
 // --- classifyUA -------------------------------------------------------------------------------
@@ -411,7 +412,7 @@ test('buildTrackingPayload: the same ip on the same day gives the same distinct_
 });
 
 test('buildTrackingPayload: a different day gives a different distinct_id for the same ip', async () => {
-  const common = {
+  const common: BuildPayloadInput = {
     trackedPath: '/llms.txt',
     fileType: 'index',
     userAgent: 'GPTBot/1.0',
@@ -429,7 +430,7 @@ test('buildTrackingPayload: a different day gives a different distinct_id for th
 test('buildTrackingPayload: an absent ip gets a random id, not one shared bucket', async () => {
   // Hashing '' is a constant, so without this every request lacking x-forwarded-for would collapse
   // into a single PostHog person and read as one extraordinarily busy client.
-  const common = {
+  const common: BuildPayloadInput = {
     trackedPath: '/llms.txt',
     fileType: 'index',
     userAgent: 'GPTBot/1.0',

@@ -18,13 +18,13 @@ import {
   collectValidUrls,
   isAbsolute,
   resolveUrl,
-} from './legacy-redirects.mjs';
+} from './legacy-redirects.ts';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const contentDir = path.join(repoRoot, 'content/docs');
 
 /** Both hand-written destination maps, named, in the order their entries are reported. */
-const MAPS = [
+const MAPS: ReadonlyArray<readonly [name: string, map: ReadonlyMap<string, string>]> = [
   ['MANUAL_DESTINATIONS', MANUAL_DESTINATIONS],
   ['SECTION_LANDINGS', SECTION_LANDINGS],
 ];
@@ -48,7 +48,7 @@ test('every SECTION_LANDINGS value names a page under /docs', () => {
  */
 test('every hand-written destination still names a live page in the content tree', () => {
   const valid = collectValidUrls(contentDir);
-  const missing = [];
+  const missing: string[] = [];
   for (const [name, map] of MAPS) {
     for (const [source, destination] of map) {
       if (isAbsolute(destination)) continue;
@@ -105,7 +105,7 @@ test('every UPSTREAM_TITLES key is still an entry in one of the two maps', () =>
  */
 test('a destination names the page carrying the upstream title, when exactly one page does', () => {
   const byTitle = collectPagesByTitle(contentDir);
-  const wrong = [];
+  const wrong: string[] = [];
   for (const [name, map] of MAPS) {
     for (const [source, destination] of map) {
       // An off-site destination has no local page to compare against. Nothing in either map is
@@ -121,7 +121,7 @@ test('a destination names the page carrying the upstream title, when exactly one
         wrong.push(
           `${name}: ${source} -> ${destination}, but "${title}" is now ${pages[0]}. If that page is ` +
             `the port of the upstream page, retarget this entry and its twin in ` +
-            `redirects.legacy.mjs. If it merely shares the title, leave the destination alone and ` +
+            `redirects.legacy.ts. If it merely shares the title, leave the destination alone and ` +
             `delete the UPSTREAM_TITLES entry for ${source}, with a comment saying why.`,
         );
       }
