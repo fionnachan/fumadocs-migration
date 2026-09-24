@@ -375,7 +375,7 @@ export function renderRef(
   targetAbs: string,
   containerAbs: string,
   originalPathPart: string,
-  index: DocIndex,
+  index: Pick<DocIndex, 'docsRoot' | 'urlByAbs'>,
 ): string | null {
   switch (style) {
     case 'include':
@@ -425,7 +425,9 @@ export function lineAt(content: string, offset: number): number {
  * runtime even though it resolves once the extension is stripped — see the inline comment below).
  * Relative-URL links inside partials are skipped (no fixed URL).
  */
-export function findBrokenLinks(index: DocIndex): BrokenLink[] {
+export function findBrokenLinks(
+  index: Pick<DocIndex, 'files' | 'repoRoot' | 'byAbs' | 'urlByAbs' | 'byUrl'>,
+): BrokenLink[] {
   const broken: BrokenLink[] = [];
   for (const file of index.files) {
     for (const ref of extractRefs(file.content)) {
