@@ -3,7 +3,14 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { duplicateManifestPages } from '../lib/docs-navigation-rules.mjs';
-import { checkDir, checkManifest, checkRoots, classifyEntry, resolveRef } from './lib/nav.mjs';
+import {
+  checkDir,
+  checkSections,
+  classifyEntry,
+  readSections,
+  readTree,
+  resolveRef,
+} from './lib/nav.mjs';
 
 test('classifyEntry recognises every meta.json entry form', () => {
   assert.equal(classifyEntry('my-page').kind, 'page');
@@ -84,58 +91,169 @@ test('resolveRef walks out of the directory holding the meta.json', () => {
   assert.equal(resolveRef('stylus', 'how-tos/gas-metering'), 'stylus/how-tos/gas-metering');
 });
 
-test('checkRoots flags a page no root folder covers', () => {
-  const { rootless } = checkRoots({
-    dirs: new Map([['', { pages: ['glossary'] }]]),
-    pages: new Set(['glossary']),
+/**
+ * Section coverage (FS-2751). The rule this replaced read the `"root": true` flags in
+ * `content/docs/**\/meta.json`, which were also its only input, so all it proved was that the flags
+ * were declared. The flags are gone: since PR #73 the transformer overwrites `root` on every folder
+ * node it emits, so deleting all twelve left the rendered tree structurally identical. What decides
+ * where a page lands now is whether some section's `sourceFolders` reaches it.
+ */
+
+const SECTION = { id: 'notices', name: 'Notices', sourceFolders: ['notices'] };
+
+test('checkSections flags a top-level directory no section covers', () => {
+  const { uncoveredFolders, unsectioned } = checkSections({
+    dirs: new Map([
+      ['', { pages: ['notices', '...'] }],
+      ['notices', { pages: ['...'] }],
+      ['scratch-zone', { pages: ['...'] }],
+    ]),
+    pages: new Set(['notices/index', 'scratch-zone/probe']),
+    sections: [SECTION],
   });
-  assert.deepEqual(rootless, ['glossary']);
+  assert.deepEqual(uncoveredFolders, ['scratch-zone']);
+  // The directory is named once, not once per page inside it.
+  assert.deepEqual(unsectioned, []);
 });
 
-test('checkRoots covers a page inside a root folder', () => {
-  const { rootless } = checkRoots({
+test('checkSections flags a sourceFolders entry naming no directory', () => {
+  const { missingFolders } = checkSections({
     dirs: new Map([
       ['', { pages: ['notices'] }],
-      ['notices', { root: true, pages: ['index', '...'] }],
+      ['notices', { pages: ['...'] }],
+    ]),
+    pages: new Set(['notices/index']),
+    sections: [{ ...SECTION, sourceFolders: ['notices', 'gone-missing'] }],
+  });
+  assert.deepEqual(missingFolders, [{ section: 'notices', folder: 'gone-missing' }]);
+});
+
+test('checkSections flags a sourceFolders entry naming a directory with no content', () => {
+  // The transformer needs a folder node, and fumadocs-core builds one only for a directory whose
+  // storage holds a file, which means an `.mdx` or a `meta.json`. Measured: a `content/docs/
+  // empty-zone/` holding one `.txt` passed a plain directory-exists test while `pnpm dev` threw
+  // `Navigation source folder does not exist: empty-zone`.
+  const { missingFolders } = checkSections({
+    dirs: new Map([
+      ['', { pages: ['notices', '...'] }],
+      ['notices', { pages: ['...'] }],
+      ['empty-zone', undefined],
+    ]),
+    pages: new Set(['notices/index']),
+    sections: [{ ...SECTION, sourceFolders: ['notices', 'empty-zone'] }],
+  });
+  assert.deepEqual(missingFolders, [{ section: 'notices', folder: 'empty-zone' }]);
+});
+
+test('checkSections accepts a meta-less directory that holds pages, or one that holds only a meta', () => {
+  // Both shapes do build a folder node, so neither is a missing folder. A directory with no
+  // meta.json of its own but a page below it is the first; `content/docs/resources/` is the second.
+  const { missingFolders } = checkSections({
+    dirs: new Map([
+      ['', { pages: ['loose', 'resources', '...'] }],
+      ['loose', undefined],
+      ['loose/deeper', undefined],
+      ['resources', { pages: ['../chain-info'] }],
+    ]),
+    pages: new Set(['chain-info', 'loose/deeper/page']),
+    sections: [{ id: 'demo', name: 'Demo', sourceFolders: ['loose', 'resources'] }],
+  });
+  assert.deepEqual(missingFolders, []);
+});
+
+test('checkSections flags a source folder two sections claim', () => {
+  const { sharedFolders } = checkSections({
+    dirs: new Map([
+      ['', { pages: ['notices'] }],
+      ['notices', { pages: ['...'] }],
+    ]),
+    pages: new Set(['notices/index']),
+    sections: [SECTION, { id: 'stylus', name: 'Stylus', sourceFolders: ['notices'] }],
+  });
+  assert.deepEqual(sharedFolders, [
+    { folder: 'notices', sections: ['notices', 'stylus'], count: 2 },
+  ]);
+});
+
+test('checkSections flags one section listing the same folder twice, as one section', () => {
+  // The defect is the same, only the first listing collects anything, but the report has to send
+  // the reader to one section rather than claim two are involved.
+  const { sharedFolders } = checkSections({
+    dirs: new Map([
+      ['', { pages: ['notices'] }],
+      ['notices', { pages: ['...'] }],
+    ]),
+    pages: new Set(['notices/index']),
+    sections: [{ ...SECTION, sourceFolders: ['notices', 'notices'] }],
+  });
+  assert.deepEqual(sharedFolders, [{ folder: 'notices', sections: ['notices'], count: 2 }]);
+});
+
+test('checkSections covers a page inside a source folder', () => {
+  const { uncoveredFolders, unsectioned } = checkSections({
+    dirs: new Map([
+      ['', { pages: ['notices'] }],
+      ['notices', { pages: ['index', '...'] }],
     ]),
     pages: new Set(['notices/index', 'notices/fusaka-upgrade-notice']),
+    sections: [SECTION],
   });
-  assert.deepEqual(rootless, []);
+  assert.deepEqual(uncoveredFolders, []);
+  assert.deepEqual(unsectioned, []);
 });
 
-test('checkRoots covers a page a root folder claims across directories', () => {
-  const { rootless } = checkRoots({
+test('checkSections flags a loose top-level page no directory claims', () => {
+  // This is the shape `content/docs/resources/meta.json` exists to prevent: four pages sit at the
+  // top of content/docs and only that meta.json's "../chain-info" references put them in a section.
+  const { unsectioned } = checkSections({
     dirs: new Map([
       ['', { pages: ['resources', '...'] }],
-      ['resources', { root: true, pages: ['../chain-info', '../glossary'] }],
+      ['resources', { pages: ['../chain-info'] }],
     ]),
     pages: new Set(['chain-info', 'glossary']),
+    sections: [{ id: 'get-started', name: 'Get started', sourceFolders: ['resources'] }],
   });
-  assert.deepEqual(rootless, []);
+  assert.deepEqual(unsectioned, ['glossary']);
 });
 
-test('checkRoots exempts the docs landing page and nothing else', () => {
-  const { rootless } = checkRoots({
+test('checkSections exempts the docs landing page and nothing else', () => {
+  const { unsectioned } = checkSections({
     dirs: new Map([['', {}]]),
     pages: new Set(['index', 'glossary']),
+    sections: [],
   });
-  assert.deepEqual(rootless, ['glossary']);
+  assert.deepEqual(unsectioned, ['glossary']);
 });
 
-test('checkRoots flags a link entry that shadows a real page', () => {
-  const { shadowLinks } = checkRoots({
+test('checkSections inherits coverage through a cross-directory folder claim', () => {
+  const { uncoveredFolders, unsectioned } = checkSections({
+    dirs: new Map([
+      ['', { pages: ['section', '...'] }],
+      ['section', { pages: ['../loose'] }],
+      ['loose', { pages: ['...'] }],
+    ]),
+    pages: new Set(['loose/a', 'loose/b']),
+    sections: [{ id: 'section', name: 'Section', sourceFolders: ['section'] }],
+  });
+  assert.deepEqual(uncoveredFolders, []);
+  assert.deepEqual(unsectioned, []);
+});
+
+test('checkSections flags a link entry that shadows a real page', () => {
+  const { shadowLinks } = checkSections({
     dirs: new Map([
       ['', { pages: ['get-started', '...'] }],
-      ['get-started', { root: true, pages: ['index', '[Chain info](/docs/chain-info)'] }],
+      ['get-started', { pages: ['index', '[Chain info](/docs/chain-info)'] }],
     ]),
     pages: new Set(['index', 'chain-info', 'get-started/index']),
+    sections: [{ id: 'get-started', name: 'Get started', sourceFolders: ['get-started'] }],
   });
   assert.deepEqual(shadowLinks, [
     { dir: 'get-started', entry: '[Chain info](/docs/chain-info)', page: 'chain-info' },
   ]);
 });
 
-test('checkRoots flags every link-entry form fumadocs accepts, not only the plain one', () => {
+test('checkSections flags every link-entry form fumadocs accepts, not only the plain one', () => {
   // fumadocs-core builds a link node from three shapes (see LINK_ENTRY in scripts/lib/nav.mjs).
   // All three become a `type: "page"` node with the literal url, so all three shadow a real page.
   for (const entry of [
@@ -144,44 +262,35 @@ test('checkRoots flags every link-entry form fumadocs accepts, not only the plai
     'external:[Chain info](/docs/chain-info)',
   ]) {
     assert.equal(classifyEntry(entry).kind, 'link', entry);
-    const { shadowLinks } = checkRoots({
-      dirs: new Map([['', { root: true, pages: ['index', entry] }]]),
+    const { shadowLinks } = checkSections({
+      dirs: new Map([['', { pages: ['index', entry] }]]),
       pages: new Set(['index', 'chain-info']),
+      sections: [],
     });
     assert.deepEqual(shadowLinks, [{ dir: '', entry, page: 'chain-info' }], entry);
   }
 });
 
-test('checkRoots resolves a shadowing link through a folder index', () => {
-  const { shadowLinks } = checkRoots({
-    dirs: new Map([['', { root: true, pages: ['[Notices](/docs/notices)', '...'] }]]),
+test('checkSections resolves a shadowing link through a folder index', () => {
+  const { shadowLinks } = checkSections({
+    dirs: new Map([['', { pages: ['[Notices](/docs/notices)', '...'] }]]),
     pages: new Set(['notices/index']),
+    sections: [],
   });
   assert.deepEqual(shadowLinks, [
     { dir: '', entry: '[Notices](/docs/notices)', page: 'notices/index' },
   ]);
 });
 
-test('checkRoots leaves alone a link entry that points outside the collection', () => {
-  const { shadowLinks } = checkRoots({
+test('checkSections leaves alone a link entry that points outside the collection', () => {
+  const { shadowLinks } = checkSections({
     dirs: new Map([
-      ['', { root: true, pages: ['[Status](https://status.arbitrum.io)', '[Gone](/docs/gone)'] }],
+      ['', { pages: ['[Status](https://status.arbitrum.io)', '[Gone](/docs/gone)'] }],
     ]),
     pages: new Set([]),
+    sections: [],
   });
   assert.deepEqual(shadowLinks, []);
-});
-
-test('checkRoots inherits coverage through a cross-directory folder claim', () => {
-  const { rootless } = checkRoots({
-    dirs: new Map([
-      ['', { pages: ['section', '...'] }],
-      ['section', { root: true, pages: ['../loose'] }],
-      ['loose', { pages: ['...'] }],
-    ]),
-    pages: new Set(['loose/a', 'loose/b']),
-  });
-  assert.deepEqual(rootless, []);
 });
 
 /**
@@ -265,7 +374,33 @@ test('duplicateManifestPages leaves repeated href shortcuts alone', () => {
   assert.deepEqual(duplicates, []);
 });
 
-test('checkManifest passes on the real navigation manifest', () => {
+test('the real navigation manifest claims no page URL twice', () => {
   const manifest = new URL('../lib/docs-navigation.json', import.meta.url);
-  assert.deepEqual(checkManifest(fileURLToPath(manifest)), []);
+  assert.deepEqual(duplicateManifestPages(readSections(fileURLToPath(manifest))), []);
+});
+
+test('the real manifest and the real content tree agree on section coverage', () => {
+  const sections = readSections(
+    fileURLToPath(new URL('../lib/docs-navigation.json', import.meta.url)),
+  );
+  const tree = readTree(fileURLToPath(new URL('../content/docs', import.meta.url)));
+  const { missingFolders, sharedFolders, uncoveredFolders, unsectioned } = checkSections({
+    ...tree,
+    sections,
+  });
+  assert.deepEqual(missingFolders, []);
+  assert.deepEqual(sharedFolders, []);
+  assert.deepEqual(uncoveredFolders, []);
+  assert.deepEqual(unsectioned, []);
+  // Every top-level directory is named exactly once, which is what makes the four lists empty.
+  //
+  // This last pair of assertions is a deliberate pin, and it is stricter than the rule above: the
+  // rule also accepts a top-level directory covered through a cross-directory `pages` claim, the
+  // shape `checkSections inherits coverage through a cross-directory folder claim` blesses. No such
+  // directory exists today, and one named in no `sourceFolders` array is worth a second look even
+  // when it is covered, so this fails on it rather than passing quietly. A content change that
+  // deliberately takes that shape relaxes this pin; it does not mean the rule is wrong.
+  const topLevel = [...tree.dirs.keys()].filter((dir) => dir !== '' && !dir.includes('/'));
+  const claimed = sections.flatMap((section) => section.sourceFolders);
+  assert.deepEqual([...topLevel].sort(), [...claimed].sort());
 });
