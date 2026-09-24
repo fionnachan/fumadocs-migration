@@ -281,8 +281,9 @@ pnpm move-doc <from> <to>
 ```
 
 This rewrites inbound links, re-bases the moved page's own relative links and includes, updates
-`meta.json`, writes the redirect, and retargets every existing redirect that pointed at the old URL
-so none of them chains. Add `--dry-run` to see all of it without touching a file. One registry it
+`meta.json`, writes the redirect, retargets every existing redirect that pointed at the old URL so
+none of them chains, and removes any redirect away from the new URL that an earlier move left
+behind. Add `--dry-run` to see all of it without touching a file. One registry it
 cannot fix is `VERSIONED` in `lib/versions-constants.ts`. If the page you moved has a version
 dropdown, retarget its key by hand. Forgetting is not silent, at least. `pnpm test` fails on a
 registry key that names no live page.

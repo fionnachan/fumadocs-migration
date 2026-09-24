@@ -13,7 +13,9 @@
  *   4. records the old→new URL in `redirects.config.mjs`;
  *   5. retargets every existing entry in `redirects.config.mjs` whose destination was the old URL
  *      (a legacy docs.arbitrum.io entry, or an earlier move's), so no redirect chains through the
- *      one just written. `pnpm redirects:check` follows one hop only and would report a chain DEAD.
+ *      one just written (`pnpm redirects:check` follows one hop only and would report a chain
+ *      DEAD), and deletes any entry whose source is the new URL, which an earlier move away from
+ *      that URL would have left behind to shadow the page now living there.
  *
  * One hand-written registry is still on the mover: `VERSIONED` in `lib/versions-constants.ts`
  * (keyed by canonical slug). `scripts/versions-routing.test.mjs` fails on a dead key, so forgetting
@@ -343,7 +345,7 @@ async function main() {
       );
     }
     // Reported last, mirroring the order a real run applies the steps in.
-    for (const n of retargetRedirects(repoRoot, fromMeta.url, toMeta.url, true))
+    for (const n of await retargetRedirects(repoRoot, fromMeta.url, toMeta.url, true))
       console.log(`  ${n}`);
     console.log('\n[dry-run] no files were changed.');
     return;
@@ -376,9 +378,11 @@ async function main() {
     );
   }
 
-  // Every entry that pointed at the old URL now points at the new one. Runs after the redirect is
-  // appended so the entry just written (whose destination is the *new* URL) cannot match itself.
-  for (const n of retargetRedirects(repoRoot, fromMeta.url, toMeta.url, false))
+  // Every entry that pointed at the old URL now points at the new one, and nothing redirects away
+  // from the new URL. Last only so the notes print in the order the steps happened; the entry just
+  // appended has the new URL as its destination and the old as its source, so neither rewrite can
+  // touch it whichever order they run in.
+  for (const n of await retargetRedirects(repoRoot, fromMeta.url, toMeta.url, false))
     console.log(`  ${n}`);
 
   console.log('\nDone. Verify with `pnpm check-links`.');

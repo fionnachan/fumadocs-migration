@@ -191,7 +191,8 @@ hand-edit between the `AUTO-GENERATED` markers in `redirects.config.mjs`**, sinc
 block. Use `--dry-run` first to preview the changes, and confirm afterward with `pnpm check-links`.
 
 `move-doc` also retargets every other entry in `redirects.config.mjs` that pointed at the old URL,
-including the legacy `docs.arbitrum.io` entries after the markers, so nothing chains. Those legacy
+including the legacy `docs.arbitrum.io` entries after the markers, so nothing chains, and removes
+any entry that redirected away from the new URL, so nothing shadows the page. Those legacy
 entries are hand-maintained: add one by editing the file directly, in source order, then prove the
 destination with `pnpm redirects:check` against a running site.
 

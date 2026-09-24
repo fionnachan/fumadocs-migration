@@ -2,9 +2,7 @@
  * End-to-end tests for `move-doc.mjs` against a throwaway fixture "repo" — not a unit test of any one
  * function, but a check that running the real CLI actually rewrites the files on disk the way the
  * inline doc comment promises. Focused on the redirect step, which only shows up end-to-end because
- * `move-doc.mjs`'s `main()` resolves every path off `process.cwd()`, and whose ordering (the
- * retarget runs after the new redirect is appended, so it cannot match itself) is a property only a
- * full run can pin.
+ * `move-doc.mjs`'s `main()` resolves every path off `process.cwd()`.
  */
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -17,6 +15,10 @@ import { fileURLToPath } from 'node:url';
 import { readVars } from '../lib/var-links.mjs';
 
 const MOVE_DOC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'move-doc.mjs');
+
+/** A regex for one redirect entry, tolerant of Prettier wrapping it onto several lines. */
+const entry = (source, destination) =>
+  new RegExp(`source: '${source}',\\s*destination: '${destination}'`);
 
 const PAGE_FRONTMATTER = [
   '---',
@@ -52,6 +54,13 @@ const REDIRECTS_FIXTURE = `export const redirects = [
  * under test. */
 function fixtureRepo() {
   const root = mkdtempSync(path.join(tmpdir(), 'move-doc-e2e-'));
+  // move-doc formats redirects.config.mjs through Prettier, which resolves config from the file's
+  // own location. Give the fixture the real repo's settings so the assertions below see the layout
+  // the real file gets, rather than Prettier's double-quote default.
+  writeFileSync(
+    path.join(root, '.prettierrc.json'),
+    '{"singleQuote": true, "trailingComma": "all", "printWidth": 100}',
+  );
   const docsDir = path.join(root, 'content', 'docs', 'example');
   mkdirSync(docsDir, { recursive: true });
   writeFileSync(path.join(docsDir, 'old-name.mdx'), PAGE_FRONTMATTER);
@@ -80,20 +89,17 @@ test('move-doc appends the redirect and retargets every entry that pointed at th
 
   assert.match(
     after,
-    /source: '\/docs\/example\/old-name', destination: '\/docs\/example\/new-name'/,
+    entry('/docs/example/old-name', '/docs/example/new-name'),
     'the moved page gets its own redirect',
   );
-  assert.match(
-    after,
-    /source: '\/docs\/example\/older-name', destination: '\/docs\/example\/new-name'/,
-  );
-  assert.match(after, /source: '\/legacy\/old-name', destination: '\/docs\/example\/new-name'/);
+  assert.match(after, entry('/docs/example/older-name', '/docs/example/new-name'));
+  assert.match(after, entry('/legacy/old-name', '/docs/example/new-name'));
   assert.match(
     after,
     /destination: '\/docs\/example\/new-name#a-section'/,
     'anchor carried across',
   );
-  assert.match(after, /source: '\/legacy\/unrelated', destination: '\/docs\/example\/unrelated'/);
+  assert.match(after, entry('/legacy/unrelated', '/docs/example/unrelated'));
   assert.ok(
     !/destination: '\/docs\/example\/old-name/.test(after),
     'nothing still points at the old URL',
@@ -130,10 +136,32 @@ test('move-doc retargets only the entries that name the moved page', (t) => {
   // three entries naming old-name are untouched.
   assert.match(output, /retargeted 1 existing redirect\(s\)/);
   assert.equal((after.match(/destination: '\/docs\/example\/old-name/g) ?? []).length, 3);
-  assert.match(
-    after,
-    /source: '\/docs\/example\/unrelated', destination: '\/docs\/example\/moved-unrelated'/,
+  assert.match(after, entry('/docs/example/unrelated', '/docs/example/moved-unrelated'));
+});
+
+test('moving a page back to a URL an earlier move left removes the entry that would shadow it', (t) => {
+  const { root, redirectsPath, fromRel, toRel } = fixtureRepo();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  // The fixture's AUTO-GENERATED block already holds older-name -> old-name. Move old-name away and
+  // then back, which is the shape that used to leave old-name redirecting to itself.
+  execFileSync('node', [MOVE_DOC, fromRel, toRel], { cwd: root, encoding: 'utf8' });
+  const output = execFileSync('node', [MOVE_DOC, toRel, fromRel], { cwd: root, encoding: 'utf8' });
+  const after = readFileSync(redirectsPath, 'utf8');
+
+  assert.ok(
+    !/source: '\/docs\/example\/old-name'/.test(after),
+    'nothing redirects away from the restored page',
   );
+  assert.match(after, entry('/docs/example/new-name', '/docs/example/old-name'));
+  assert.match(after, entry('/docs/example/older-name', '/docs/example/old-name'));
+  assert.match(after, entry('/legacy/old-name', '/docs/example/old-name'));
+  assert.match(after, /destination: '\/docs\/example\/old-name#a-section'/);
+  assert.match(
+    output,
+    /removed '\/docs\/example\/old-name' -> '\/docs\/example\/new-name', which would have shadowed/,
+  );
+  assert.ok(existsSync(path.join(root, fromRel)) && !existsSync(path.join(root, toRel)));
 });
 
 // --- FS-2725: `{var:name}` placeholder links --------------------------------------------------------

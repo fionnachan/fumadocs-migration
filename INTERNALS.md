@@ -1041,12 +1041,21 @@ markers, and then, as its last step, **retargets every other entry in the file w
 the old URL** (`retargetRedirects` in `scripts/lib/redirects-config.mjs`). Readers would reach the
 page either way, since Next serves one redirect per request and a chain still lands, but
 `pnpm redirects:check` follows one hop only and would report every chained entry `DEAD`. The
-rewrite matches `destination: '<old URL>'` with an optional `#anchor` carried across; a `source`
-cannot match because the pattern starts with the `destination` key, and a child page cannot match
-because the closing quote has to follow the URL immediately. It runs after the new entry is
-appended, so that entry, whose destination is the _new_ URL, cannot match itself. A partial (no
-URL) and a move that keeps its URL are no-ops. `scripts/move-doc.test.mjs` runs the real CLI
-against a fixture repo to pin all of that.
+rewrite matches `destination: '<old URL>'` with an optional `#anchor` carried across, in either
+quote style; a `source` cannot match because the pattern starts with the `destination` key, and a
+child page cannot match because the closing quote has to follow the URL immediately. **The same
+step deletes any entry whose source is the new URL.** That is the out-and-back move: an earlier
+move left `X -> Y` on file, the page comes back to `X`, and without the deletion the retarget
+would turn that entry into `X -> X`, a loop that Next's `redirects()` serves before the route, so
+the restored page is unreachable (the base had the same defect as a two-entry loop). The result is
+run through Prettier before it is written, so a value that changed length cannot leave the file
+failing `format:check`. The step runs after the new entry is appended only so the notes print in
+the order the steps happened; the appended entry has the old URL as its source and the new one as
+its destination, so neither rewrite can touch it in either order. A partial (no URL) and a move
+that keeps its URL are no-ops. `scripts/move-doc.test.mjs` runs the real CLI against a fixture
+repo for the real run, the dry run, a move only some entries name, and the out-and-back move;
+`scripts/lib/redirects-config.test.mjs` unit-tests both rewrites, including the wrapped and
+double-quoted shapes and the two no-ops.
 
 **`VERSIONED` in `lib/versions-constants.ts` is still on the mover, but it is no longer silent.**
 That registry keys the partial versioning registry by canonical slug (`'run-a-node/start-here'`) and
