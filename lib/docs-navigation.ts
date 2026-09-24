@@ -1,7 +1,7 @@
 import type { Folder, Item, Node, Root, Separator } from 'fumadocs-core/page-tree';
 import type { ContentStorage } from 'fumadocs-core/source';
 
-import { duplicateManifestPages } from './docs-navigation-rules.mjs';
+import { duplicateManifestPages, sectionLandingClaims } from './docs-navigation-rules.mjs';
 
 interface NavigationEntry {
   name?: string;
@@ -45,13 +45,27 @@ export function docsNavigationTransformer(sections: NavigationSection[]) {
  * Unlisted local content stays reachable in an Additional guides group within its section.
  */
 export function buildDocsNavigation(tree: Root, sections: NavigationSection[]): Root {
+  // Two static reads of the manifest, ahead of the build, because each names the offending entries
+  // and the finished-tree check below can only name tree positions. `pnpm nav:check` applies both,
+  // but no gate runs during `pnpm dev` (FS-2740, FS-2749).
+  //
   // A URL claimed by two `page` entries means one of them names a page it does not open, and that
   // page falls into Additional guides instead. Both URLs exist, so `page()` below never sees it.
-  // `pnpm nav:check` applies the same rule, but no gate runs during `pnpm dev` (FS-2740).
   const duplicates = duplicateManifestPages(sections);
   if (duplicates.length > 0) {
     const detail = duplicates.map((d) => `${d.url} (${d.names.join(', ')})`).join('; ');
     throw new Error(`Navigation page claimed more than once: ${detail}`);
+  }
+
+  // A `page` entry naming a section's landing URL is the same mistake against the landing node this
+  // function derives below, which is in no section's `children` for the rule above to see. The
+  // claim can sit in any section, not only the one the landing belongs to.
+  const landings = sectionLandingClaims(sections);
+  if (landings.length > 0) {
+    const detail = landings
+      .map((l) => `${l.url} (${l.claims.map((c) => `${c.name} in ${c.section}`).join(', ')})`)
+      .join('; ');
+    throw new Error(`Navigation section landing claimed by a page entry: ${detail}`);
   }
 
   const pages = new Map<string, Item>();
@@ -180,5 +194,48 @@ export function buildDocsNavigation(tree: Root, sections: NavigationSection[]): 
     }
   }
 
-  return { ...tree, children: [...remaining(tree.children), ...roots] };
+  const built: Root = { ...tree, children: [...remaining(tree.children), ...roots] };
+  assertOneNodePerUrl(built);
+  return built;
+}
+
+/**
+ * Fail when any URL ends up on more than one page node in the finished tree.
+ *
+ * This is the authority, and the two manifest reads above are a fast path that names entries rather
+ * than positions. `searchPath` stops at the first page node carrying a URL, so a second node is
+ * never reached and the folder above it never gives that page its section. Reading the finished tree
+ * is what catches the shapes a static read of the manifest cannot see (FS-2749):
+ *
+ * - a `folder` entry expands through `copyFolder` and claims every page in the subtree, so a `page`
+ *   entry elsewhere naming one of those URLs puts it on two nodes with nothing in the manifest
+ *   repeated. Measured: a `page` entry for
+ *   `/docs/stylus/stylus-by-example/basic_examples/hello_world`, already reached through the Stylus
+ *   Reference group's `folder` entry, builds cleanly and lands on two nodes.
+ * - the derived section landing, which the `sectionLandingClaims` read above covers exactly, so
+ *   that one is caught twice on purpose: once with the entry name, once here.
+ */
+function assertOneNodePerUrl(tree: Root): void {
+  const places = new Map<string, string[]>();
+  const label = (node: Folder) => (typeof node.name === 'string' ? node.name : '(unnamed)');
+
+  function walk(nodes: Node[], trail: string[]): void {
+    for (const node of nodes) {
+      if (node.type === 'page')
+        places.set(node.url, [...(places.get(node.url) ?? []), trail.join(' > ')]);
+      if (node.type !== 'folder') continue;
+      const next = [...trail, label(node)];
+      if (node.index) {
+        const at = [...next, '(index)'].join(' > ');
+        places.set(node.index.url, [...(places.get(node.index.url) ?? []), at]);
+      }
+      walk(node.children, next);
+    }
+  }
+  walk(tree.children, []);
+
+  const repeated = [...places].filter(([, at]) => at.length > 1);
+  if (repeated.length === 0) return;
+  const detail = repeated.map(([url, at]) => `${url} (${at.join(' | ')})`).join('; ');
+  throw new Error(`Navigation page on more than one node: ${detail}`);
 }

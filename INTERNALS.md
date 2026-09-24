@@ -227,8 +227,8 @@ throws if it is none of them:
 
 | Field      | Uses today | What it builds                                                    |
 | ---------- | ---------- | ----------------------------------------------------------------- |
-| `page`     | 239        | the real page node for that URL, which gives the page its section |
-| `href`     | 41         | a display-only link that claims nothing (see below)               |
+| `page`     | 238        | the real page node for that URL, which gives the page its section |
+| `href`     | 42         | a display-only link that claims nothing (see below)               |
 | `children` | 44         | a nested category built from the entries inside it                |
 | `folder`   | 2          | a whole local subtree, copied in place                            |
 
@@ -269,11 +269,19 @@ A `page` entry is a claim, because it is the page node the search above resolves
 canonical `page` in a second section would therefore give the destination the wrong tree. An `href`
 entry instead becomes a separator node carrying a URL, which `SidebarNavigationReference` renders as
 an ordinary sidebar link while Fumadocs' page lookup and previous/next traversal skip it. Repeating
-one is free, and the manifest repeats five URLs. Of the seventeen distinct internal `href` URLs,
+one is free, and the manifest repeats five URLs. Of the eighteen distinct internal `href` URLs,
 sixteen are also claimed by a `page` entry in the section that owns them. That is what lets the
 Stylus quickstart appear under Get started while opening the Stylus sidebar.
 
-Of the forty-one `href` entries, seventeen leave the site altogether, and three of those point at
+Claiming nothing also means nothing in the tree marks a reference as the current page, so
+`SidebarNavigationReference` compares the URL to the pathname itself and passes `active` to
+`SidebarItem`, with the notebook layout's own active classes. It matters for one row: an `href` that
+points into another section is never on screen while the reader is on that page, but Get started's
+landing row points inside its own section, and without this it was the one row in the sidebar that
+stayed unlit under the reader's feet. See [One URL, one page node](#one-url-one-page-node-fs-2749)
+for why that row is an `href` at all.
+
+Of the forty-two `href` entries, seventeen leave the site altogether, and three of those point at
 `docs.arbitrum.io`: "PGA" under Run an Arbitrum chain, and "How PGA works" and "Introduction to the
 Fast Feed" under How Arbitrum works. They are deliberate. The commit that introduced the manifest
 (`4317cf9`) records them as "three PGA/Fast Feed pages absent locally", and nothing under
@@ -289,6 +297,33 @@ claim is settled and appended to that section in an **Additional guides** folder
 and nothing is inserted into the original learning sequence. Seven of the nine sections have such a
 group today, holding 58 pages between them; Run an Arbitrum chain alone holds 43. Build apps with
 Solidity and Arbitrum bridge have none. To place a page in the main menu, give it an entry.
+
+**Folder landing pages stay in that group, and that is a decision, not an oversight** (FS-2749).
+**Twenty-nine of the 58 entries are an `index.mdx`, twenty of them under Run an Arbitrum chain.**
+Twenty-seven of the twenty-nine are attached as a folder's index node, so they render as that
+folder's own clickable title; the other two, `/docs/oracles` and
+`/docs/launch-arbitrum-chain/migrate`, render as plain rows. Count the index nodes rather than the
+files and the two figures read twenty-seven and nineteen, which is the same population seen from the
+tree instead of from disk. Every one of the twenty-nine is a `Cards` grid: the ones under Run an
+Arbitrum chain carry no prose outside the grid at all, and the rest carry one sentence each. So they
+restate the sidebar, and pulling them out of the group is tempting. Do not. **Sixteen of the
+twenty-nine have no incoming link from any page that is not itself one of these landings**, measured
+over every `.mdx` under `content/`, counting only a link whose destination is exactly that URL. The
+two plain rows are not among the sixteen, so the figure is the same under either reading of the
+population. Excluding a folder index from the fallback group would therefore not move those sixteen
+into the parent's card grid, which is where the argument for excluding them assumes they already
+are. It would leave them reachable by URL alone, while they stay in the sitemap and in `llms.txt`:
+indexed and unnavigable, which is worse than a hub page behind a collapsed toggle. It would also
+remove about six folder nodes whose only content is their landing, and hide any future landing page
+that does carry prose, silently, since the rule would be structural rather than editorial.
+
+The fix that does work, if a landing belongs in the reading order, is the one Docusaurus spelled
+`link: { type: 'doc' }`: give the manifest group a `page` of its own, which `buildDocsNavigation`
+attaches as that group's index. The manifest already supports it and nothing has to change in code.
+It is editorial work rather than a rule, because the manifest's groups deliberately do not mirror
+the folder tree: "Chain configuration" holds pages from `configuration/sequencer`,
+`configuration/costs`, `configuration/validation` and `operate`, so no folder's landing maps onto
+one group.
 
 A page in a directory that **no** `sourceFolders` list covers is still reachable, but it is
 appended to the top of the tree beside the sections rather than inside one, so it gets no section
@@ -412,7 +447,7 @@ at the top of `content/docs` has no covered directory to claim it, and `nav:chec
 
 ### What `nav:check` checks
 
-Five rules, none of them visible to `types:check` or `build`:
+Six rules, none of them visible to `types:check` or `build`:
 
 1. **Ghost entries.** A `pages` entry naming nothing on disk, which Fumadocs ignores in silence.
 2. **Hidden pages.** A file on disk that no `pages` entry and no `"..."` lets through.
@@ -444,16 +479,53 @@ Five rules, none of them visible to `types:check` or `build`:
    found. The rule lives in `lib/docs-navigation-rules.mjs` and both
    `buildDocsNavigation` and the gate import it, so a duplicate throws in a dev server as well as in
    CI. A repeated `href` is exempt, because a shortcut claims nothing.
+6. **Section landings** (FS-2749). A `page` entry claiming any section's landing URL, its own or
+   another's, which rule 5 cannot see because the landing node is derived rather than listed. `sectionLandingClaims`
+   sits beside the duplicate rule in `lib/docs-navigation-rules.mjs` and the transformer imports it
+   too, and it checks every section's landing against every section's `children`, because a `page`
+   entry in one section naming another's landing builds the identical two-node defect. The rule is
+   exact with no content tree, because the landing node exists whenever `/docs/<section id>` exists.
+   Where it judges without knowing is a manifest already broken twice over, one whose landing URL
+   does not exist at all: the rule runs ahead of the build, so it fires first and the reader gets a
+   landing-flavoured message for what is really a nonexistent page. The build fails either way.
 
-Two shapes get past rule 5, both recorded in FS-2749:
+One shape gets past rule 5, recorded in FS-2749: an entry can point at a folder index that exists
+while the page it was meant to name sits in Additional guides. Every URL involved is real and every
+URL is on one node, so neither the missing-page throw, nor the duplicate rule, nor the one-node rule
+below sees it. Three of the 238 `page` claims name a folder index, and all three look like this
+shape: "Test chain configuration" points at `/docs/launch-arbitrum-chain/configuration/validation`
+while `configuration/validation/test-chain-configuration.mdx` sits in Additional guides, "Token
+bridge troubleshooting" points at `/docs/launch-arbitrum-chain/deploy` while
+`deploy/token-bridge-troubleshooting.mdx` does, and "FAQ" points at `/docs/how-arbitrum-works/bold`.
+A fourth was Get started's landing, one of the 239 claims the manifest carried before FS-2749 made
+it an `href`.
 
-- The rule walks each section's `children` only. A section's landing page is derived separately from
-  the source folder's index, so listing that same URL in `children` puts one URL on two nodes and
-  the rule says nothing. One such node pair exists today, `/docs/get-started`.
-- An entry can point at a folder index that exists while the page it was meant to name sits in
-  Additional guides. Every URL involved is real, so neither the missing-page throw nor the duplicate
-  rule sees it. Live example: "Test chain configuration" points at
-  `/docs/launch-arbitrum-chain/configuration/validation`.
+### One URL, one page node (FS-2749)
+
+`buildDocsNavigation` walks the tree it has just built and throws when any URL sits on more than one
+page node. That check is the authority; the two manifest reads above it are a fast path that can
+name the offending entries, which a finished tree cannot.
+
+It exists because a static read of the manifest cannot see every way a URL gets two nodes. Rule 5
+walks each section's `children`, and two things put a page in the tree from outside `children`: the
+section landing, derived from the source folder's index, and a `folder` entry, which expands through
+`copyFolder` and claims every page in the subtree. Measured: a `page` entry for
+`/docs/stylus/stylus-by-example/basic_examples/hello_world`, a page the Stylus Reference group
+already reaches through its `folder` entry, repeated nothing in the manifest, returned zero from the
+duplicate rule, built without complaint, and put that URL on two nodes.
+
+The real tree now carries 349 page nodes over 349 distinct URLs. It carried 350 over 349 until this
+ticket: Get started's first `children` entry claimed `/docs/get-started`, the same URL the section
+landing derives, so `searchPath` reached the `children` copy and the landing node above it was never
+looked at. That entry is now an `href`, which builds a display-only separator claiming nothing, so
+the sidebar keeps the row a reader clicks while the page keeps one node.
+
+The gate cannot run this check: `scripts/nav-check.mjs` is plain Node and importing
+`lib/docs-navigation.ts` prints a `MODULE_TYPELESS_PACKAGE_JSON` warning onto its stderr, for the
+reason the header of `lib/docs-navigation-rules.mjs` gives. It does not need to. `pnpm test` is a
+blocking gate and `scripts/docs-navigation.test.mjs` already builds the real content through the
+real transformer, so the check runs there, on the real tree, with no model of `copyFolder` to drift
+against. `pnpm build` and `pnpm dev` fail on it too.
 
 `scripts/docs-navigation.test.mjs` loads the real content through Fumadocs and asserts the finished
 hierarchy: section landing pages, complete page coverage, one section owner per page, the learning

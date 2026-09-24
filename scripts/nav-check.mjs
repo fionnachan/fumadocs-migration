@@ -1,7 +1,7 @@
 /**
  * nav-check: fail on navigation defects in the meta.json tree and in the navigation manifest.
  *
- * Five rules, all invisible to `types:check` and `build`:
+ * Six rules, all invisible to `types:check` and `build`:
  *   - ghost entries: a `pages` entry naming nothing on disk (silently ignored by Fumadocs).
  *   - hidden pages: a file on disk that no `pages` entry and no `"..."` lets through.
  *   - source folders: a `sourceFolders` entry naming no folder in the content tree, a folder named
@@ -11,6 +11,14 @@
  *     and can pull it into the linking directory's section (FS-2716).
  *   - manifest duplicates: a `page` URL claimed twice in `lib/docs-navigation.json`, which leaves
  *     one entry naming a page it does not open (FS-2740).
+ *   - section landings: a `page` entry claiming any section's landing URL, its own or another's,
+ *     which the rule above cannot see because the landing node is derived, not listed (FS-2749).
+ *
+ * The finished tree is the authority on a URL sitting on two nodes, and `buildDocsNavigation`
+ * checks it there. This gate reads the manifest instead, so it can name the entries rather than
+ * tree positions, and so it runs without fumadocs-core. `pnpm test` builds the real tree through
+ * the real transformer (`scripts/docs-navigation.test.mjs`), which is where the exhaustive check
+ * runs in CI.
  *
  * Usage:
  *   pnpm nav:check          # human report; exits 1 if any defect exists
@@ -18,7 +26,7 @@
  */
 import path from 'node:path';
 
-import { duplicateManifestPages } from '../lib/docs-navigation-rules.mjs';
+import { duplicateManifestPages, sectionLandingClaims } from '../lib/docs-navigation-rules.mjs';
 import { checkSections, checkTree, readSections, readTree } from './lib/nav.mjs';
 
 function main() {
@@ -29,6 +37,7 @@ function main() {
   const { missingFolders, sharedFolders, uncoveredFolders, unsectioned, shadowLinks } =
     checkSections({ ...readTree(root), sections });
   const duplicates = duplicateManifestPages(sections);
+  const landings = sectionLandingClaims(sections);
 
   if (json) {
     console.log(
@@ -40,6 +49,7 @@ function main() {
         unsectioned,
         shadowLinks,
         duplicates,
+        landings,
       }),
     );
     return;
@@ -52,7 +62,8 @@ function main() {
     uncoveredFolders.length +
     unsectioned.length +
     shadowLinks.length +
-    duplicates.length;
+    duplicates.length +
+    landings.length;
   if (defects === 0) {
     console.log('nav-check: no navigation defects.');
     return;
@@ -134,6 +145,21 @@ function main() {
     for (const d of duplicates) console.error(`  ${d.url}\n    claimed by: ${d.names.join(', ')}`);
     console.error(
       '    Fix: point each entry at the page it names. Use "href" for a cross-section shortcut, which claims nothing.',
+    );
+  }
+
+  if (landings.length > 0) {
+    console.error(
+      `nav-check: ${landings.length} section landing(s) claimed by a page entry, which puts one page on two tree nodes:`,
+    );
+    for (const l of landings)
+      console.error(
+        `  ${l.url}, the landing of section "${l.section}"\n    claimed by: ${l.claims
+          .map((c) => `"${c.name}" in section "${c.section}"`)
+          .join(', ')}`,
+      );
+    console.error(
+      '    Fix: every section already shows its landing page, derived from the source folder index. Use "href" for a row that links to it and claims nothing, or drop the entry.',
     );
   }
 
