@@ -111,15 +111,64 @@ import {
 import { toPosix, walk } from './partials.mjs';
 import { codeRegions, fenceDefects, stripCode } from './strip-code.mjs';
 
-export const ADMONITION_TYPES = new Set(['note', 'tip', 'info', 'warning', 'danger']);
-const isMdx = (p) => /\.mdx?$/i.test(p);
+/** Every rule id this file can report. `scripts/content-lint.ts` keys its title table on it. */
+export type RuleId =
+  | 'A1'
+  | 'A2'
+  | 'A3'
+  | 'A4'
+  | 'A5'
+  | 'A6'
+  | 'A7'
+  | 'A8'
+  | 'A9'
+  | 'A10'
+  | 'A11'
+  | 'A12'
+  | 'A13'
+  | 'A14';
+
+/** One defect in one source string. `line` is 1-indexed. */
+export interface Finding {
+  rule: RuleId;
+  line: number;
+  message: string;
+}
+
+/** A finding located in a file, `rel` being its repo-root-relative POSIX path. */
+export interface FileFinding extends Finding {
+  rel: string;
+}
+
+export interface LintContentOptions {
+  /** Directory to walk, relative to the repo root. Ignored when `files` is given. */
+  dir?: string;
+  /** Lint only these paths (absolute or repo-root-relative) instead of walking `dir`. */
+  files?: readonly string[];
+}
+
+/** A local image `src` found on a JSX element, with the element's name and 1-indexed line. */
+export interface LocalImageSrc {
+  element: string;
+  src: string;
+  line: number;
+}
+
+export const ADMONITION_TYPES: ReadonlySet<string> = new Set([
+  'note',
+  'tip',
+  'info',
+  'warning',
+  'danger',
+]);
+const isMdx = (p: string): boolean => /\.mdx?$/i.test(p);
 
 // Re-exported so this file stays the import site every rule and test already uses. The definition
 // moved to `strip-code.mjs` (FS-2723) because the partials tooling needs the same answer to "what
-// counts as code", and `content-lint.mjs` imports `partials.mjs`, so it cannot be the shared home.
+// counts as code", and `content-lint.ts` imports `partials.mjs`, so it cannot be the shared home.
 export { stripCode };
 
-const lineOf = (source, index) => source.slice(0, index).split('\n').length;
+const lineOf = (source: string, index: number): number => source.slice(0, index).split('\n').length;
 
 /**
  * `content/vars.json`, read once on the first rule that needs it and kept.
@@ -127,13 +176,14 @@ const lineOf = (source, index) => source.slice(0, index).split('\n').length;
  * Lazy rather than read at module load, because `lintSource` is the unit every test drives and a
  * file read at import time would run in each of them for a rule most of them never reach.
  */
-let varsCache;
-const vars = () => (varsCache ??= readVars());
+let varsCache: Record<string, unknown> | undefined;
+const vars = (): Record<string, unknown> => (varsCache ??= readVars());
 
-export function lintSource(source) {
-  const findings = [];
-  const text = stripCode(source);
-  const add = (rule, index, message) => findings.push({ rule, line: lineOf(text, index), message });
+export function lintSource(source: string): Finding[] {
+  const findings: Finding[] = [];
+  const text: string = stripCode(source);
+  const add = (rule: RuleId, index: number, message: string) =>
+    findings.push({ rule, line: lineOf(text, index), message });
 
   // A1 + A2 + A4 — walk every admonition opening tag.
   //
@@ -150,7 +200,7 @@ export function lintSource(source) {
       add('A2', m.index, `type="${type}" is not one of ${[...ADMONITION_TYPES].join('|')}`);
     }
 
-    let body = null;
+    let body: string | null = null;
     if (selfClose === '/') body = '';
     else {
       // Locate the closer in the code-stripped text (so a closer inside a fence is ignored) but
@@ -173,7 +223,7 @@ export function lintSource(source) {
     // `title="L1 fee &quot;baked in&quot;"` renders as `L1 fee "baked in"` (verified in a browser).
     const title = attrs.match(/\btitle\s*=\s*(["'])((?:(?!\1).)*)\1/)?.[2];
     if (title) {
-      const problems = [];
+      const problems: string[] = [];
       if (/\]\(/.test(title)) problems.push('markdown link');
       if (/`/.test(title)) problems.push('inline code');
       if (problems.length) {
@@ -195,8 +245,8 @@ export function lintSource(source) {
   // guide's links to this repository's own `CONTRIBUTE.md` and `STYLE-GUIDE.md` are exactly that
   // shape (FS-2733). Judging the written string would flag a `.md` suffix that is correct, since
   // the destination is a file in a git repository and not a route on this site.
-  const internal = (t) => t && !/^(?:[a-z]+:|\/\/|#)/i.test(t);
-  const resolved = (t) => expandVarPlaceholders(t, vars());
+  const internal = (t: string) => t && !/^(?:[a-z]+:|\/\/|#)/i.test(t);
+  const resolved = (t: string): string => expandVarPlaceholders(t, vars());
   for (const m of text.matchAll(/\]\(([^)\s]+)\)/g)) {
     const target = resolved(m[1]);
     if (internal(target) && /\.mdx?(?:#[^)]*)?$/i.test(target)) {
@@ -218,7 +268,7 @@ export function lintSource(source) {
   // cannot drift from A1..A5 about what "code" is (FS-2729); it used to carry its own copy of two
   // fence regexes, which is exactly how that drift happens.
   const varRe = /<Var\b[^>]*\/?>/g;
-  const where = {
+  const where: Record<'fence' | 'inlineCode', string> = {
     fence: 'a fenced code block',
     inlineCode: 'an inline code span',
   };
@@ -323,7 +373,7 @@ export function lintSource(source) {
       if (/^[|>][0-9+-]*$/.test(raw)) continue;
       const quoted = /^(['"])[\s\S]*\1$/.test(raw);
       const value = quoted ? raw.slice(1, -1) : raw;
-      const problems = [];
+      const problems: string[] = [];
       if (/^\s|\s$/.test(value)) problems.push('leading or trailing whitespace');
       if (/ {2,}/.test(value.trim())) problems.push('a doubled internal space');
       if (raw !== line) problems.push('trailing whitespace on the line, outside the value');
@@ -347,7 +397,7 @@ export function lintSource(source) {
   // definitions, so it is not probed. The full and collapsed forms (`[text][ref]`, `[text][]`) are.
   for (const m of text.matchAll(/^#{1,6}[ \t]+([^\n]*)$/gm)) {
     const heading = m[1];
-    const problems = [];
+    const problems: string[] = [];
 
     // An inline or reference link, but not an image: `<img>` nests inside an anchor legally. The
     // alternation in the label allows one level of nested brackets, which is what
@@ -412,7 +462,7 @@ export function lintSource(source) {
 
 /**
  * A JSX element's `src` attribute, when it is a local (site-relative) path to a common image
- * format. Mirrors `extractRemoteImages`' `JSX_SRC` in `remote-images.mjs` (any element, either
+ * format. Mirrors `extractRemoteImages`' `JSX_SRC` in `remote-images.ts` (any element, either
  * quote style, tolerant of a `{'…'}` wrapper), restricted by extension rather than by an
  * element allowlist so a new image-taking component needs no update here — the allowlist would
  * only need to grow, never shrink, and a missed entry would silently exempt a component.
@@ -423,9 +473,9 @@ export function lintSource(source) {
 const JSX_LOCAL_IMAGE_SRC = /<([A-Za-z][\w.]*)\b[^>]*?\bsrc\s*=\s*["'{]\s*["']?(\/[^"'\s{}]+)/g;
 const LOCAL_IMAGE_EXT = /\.(?:png|jpe?g|svg|gif|webp|avif)(?:[?#][^"'\s{}]*)?$/i;
 
-export function extractLocalImageSrcs(source) {
-  const text = stripCode(source);
-  const found = [];
+export function extractLocalImageSrcs(source: string): LocalImageSrc[] {
+  const text: string = stripCode(source);
+  const found: LocalImageSrc[] = [];
   for (const m of text.matchAll(JSX_LOCAL_IMAGE_SRC)) {
     if (!LOCAL_IMAGE_EXT.test(m[2])) continue;
     found.push({ element: m[1], src: m[2], line: lineOf(text, m.index) });
@@ -438,8 +488,8 @@ export function extractLocalImageSrcs(source) {
  * `public/`. Needs `repoRoot` to resolve the file on disk, which is why this lives beside
  * `lintContent` rather than inside the pure, fs-free `lintSource`.
  */
-function lintLocalImages(repoRoot, source) {
-  return extractLocalImageSrcs(source).flatMap(({ element, src, line }) => {
+function lintLocalImages(repoRoot: string, source: string): Finding[] {
+  return extractLocalImageSrcs(source).flatMap(({ element, src, line }): Finding[] => {
     const clean = src.split(/[?#]/)[0];
     if (existsSync(path.join(repoRoot, 'public', clean))) return [];
     return [{ rule: 'A7', line, message: `${element} src="${src}" has no file at public${clean}` }];
@@ -454,13 +504,16 @@ function lintLocalImages(repoRoot, source) {
  * pay for a full-tree walk. Non-MDX paths in `files` are silently skipped, matching the walk's
  * own `isMdx` filter.
  */
-export function lintContent(repoRoot, { dir = 'content', files } = {}) {
-  const out = [];
-  const targets = files
+export function lintContent(
+  repoRoot: string,
+  { dir = 'content', files }: LintContentOptions = {},
+): FileFinding[] {
+  const out: FileFinding[] = [];
+  const targets: string[] = files
     ? files.map((f) => (path.isAbsolute(f) ? f : path.resolve(repoRoot, f))).filter(isMdx)
     : walk(path.join(repoRoot, dir), isMdx);
   for (const abs of targets) {
-    const rel = toPosix(path.relative(repoRoot, abs));
+    const rel: string = toPosix(path.relative(repoRoot, abs));
     const source = readFileSync(abs, 'utf8');
     const findings = [...lintSource(source), ...lintLocalImages(repoRoot, source)].sort(
       (a, b) => a.line - b.line || a.rule.localeCompare(b.rule),

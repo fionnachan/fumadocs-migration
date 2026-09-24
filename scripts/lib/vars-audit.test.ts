@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { parseSchemaKeys, parseVarUsages } from './vars-audit.mjs';
+import { parseSchemaKeys, parseVarUsages } from './vars-audit.ts';
 
 const SCHEMA = `import { z } from 'zod';
 

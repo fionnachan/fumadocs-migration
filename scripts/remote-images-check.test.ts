@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { extractRemoteImages, isReachable } from './lib/remote-images.mjs';
+import { extractRemoteImages, isReachable } from './lib/remote-images.ts';
 import { maskCode } from './lib/strip-code.mjs';
 
 test('extractRemoteImages finds markdown images with a remote src', () => {

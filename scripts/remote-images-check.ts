@@ -27,7 +27,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { extractRemoteImages, isReachable } from './lib/remote-images.mjs';
+import { type RemoteImage, extractRemoteImages, isReachable } from './lib/remote-images.ts';
 
 /** Anchored on this file, not on cwd: running from a subdirectory used to report a false clean. */
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -36,11 +36,27 @@ const CONTENT_DIRS = ['content/docs', 'content/partials', 'content/glossary', 'c
 const TIMEOUT_MS = 15_000;
 const CONCURRENCY = 8;
 
+/**
+ * The outcome of one probe: an HTTP answer and the method that got it, or the reason no answer
+ * came back.
+ */
+type ProbeResult =
+  | { status: number; method: string; error?: undefined }
+  | { error: string; status?: undefined; method?: undefined };
+
+/** One line of either report: where the image is, its URL, and what is wrong with it. */
+interface ReportEntry {
+  file: string;
+  line: number;
+  url: string;
+  detail: string;
+}
+
 /** A user agent that looks like a browser: several image hosts serve 403 to anything else. */
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
-function walk(dir) {
+function walk(dir: string): string[] {
   if (!fs.existsSync(dir)) return [];
 
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -50,8 +66,8 @@ function walk(dir) {
   });
 }
 
-function collect() {
-  const byFile = new Map();
+function collect(): Map<string, RemoteImage[]> {
+  const byFile = new Map<string, RemoteImage[]>();
 
   for (const dir of CONTENT_DIRS) {
     for (const file of walk(path.join(REPO_ROOT, dir))) {
@@ -68,7 +84,7 @@ function collect() {
  *
  * Returns `{ status }` on any HTTP answer and `{ error }` when the request never completed.
  */
-async function probe(url) {
+async function probe(url: string): Promise<ProbeResult> {
   for (const method of ['HEAD', 'GET']) {
     try {
       const response = await fetch(url, {
@@ -82,15 +98,17 @@ async function probe(url) {
       if (method === 'HEAD' && [403, 405, 501].includes(response.status)) continue;
       return { status: response.status, method };
     } catch (error) {
-      if (method === 'GET') return { error: error.message ?? String(error) };
+      if (method === 'GET') {
+        return { error: (error instanceof Error ? error.message : undefined) ?? String(error) };
+      }
     }
   }
 
   return { error: 'no response' };
 }
 
-async function probeAll(urls) {
-  const results = new Map();
+async function probeAll(urls: readonly string[]): Promise<Map<string, ProbeResult>> {
+  const results = new Map<string, ProbeResult>();
   const queue = [...urls];
 
   const worker = async () => {
@@ -103,7 +121,7 @@ async function probeAll(urls) {
   return results;
 }
 
-function describe(result) {
+function describe(result: ProbeResult): string {
   if (result.error) return `request failed: ${result.error}`;
 
   // 403 is the one status a human has to interpret rather than act on. It arrives here only after
@@ -116,9 +134,13 @@ function describe(result) {
   return `HTTP ${result.status} (${result.method})`;
 }
 
-function report(entries, heading, log) {
+function report(
+  entries: readonly ReportEntry[],
+  heading: string,
+  log: (line: string) => void,
+): void {
   log(`\n${heading}`);
-  let current = null;
+  let current: string | null = null;
   for (const entry of entries) {
     if (entry.file !== current) {
       current = entry.file;
@@ -130,8 +152,8 @@ function report(entries, heading, log) {
 }
 
 /** Offline gate: a remote markdown image is a 500 waiting to happen. */
-function presence(byFile, json) {
-  const offenders = [];
+function presence(byFile: Map<string, RemoteImage[]>, json: boolean): void {
+  const offenders: ReportEntry[] = [];
 
   for (const [file, images] of byFile) {
     for (const image of images) {
@@ -160,7 +182,10 @@ function presence(byFile, json) {
   process.exitCode = 1;
 }
 
-async function reachability(byFile, { json, strict }) {
+async function reachability(
+  byFile: Map<string, RemoteImage[]>,
+  { json, strict }: { json: boolean; strict: boolean },
+): Promise<void> {
   const urls = [...new Set([...byFile.values()].flat().map((image) => image.url))];
 
   if (urls.length === 0) {
@@ -170,11 +195,14 @@ async function reachability(byFile, { json, strict }) {
   }
 
   const results = await probeAll(urls);
-  const unreachable = [];
+  const unreachable: ReportEntry[] = [];
 
   for (const [file, images] of byFile) {
     for (const image of images) {
+      // Every URL was probed above, so a miss is impossible; if one happens, fail as loudly as the
+      // untyped version did when it read `.status` off `undefined`.
       const result = results.get(image.url);
+      if (!result) throw new Error(`remote-images-check: no probe result for ${image.url}`);
       if (!isReachable(result.status)) {
         unreachable.push({ file, line: image.line, url: image.url, detail: describe(result) });
       }
@@ -199,7 +227,7 @@ async function reachability(byFile, { json, strict }) {
   if (strict) process.exitCode = 1;
 }
 
-async function main() {
+async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const json = args.includes('--json');
   const byFile = collect();

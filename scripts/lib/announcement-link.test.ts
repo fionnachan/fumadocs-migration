@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { checkAnnouncementLink } from './announcement-link.mjs';
+import { checkAnnouncementLink } from './announcement-link.ts';
 
 // Minimal stand-in for buildIndex()'s return value: `/docs/...` resolution reads `byUrl` only.
 const index = {

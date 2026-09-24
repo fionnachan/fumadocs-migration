@@ -17,9 +17,9 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { checkAnnouncementLink } from './lib/announcement-link.mjs';
+import { checkAnnouncementLink } from './lib/announcement-link.ts';
 import { buildIndex } from './lib/doc-links.mjs';
-import { auditVars, unresolvedSiteCount } from './lib/vars-audit.mjs';
+import { auditVars, unresolvedSiteCount } from './lib/vars-audit.ts';
 
 /**
  * Read `announcementLinkHref` and assert it points somewhere real.
@@ -27,29 +27,30 @@ import { auditVars, unresolvedSiteCount } from './lib/vars-audit.mjs';
  * Absent key: silent. The banner is optional, and the schema in `content/vars.ts` is what makes it
  * required once adopted; this gate only judges a value that exists.
  *
- * @returns {string | null} an error message, or null when there is nothing to report.
+ * Read with `fs` rather than imported with `with { type: 'json' }`, so that a missing or malformed
+ * file is reported by the audit instead of failing this module's load.
+ *
+ * @returns an error message, or null when there is nothing to report.
  */
-function announcementLinkError(repoRoot) {
-  let vars;
+function announcementLinkError(repoRoot: string): string | null {
+  let vars: unknown;
   try {
     vars = JSON.parse(readFileSync(path.join(repoRoot, 'content', 'vars.json'), 'utf8'));
   } catch {
     return null; // Malformed or missing vars.json is already the audit's problem, not this check's.
   }
 
+  // Valid JSON that is not an object is malformed too, and so equally the audit's problem.
+  if (typeof vars !== 'object' || vars === null) return null;
   if (!('announcementLinkHref' in vars)) return null;
 
-  const { ok, reason } = checkAnnouncementLink(
-    vars.announcementLinkHref,
-    buildIndex(repoRoot),
-    repoRoot,
-  );
-  if (ok) return null;
+  const result = checkAnnouncementLink(vars.announcementLinkHref, buildIndex(repoRoot), repoRoot);
+  if (result.ok) return null;
 
-  return `announcementLinkHref ${reason}: ${JSON.stringify(vars.announcementLinkHref)}`;
+  return `announcementLinkHref ${result.reason}: ${JSON.stringify(vars.announcementLinkHref)}`;
 }
 
-function main() {
+function main(): void {
   const json = process.argv.slice(2).includes('--json');
   const audit = auditVars(process.cwd());
 

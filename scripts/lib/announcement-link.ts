@@ -18,12 +18,24 @@ import {
 } from './doc-links.mjs';
 
 /**
- * @param {unknown} href The raw `announcementLinkHref` value.
- * @param {ReturnType<import('./doc-links.mjs').buildIndex>} index Docs index, for internal targets.
- * @param {string} repoRoot Absolute repo root, for `public/` assets.
- * @returns {{ ok: boolean, reason?: string }}
+ * The docs index an internal target is resolved against: whatever `resolveRefToFile` accepts, so
+ * this follows `doc-links` rather than restating its shape. `vars-check` passes `buildIndex()`'s
+ * return value; the unit test passes a stand-in holding only the maps resolution reads.
  */
-export function checkAnnouncementLink(href, index, repoRoot) {
+export type AnnouncementLinkIndex = Parameters<typeof resolveRefToFile>[2];
+
+export type AnnouncementLinkResult = { ok: true } | { ok: false; reason: string };
+
+/**
+ * @param href The raw `announcementLinkHref` value.
+ * @param index Docs index, for internal targets.
+ * @param repoRoot Absolute repo root, for `public/` assets.
+ */
+export function checkAnnouncementLink(
+  href: unknown,
+  index: AnnouncementLinkIndex,
+  repoRoot: string,
+): AnnouncementLinkResult {
   if (typeof href !== 'string' || href.trim() === '') {
     return { ok: false, reason: 'must be a non-empty string' };
   }

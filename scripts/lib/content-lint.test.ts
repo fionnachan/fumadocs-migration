@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 
-import { extractLocalImageSrcs, lintContent, lintSource, stripCode } from './content-lint.mjs';
+import { extractLocalImageSrcs, lintContent, lintSource, stripCode } from './content-lint.ts';
 
-const rules = (src) => lintSource(src).map((f) => f.rule);
+const rules = (src: string): string[] => lintSource(src).map((f) => f.rule);
 
 test('stripCode blanks fenced blocks but preserves line count', () => {
   const src = 'a\n```js\n:::note\n```\nb';
@@ -609,7 +609,7 @@ test('A12 and A13 do not fire on a fence documented inside a longer fence', () =
 
 // --- A14: title/sidebar_label/description whitespace (FS-2747) ---------------------------------
 
-const fm = (lines) => `---\n${lines.join('\n')}\n---\n\nbody\n`;
+const fm = (lines: string[]): string => `---\n${lines.join('\n')}\n---\n\nbody\n`;
 
 test('A14 fires on a trailing space in a quoted description', () => {
   const src = fm(["title: 'Clean title'", "description: 'Has a trailing space '"]);

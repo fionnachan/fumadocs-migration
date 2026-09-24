@@ -22,6 +22,18 @@
  */
 import { maskCode } from './strip-code.mjs';
 
+/**
+ * One remote image. `element` is the JSX element's name, or `'markdown'` for markdown syntax;
+ * `alt` is empty for JSX, where the alt text is not read.
+ */
+export interface RemoteImage {
+  url: string;
+  line: number;
+  alt: string;
+  element: string;
+  syntax: 'markdown' | 'jsx';
+}
+
 const MARKDOWN_IMAGE = /!\[([^\]]*)\]\(\s*<?(https?:\/\/[^\s<>)]+)>?[^)]*\)/g;
 
 /**
@@ -42,12 +54,12 @@ const LINK_DEFINITION = /^[ \t]{0,3}\[([^\]\n]+)\]:[ \t]*(?:<([^>\n]+)>|(\S+))/g
 const IMAGE_REFERENCE = /!\[([^\]]*)\](?:\[([^\]]*)\])?/g;
 
 /** Reference labels are case-insensitive and fold internal whitespace. */
-function normalizeLabel(label) {
+function normalizeLabel(label: string): string {
   return label.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
-function linkDefinitions(source) {
-  const definitions = new Map();
+function linkDefinitions(source: string): Map<string, string> {
+  const definitions = new Map<string, string>();
 
   for (const match of source.matchAll(LINK_DEFINITION)) {
     const label = normalizeLabel(match[1]);
@@ -73,17 +85,16 @@ const NOT_IMAGES = new Set(['script', 'iframe', 'video', 'audio', 'source', 'tra
 /**
  * Every remote image in one MDX file, in source order.
  *
- * @param {string} source raw MDX
- * @returns {{ url: string, line: number, alt: string, element: string, syntax: 'markdown' | 'jsx' }[]}
+ * @param source raw MDX
  */
-export function extractRemoteImages(source) {
+export function extractRemoteImages(source: string): RemoteImage[] {
   // Fences and inline code only: a URL inside a shell or HTML sample is documentation, not an image
   // reference, and a false positive here fails a pull request for a page that renders perfectly.
   // Frontmatter and both comment forms stay visible, which is what this script has always scanned.
-  const scannable = maskCode(source);
-  const found = [];
+  const scannable: string = maskCode(source);
+  const found: RemoteImage[] = [];
 
-  const lineOf = (index) => scannable.slice(0, index).split('\n').length;
+  const lineOf = (index: number): number => scannable.slice(0, index).split('\n').length;
 
   for (const match of scannable.matchAll(MARKDOWN_IMAGE)) {
     found.push({
@@ -137,6 +148,6 @@ export function extractRemoteImages(source) {
  *
  * Redirects count: image hosts routinely 302 to a CDN or a signed URL.
  */
-export function isReachable(status) {
+export function isReachable(status: unknown): boolean {
   return typeof status === 'number' && status >= 200 && status < 400;
 }

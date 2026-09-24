@@ -6,18 +6,19 @@
  *   pnpm content:lint --json          # JSON array of findings to stdout; exits 0
  *   pnpm content:lint --rule=A1,A3    # restrict to specific rules
  *   pnpm content:lint --all           # every rule, including one excluded from the default set
- *   node scripts/content-lint.mjs <file.mdx> [file2.mdx ...]  # lint only these files (lint-staged)
+ *   node scripts/content-lint.ts <file.mdx> [file2.mdx ...]  # lint only these files (lint-staged)
  *
- * Rules are documented in scripts/lib/content-lint.mjs. None of these are visible to `types:check`
+ * Rules are documented in scripts/lib/content-lint.ts. None of these are visible to `types:check`
  * or `build`: MDX is compiled, not type-checked, so an admonition with its body text stranded in a
  * `title=` attribute or a literal `:::caution` line ships silently.
  *
  * The bare command runs `DEFAULT_RULES`, not every rule — see the comment on that constant below
  * for which rule that currently excludes and why.
  */
-import { lintContent } from './lib/content-lint.mjs';
+import { type FileFinding, type RuleId, lintContent } from './lib/content-lint.ts';
 
-const RULE_TITLES = {
+/** Keyed on `RuleId`, so a rule added to the engine without a title here fails `types:check`. */
+const RULE_TITLES: Record<RuleId, string> = {
   A1: 'empty admonition body (prose likely stranded in title=)',
   A2: 'invalid admonition type',
   A3: 'unconverted Docusaurus ::: directive',
@@ -43,17 +44,20 @@ const RULE_TITLES = {
  * `--rule=A7` (or `--all`) to check it explicitly; once the stylus page is fixed, fold A7 back
  * into `ALL_RULES` below and delete this list.
  */
-const ALL_RULES = Object.keys(RULE_TITLES);
-const DEFAULT_RULES = ALL_RULES.filter((r) => r !== 'A7');
+const isRuleId = (r: string): r is RuleId => Object.hasOwn(RULE_TITLES, r);
+const ALL_RULES: readonly RuleId[] = Object.keys(RULE_TITLES).filter(isRuleId);
+const DEFAULT_RULES: readonly RuleId[] = ALL_RULES.filter((r) => r !== 'A7');
 
-function main() {
+function main(): void {
   const argv = process.argv.slice(2);
   const json = argv.includes('--json');
   const explicitRule = argv
     .find((a) => a.startsWith('--rule='))
     ?.slice('--rule='.length)
     .split(',');
-  const only = explicitRule ?? (argv.includes('--all') ? ALL_RULES : DEFAULT_RULES);
+  // Left as plain strings: an unknown id in `--rule=` matches nothing, as it always has.
+  const only: readonly string[] =
+    explicitRule ?? (argv.includes('--all') ? ALL_RULES : DEFAULT_RULES);
   const fileArgs = argv.filter((a) => !a.startsWith('--'));
 
   const all = lintContent(process.cwd(), fileArgs.length ? { files: fileArgs } : {});
@@ -80,19 +84,19 @@ function main() {
     return;
   }
 
-  const byRule = new Map();
+  const byRule = new Map<RuleId, FileFinding[]>();
   for (const f of findings) {
-    if (!byRule.has(f.rule)) byRule.set(f.rule, []);
-    byRule.get(f.rule).push(f);
+    const group = byRule.get(f.rule);
+    if (group) group.push(f);
+    else byRule.set(f.rule, [f]);
   }
 
   const files = new Set(findings.map((f) => f.rel)).size;
   console.error(`content-lint: ${findings.length} finding(s) across ${files} file(s):`);
 
   // Numeric, not lexicographic: with A10 in the set, a plain sort puts it between A1 and A2.
-  const ruleOrder = (r) => Number(r.slice(1));
-  for (const rule of [...byRule.keys()].sort((a, b) => ruleOrder(a) - ruleOrder(b))) {
-    const group = byRule.get(rule);
+  const ruleOrder = (r: RuleId): number => Number(r.slice(1));
+  for (const [rule, group] of [...byRule].sort(([a], [b]) => ruleOrder(a) - ruleOrder(b))) {
     const groupFiles = new Set(group.map((f) => f.rel)).size;
     console.error(`\n  ${rule} — ${RULE_TITLES[rule]}: ${group.length} in ${groupFiles} file(s)`);
     for (const f of group.slice(0, 12)) console.error(`      ${f.rel}:${f.line}  ${f.message}`);
