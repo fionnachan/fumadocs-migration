@@ -1,6 +1,8 @@
 import type { BaseLayoutProps } from 'fumadocs-ui/layouts/shared';
 import { BookOpen, Braces, Code, Coins } from 'lucide-react';
 
+import { BuildAppsNavLabel } from '@/components/build-apps-nav-label';
+
 import { appName, docsRoute } from './shared';
 
 export function baseOptions(): BaseLayoutProps {
@@ -27,7 +29,7 @@ export function baseOptions(): BaseLayoutProps {
       { text: 'Get started', url: docHref('get-started') },
       {
         type: 'menu',
-        text: 'Build apps',
+        text: <BuildAppsNavLabel />,
         // Rendered as a popover list by both headers (the notebook header on docs pages and
         // components/home-header.tsx elsewhere): icon and text on one row, `[&_svg]:size-4`.
         // Both ignore each item's `menu` options, and the icons carry no class of their own: the
