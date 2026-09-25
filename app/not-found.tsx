@@ -24,7 +24,7 @@ import { docsRoute } from '@/lib/shared';
 // here, so this one file covers `/anything` and `/docs/anything`.
 //
 // It sits under app/layout.tsx but outside every route group, so it inherits
-// RootProvider (theme, search dialog, analytics) but not the navbar any group
+// the root theme, search dialog, and analytics providers but not the navbar any group
 // adds. HomeLayout brings the navbar back with the same options the home route
 // group uses; DocsLayout is the wrong choice here because it needs a page tree
 // and the visitor has no place in it.

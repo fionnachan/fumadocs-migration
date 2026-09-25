@@ -182,11 +182,12 @@ export default function Layout({ children }: { children: ReactNode }) {
       suppressHydrationWarning
     >
       <body className="flex flex-col min-h-screen font-sans" suppressHydrationWarning>
-        <RootProvider
-          theme={{ attribute: 'class', defaultTheme: 'light' }}
-          search={{ SearchDialog: InkeepSearchDialog }}
-        >
-          {/* Announcement bar, ported from the Docusaurus `announcementBar`.
+        <PostHogProvider>
+          <RootProvider
+            theme={{ attribute: 'class', defaultTheme: 'light' }}
+            search={{ SearchDialog: InkeepSearchDialog }}
+          >
+            {/* Announcement bar, ported from the Docusaurus `announcementBar`.
               Above the navbar because it is a sibling rendered before
               {children}, and every layout's header lives inside those.
 
@@ -197,9 +198,9 @@ export default function Layout({ children }: { children: ReactNode }) {
               banner has that id written to localStorage, so a new message
               needs a new id or it stays hidden from everyone who dismissed
               the last one. */}
-          {vars.announcementEnabled ? (
-            <>
-              {/* Banner puts `height` in an inline style AND in
+            {vars.announcementEnabled ? (
+              <>
+                {/* Banner puts `height` in an inline style AND in
                   --fd-banner-height, which the docs layout feeds to calc() and
                   a sticky `top`. So it has to be a real length, never `auto`.
                   The message fits one line from 640px up and wraps to two
@@ -211,42 +212,40 @@ export default function Layout({ children }: { children: ReactNode }) {
                   overflows and nothing catches it. The budget is written down
                   in README next to the key. Raising a height here means
                   raising the budget there too. */}
-              <style>{`:root{--fd-announcement-height:4rem}@media (min-width:640px){:root{--fd-announcement-height:3rem}}`}</style>
-              <Banner
-                id={vars.announcementId}
-                height="var(--fd-announcement-height)"
-                className="bg-fd-primary text-fd-primary-foreground"
-              >
-                <span className="pe-8 text-balance">
-                  {vars.announcementText}{' '}
-                  <Link
-                    href={vars.announcementLinkHref}
-                    // vars:check permits an https target as well as an internal
-                    // path, so the href may leave the site. `rel` is set only
-                    // then, because Next already omits it for internal routes
-                    // and an unconditional one would be noise on every page.
-                    rel={
-                      vars.announcementLinkHref.startsWith('https://')
-                        ? 'noopener noreferrer'
-                        : undefined
-                    }
-                    className="underline underline-offset-2 hover:no-underline"
-                  >
-                    {vars.announcementLinkText}
-                  </Link>
-                </span>
-              </Banner>
-            </>
-          ) : null}
-          {children}
-          {/* Fumadocs exposes no footer slot, so the site footer is a sibling of
+                <style>{`:root{--fd-announcement-height:4rem}@media (min-width:640px){:root{--fd-announcement-height:3rem}}`}</style>
+                <Banner
+                  id={vars.announcementId}
+                  height="var(--fd-announcement-height)"
+                  className="bg-fd-primary text-fd-primary-foreground"
+                >
+                  <span className="pe-8 text-balance">
+                    {vars.announcementText}{' '}
+                    <Link
+                      href={vars.announcementLinkHref}
+                      // vars:check permits an https target as well as an internal
+                      // path, so the href may leave the site. `rel` is set only
+                      // then, because Next already omits it for internal routes
+                      // and an unconditional one would be noise on every page.
+                      rel={
+                        vars.announcementLinkHref.startsWith('https://')
+                          ? 'noopener noreferrer'
+                          : undefined
+                      }
+                      className="underline underline-offset-2 hover:no-underline"
+                    >
+                      {vars.announcementLinkText}
+                    </Link>
+                  </span>
+                </Banner>
+              </>
+            ) : null}
+            {children}
+            {/* Fumadocs exposes no footer slot, so the site footer is a sibling of
               the layout inside the flex column body. See components/footer.tsx. */}
-          <Footer />
-          <InkeepChatButton />
-          {/* Renders nothing. Production-only web analytics; see
-              components/analytics/posthog-provider.tsx. */}
-          <PostHogProvider />
-        </RootProvider>
+            <Footer />
+            <InkeepChatButton />
+          </RootProvider>
+        </PostHogProvider>
       </body>
     </html>
   );
